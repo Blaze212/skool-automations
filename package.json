@@ -1,0 +1,19 @@
+{
+  "name": "skool-automations",
+  "version": "0.0.1",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "type": "module",
+  "scripts": {
+    "chatbot-mvp": "doppler run -- tsx scripts/chatbot-mvp.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.0",
+    "skool-cli": "^2.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
