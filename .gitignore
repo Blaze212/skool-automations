@@ -4,3 +4,5 @@ dist/
 *.local
 .pnpm-store/
 docs/workbook-raw.json
+supabase/.branches/_current_branch
+supabase/.temp/cli-latest

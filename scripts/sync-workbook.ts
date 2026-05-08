@@ -19,7 +19,7 @@
  */
 
 import { google } from 'googleapis';
-import { GoogleGenerativeAI, TaskType } from '@google/generative-ai';
+import { pipeline, type FeatureExtractionPipeline } from '@huggingface/transformers';
 import { createClient } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
@@ -29,10 +29,9 @@ import { fileURLToPath } from 'node:url';
 const DEBUG = process.argv.includes('--debug');
 const REPO_ROOT = join(fileURLToPath(import.meta.url), '..', '..');
 
-// supabase start defaults — no env vars needed for local dev
+// Default URL only — the secret key is per-installation in newer Supabase CLI
+// versions (format: sb_secret_...). Get yours with `supabase status`.
 const LOCAL_SUPABASE_URL = 'http://127.0.0.1:54321';
-const LOCAL_SERVICE_ROLE_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hj04zWl196z0-96T4';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -163,16 +162,32 @@ function parseDocSections(doc: any, docId: string): DocSection[] {
 // Main
 // ---------------------------------------------------------------------------
 
+// Identifier stored alongside each chunk so we can detect model changes
+// and force re-embedding when the model is swapped.
+const EMBED_MODEL = 'Xenova/all-mpnet-base-v2';
+const EMBED_DIMS = 768;
+
+async function embedText(
+  embedder: FeatureExtractionPipeline,
+  text: string,
+): Promise<number[]> {
+  const output = await embedder(text, { pooling: 'mean', normalize: true });
+  return Array.from(output.data as Float32Array);
+}
+
 async function main() {
   const serviceAccountJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   const docId = process.env.GOOGLE_DOC_WORKBOOK_ID;
-  const googleAiKey = process.env.GOOGLE_AI_API_KEY;
   const supabaseUrl = process.env.SUPABASE_URL ?? LOCAL_SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? LOCAL_SERVICE_ROLE_KEY;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SECRET_KEY;
 
   if (!serviceAccountJson) { console.error('Missing: GOOGLE_SERVICE_ACCOUNT_JSON'); process.exit(1); }
   if (!docId) { console.error('Missing: GOOGLE_DOC_WORKBOOK_ID'); process.exit(1); }
-  if (!googleAiKey) { console.error('Missing: GOOGLE_AI_API_KEY'); process.exit(1); }
+  if (!supabaseKey) {
+    console.error('Missing: SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SECRET_KEY)');
+    console.error('For local Supabase, get it from `supabase status` (the "Secret" value).');
+    process.exit(1);
+  }
 
   // --- Clients ---
   const auth = new google.auth.GoogleAuth({
@@ -180,8 +195,11 @@ async function main() {
     scopes: ['https://www.googleapis.com/auth/documents.readonly'],
   });
   const docsClient = google.docs({ version: 'v1', auth });
-  const genAI = new GoogleGenerativeAI(googleAiKey);
-  const embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+
+  process.stdout.write(`Loading local embedding model (${EMBED_MODEL})... `);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const embedder = (await (pipeline as any)('feature-extraction', EMBED_MODEL)) as FeatureExtractionPipeline;
+  console.log('ready.');
   const supabase = createClient(supabaseUrl, supabaseKey, {
     db: { schema: 'skool' },
   });
@@ -227,19 +245,44 @@ async function main() {
   }
 
   // --- Load existing chunks for change detection ---
+  console.log(`Connecting to Supabase: ${supabaseUrl} (schema: skool)`);
   const { data: existing, error: fetchErr } = await supabase
     .from('workbook_chunks')
-    .select('heading_id, content_hash');
+    .select('heading_id, content_hash, embed_model');
 
   if (fetchErr) {
-    console.error('Failed to load existing chunks:', fetchErr.message);
-    console.error('Make sure you ran the migration SQL and local Supabase is running (supabase start).');
+    console.error('\nFailed to load existing chunks. Full error:');
+    console.error(JSON.stringify(fetchErr, null, 2));
+    console.error('\nDiagnostics:');
+    console.error(`  URL:    ${supabaseUrl}`);
+    console.error(`  Key:    ${supabaseKey.slice(0, 12)}...${supabaseKey.slice(-4)} (length ${supabaseKey.length})`);
+    if (fetchErr.code === 'PGRST301' || /No suitable key/.test(fetchErr.message)) {
+      console.error('\n→ JWT/key mismatch. The service role key does not match the running Supabase.');
+      console.error('  Run `supabase status` and use the "Secret" value as SUPABASE_SERVICE_ROLE_KEY.');
+    } else if (fetchErr.code === 'PGRST106' || /schema must be one/.test(fetchErr.message)) {
+      console.error('\n→ The skool schema is not exposed. Add it to [api] schemas in supabase/config.toml.');
+    } else if (/relation .* does not exist/.test(fetchErr.message)) {
+      console.error('\n→ The workbook_chunks table is missing. Run the migration SQL.');
+    }
     process.exit(1);
   }
 
-  const existingMap = new Map<string, string>(
-    (existing ?? []).map((r: any) => [r.heading_id, r.content_hash])
+  const existingMap = new Map<string, { hash: string; model: string | null }>(
+    (existing ?? []).map((r: any) => [r.heading_id, { hash: r.content_hash, model: r.embed_model }])
   );
+
+  // If the embed model differs from any stored row, the existing embeddings are
+  // in a different vector space and would produce garbage retrieval. Wipe them.
+  const stale = (existing ?? []).filter((r: any) => r.embed_model && r.embed_model !== EMBED_MODEL);
+  if (stale.length > 0) {
+    console.log(`Detected ${stale.length} chunk(s) embedded with a different model. Wiping for re-embed...`);
+    const { error: delErr } = await supabase.from('workbook_chunks').delete().neq('heading_id', '__never__');
+    if (delErr) {
+      console.error('Failed to wipe stale chunks:', delErr.message);
+      process.exit(1);
+    }
+    existingMap.clear();
+  }
 
   // --- Sync ---
   let created = 0, updated = 0, skipped = 0, failed = 0;
@@ -249,21 +292,23 @@ async function main() {
     const fullTitle = section.tabPath ? `${section.tabPath} > ${section.title}` : section.title;
     const chunkText = `${fullTitle}\n\n${section.content}`;
     const hash = createHash('sha256').update(chunkText).digest('hex');
-    const existingHash = existingMap.get(section.headingId);
+    const existingRow = existingMap.get(section.headingId);
 
-    if (existingHash === hash) {
+    if (existingRow?.hash === hash && existingRow.model === EMBED_MODEL) {
       process.stdout.write('.');
       skipped++;
       continue;
     }
 
-    const isNew = existingHash === undefined;
+    const isNew = existingRow === undefined;
     process.stdout.write(isNew ? '+' : '~');
 
-    const embedResult = await embeddingModel.embedContent({
-      content: { role: 'user', parts: [{ text: chunkText }] },
-      taskType: TaskType.RETRIEVAL_DOCUMENT,
-    });
+    const embedding = await embedText(embedder, chunkText);
+    if (embedding.length !== EMBED_DIMS) {
+      console.error(`\n  Failed "${section.title}": got ${embedding.length} dims, expected ${EMBED_DIMS}`);
+      failed++;
+      continue;
+    }
 
     const { error } = await supabase.from('workbook_chunks').upsert(
       {
@@ -272,7 +317,8 @@ async function main() {
         anchor_link: section.anchorLink,
         content: section.content,
         content_hash: hash,
-        embedding: embedResult.embedding.values,
+        embedding,
+        embed_model: EMBED_MODEL,
         synced_at: new Date().toISOString(),
       },
       { onConflict: 'heading_id' }

@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",
-    "@google/generative-ai": "^0.24.0",
+    "@huggingface/transformers": "^3.0.0",
     "@supabase/supabase-js": "^2.49.0",
     "googleapis": "^148.0.0",
     "skool-cli": "^2.2.1"

@@ -13,7 +13,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import { GoogleGenerativeAI, TaskType } from '@google/generative-ai';
+import { pipeline, type FeatureExtractionPipeline } from '@huggingface/transformers';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { SkoolClient } from 'skool-cli';
 import type { ChatMessage } from 'skool-cli';
@@ -24,10 +24,9 @@ import { homedir } from 'node:os';
 
 const AUTH_STATE_PATH = join(homedir(), '.skool-cli', 'auth-state.json');
 
-// supabase start defaults — no env vars needed for local dev
+// Default URL only — the secret key is per-installation in newer Supabase CLI
+// versions (format: sb_secret_...). Get yours with `supabase status`.
 const LOCAL_SUPABASE_URL = 'http://127.0.0.1:54321';
-const LOCAL_SERVICE_ROLE_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hj04zWl196z0-96T4';
 
 // ---------------------------------------------------------------------------
 // Coaching system prompt
@@ -87,19 +86,20 @@ interface WorkbookChunk {
 // RAG retrieval
 // ---------------------------------------------------------------------------
 
+// Must match the model used in sync-workbook.ts
+const EMBED_MODEL = 'Xenova/all-mpnet-base-v2';
+
 async function retrieveChunks(
   supabase: SupabaseClient,
-  embeddingModel: ReturnType<GoogleGenerativeAI['getGenerativeModel']>,
+  embedder: FeatureExtractionPipeline,
   query: string,
   limit = 3,
 ): Promise<WorkbookChunk[]> {
-  const embedResult = await embeddingModel.embedContent({
-    content: { role: 'user', parts: [{ text: query }] },
-    taskType: TaskType.RETRIEVAL_QUERY,
-  });
+  const output = await embedder(query, { pooling: 'mean', normalize: true });
+  const queryEmbedding = Array.from(output.data as Float32Array);
 
   const { data, error } = await supabase.schema('skool').rpc('match_workbook_chunks', {
-    query_embedding: embedResult.embedding.values,
+    query_embedding: queryEmbedding,
     match_count: limit,
   });
 
@@ -156,7 +156,6 @@ async function main() {
   const email = process.env.SKOOL_EMAIL;
   const password = process.env.SKOOL_PASSWORD;
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  const googleAiKey = process.env.GOOGLE_AI_API_KEY;
 
   if (!email || !password) {
     console.error('Error: SKOOL_EMAIL and SKOOL_PASSWORD must be set.');
@@ -167,24 +166,26 @@ async function main() {
     process.exit(1);
   }
 
-  // RAG is optional — skip if GOOGLE_AI_API_KEY not set
-  const ragEnabled = Boolean(googleAiKey);
+  // RAG requires Supabase access; embedding is local
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SECRET_KEY;
+  const ragEnabled = Boolean(supabaseKey);
 
   const anthropic = new Anthropic({ apiKey: anthropicKey });
   const skool = new SkoolClient();
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
-  // Supabase + embedding clients (only if RAG enabled)
-  const supabase = createClient(
-    process.env.SUPABASE_URL ?? LOCAL_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY ?? LOCAL_SERVICE_ROLE_KEY,
-  );
-  const embeddingModel = googleAiKey
-    ? new GoogleGenerativeAI(googleAiKey).getGenerativeModel({ model: 'text-embedding-004' })
+  const supabase = supabaseKey
+    ? createClient(process.env.SUPABASE_URL ?? LOCAL_SUPABASE_URL, supabaseKey)
     : null;
 
-  if (!ragEnabled) {
-    console.log('Note: GOOGLE_AI_API_KEY not set — RAG disabled, using base prompt only.\n');
+  let embedder: FeatureExtractionPipeline | null = null;
+  if (ragEnabled) {
+    process.stdout.write(`Loading local embedding model (${EMBED_MODEL})... `);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    embedder = (await (pipeline as any)('feature-extraction', EMBED_MODEL)) as FeatureExtractionPipeline;
+    console.log('ready.\n');
+  } else {
+    console.log('Note: RAG disabled (missing SUPABASE_SERVICE_ROLE_KEY). Using base prompt only.\n');
   }
 
   try {
@@ -269,13 +270,12 @@ async function main() {
 
       // --- RAG retrieval ---
       let chunks: WorkbookChunk[] = [];
-      if (ragEnabled && embeddingModel) {
+      if (ragEnabled && embedder && supabase) {
         process.stdout.write('Retrieving workbook context... ');
         try {
-          // Use the last member message as the retrieval query
           const memberMessages = messages.filter(m => m.senderId !== ownerId);
           const query = memberMessages[memberMessages.length - 1]?.content ?? lastMsg.content;
-          chunks = await retrieveChunks(supabase, embeddingModel, query);
+          chunks = await retrieveChunks(supabase, embedder, query);
           if (chunks.length > 0) {
             console.log(`${chunks.length} section(s) found.`);
             chunks.forEach(c =>
@@ -284,13 +284,15 @@ async function main() {
           } else {
             console.log('no relevant sections found.');
           }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          // Workbook not synced yet — silently degrade
+        } catch (err: any) {
+          const msg = err?.message ?? String(err);
           if (msg.includes('relation') || msg.includes('does not exist')) {
             console.log('workbook not synced yet — run sync-workbook.ts first.');
+          } else if (err?.code === 'PGRST301' || /No suitable key/.test(msg)) {
+            console.log('JWT/key mismatch. Run `supabase status` and update SUPABASE_SERVICE_ROLE_KEY.');
           } else {
             console.log(`retrieval error: ${msg}`);
+            if (err?.code) console.log(`  (code: ${err.code})`);
           }
           chunks = [];
         }

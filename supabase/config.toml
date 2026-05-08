@@ -1,0 +1,16 @@
+# Minimal local Supabase config — only the parts needed for our schema.
+# Most settings keep their defaults from `supabase init`.
+
+project_id = "skool-automations"
+
+[api]
+enabled = true
+# Expose the skool schema so PostgREST routes /rest/v1 requests for it.
+schemas = ["public", "graphql_public", "skool"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
