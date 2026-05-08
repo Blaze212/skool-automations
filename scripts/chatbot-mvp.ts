@@ -2,14 +2,19 @@
 /**
  * Skool Chatbot MVP
  *
- * Fetches unread DMs from Skool, drafts a reply with Claude Sonnet,
- * and asks for y/n/e(edit) approval before sending.
+ * Fetches unread DMs from Skool, retrieves relevant workbook sections (RAG),
+ * drafts a reply with Claude Sonnet, and asks for y/e/n approval before sending.
  *
  * Run: doppler run -- pnpm tsx scripts/chatbot-mvp.ts
- * Run (no Doppler): SKOOL_EMAIL=... SKOOL_PASSWORD=... ANTHROPIC_API_KEY=... pnpm tsx scripts/chatbot-mvp.ts
+ * Local (no Doppler): SKOOL_EMAIL=... SKOOL_PASSWORD=... ANTHROPIC_API_KEY=... GOOGLE_AI_API_KEY=... pnpm tsx scripts/chatbot-mvp.ts
+ *
+ * Supabase defaults to local (supabase start) if SUPABASE_URL is not set.
+ * RAG is skipped gracefully if the workbook hasn't been synced yet.
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI, TaskType } from '@google/generative-ai';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { SkoolClient } from 'skool-cli';
 import type { ChatMessage } from 'skool-cli';
 import * as readline from 'readline';
@@ -19,8 +24,13 @@ import { homedir } from 'node:os';
 
 const AUTH_STATE_PATH = join(homedir(), '.skool-cli', 'auth-state.json');
 
+// supabase start defaults — no env vars needed for local dev
+const LOCAL_SUPABASE_URL = 'http://127.0.0.1:54321';
+const LOCAL_SERVICE_ROLE_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hj04zWl196z0-96T4';
+
 // ---------------------------------------------------------------------------
-// Coaching system prompt (static — no RAG yet)
+// Coaching system prompt
 // ---------------------------------------------------------------------------
 
 const SYSTEM_PROMPT = `You are Katie, a career coach and founder of CareerSystems, responding to a member of your Skool community via direct message.
@@ -63,6 +73,50 @@ const COMMUNITY_CONTEXT = `## CareerSystems Resources
 Free members have limited access. Paid membership is a one-time $497 fee.`;
 
 // ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface WorkbookChunk {
+  section_title: string;
+  content: string;
+  anchor_link: string | null;
+  similarity: number;
+}
+
+// ---------------------------------------------------------------------------
+// RAG retrieval
+// ---------------------------------------------------------------------------
+
+async function retrieveChunks(
+  supabase: SupabaseClient,
+  embeddingModel: ReturnType<GoogleGenerativeAI['getGenerativeModel']>,
+  query: string,
+  limit = 3,
+): Promise<WorkbookChunk[]> {
+  const embedResult = await embeddingModel.embedContent({
+    content: { role: 'user', parts: [{ text: query }] },
+    taskType: TaskType.RETRIEVAL_QUERY,
+  });
+
+  const { data, error } = await supabase.schema('skool').rpc('match_workbook_chunks', {
+    query_embedding: embedResult.embedding.values,
+    match_count: limit,
+  });
+
+  if (error) throw error;
+  return (data ?? []) as WorkbookChunk[];
+}
+
+function formatChunksForContext(chunks: WorkbookChunk[]): string {
+  return chunks
+    .map(c => {
+      const link = c.anchor_link ? `\nSee: ${c.anchor_link}` : '';
+      return `### ${c.section_title}\n${c.content}${link}`;
+    })
+    .join('\n\n');
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -102,6 +156,7 @@ async function main() {
   const email = process.env.SKOOL_EMAIL;
   const password = process.env.SKOOL_PASSWORD;
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const googleAiKey = process.env.GOOGLE_AI_API_KEY;
 
   if (!email || !password) {
     console.error('Error: SKOOL_EMAIL and SKOOL_PASSWORD must be set.');
@@ -112,9 +167,25 @@ async function main() {
     process.exit(1);
   }
 
+  // RAG is optional — skip if GOOGLE_AI_API_KEY not set
+  const ragEnabled = Boolean(googleAiKey);
+
   const anthropic = new Anthropic({ apiKey: anthropicKey });
   const skool = new SkoolClient();
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+  // Supabase + embedding clients (only if RAG enabled)
+  const supabase = createClient(
+    process.env.SUPABASE_URL ?? LOCAL_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY ?? LOCAL_SERVICE_ROLE_KEY,
+  );
+  const embeddingModel = googleAiKey
+    ? new GoogleGenerativeAI(googleAiKey).getGenerativeModel({ model: 'text-embedding-004' })
+    : null;
+
+  if (!ragEnabled) {
+    console.log('Note: GOOGLE_AI_API_KEY not set — RAG disabled, using base prompt only.\n');
+  }
 
   try {
     // --- Auth: reuse saved session if available, otherwise full login ---
@@ -139,7 +210,6 @@ async function main() {
 
     console.log('done.');
 
-    // --- Get owner profile (for echo guard) ---
     if (!profileResult.success || !profileResult.profile) {
       console.error('Could not fetch profile:', profileResult.message);
       process.exit(1);
@@ -156,16 +226,14 @@ async function main() {
       process.exit(1);
     }
 
-    const allChats = chatsResult.channels;
-    const unread = allChats.filter(c => c.unreadCount > 0);
-    console.log(`done. ${allChats.length} total, ${unread.length} unread.\n`);
+    const unread = chatsResult.channels.filter(c => c.unreadCount > 0);
+    console.log(`done. ${chatsResult.channels.length} total, ${unread.length} unread.\n`);
 
     if (unread.length === 0) {
       console.log('No unread DMs. Nothing to do.');
       return;
     }
 
-    let processed = 0;
     let sent = 0;
     let skipped = 0;
 
@@ -186,7 +254,7 @@ async function main() {
       const messages = msgResult.messages;
       const lastMsg = messages[messages.length - 1];
 
-      // Echo guard: skip if Katie already sent the last message
+      // Echo guard
       if (lastMsg.senderId === ownerId) {
         console.log('Last message is from Katie — no reply needed. Skipping.\n');
         skipped++;
@@ -199,23 +267,55 @@ async function main() {
       console.log(threadText);
       console.log();
 
-      // Draft reply
+      // --- RAG retrieval ---
+      let chunks: WorkbookChunk[] = [];
+      if (ragEnabled && embeddingModel) {
+        process.stdout.write('Retrieving workbook context... ');
+        try {
+          // Use the last member message as the retrieval query
+          const memberMessages = messages.filter(m => m.senderId !== ownerId);
+          const query = memberMessages[memberMessages.length - 1]?.content ?? lastMsg.content;
+          chunks = await retrieveChunks(supabase, embeddingModel, query);
+          if (chunks.length > 0) {
+            console.log(`${chunks.length} section(s) found.`);
+            chunks.forEach(c =>
+              console.log(`  · ${c.section_title} (${Math.round(c.similarity * 100)}% match)`)
+            );
+          } else {
+            console.log('no relevant sections found.');
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          // Workbook not synced yet — silently degrade
+          if (msg.includes('relation') || msg.includes('does not exist')) {
+            console.log('workbook not synced yet — run sync-workbook.ts first.');
+          } else {
+            console.log(`retrieval error: ${msg}`);
+          }
+          chunks = [];
+        }
+        console.log();
+      }
+
+      // --- Draft with Claude ---
       process.stdout.write('Drafting with Claude Sonnet... ');
+
+      const systemBlocks: Anthropic.Messages.TextBlockParam[] = [
+        { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: COMMUNITY_CONTEXT, cache_control: { type: 'ephemeral' } },
+      ];
+
+      if (chunks.length > 0) {
+        systemBlocks.push({
+          type: 'text',
+          text: `## Relevant Workbook Sections\n\nUse these to inform your reply. Cite the section name and include the link when relevant.\n\n${formatChunksForContext(chunks)}`,
+        });
+      }
+
       const aiResponse = await anthropic.messages.create({
         model: 'claude-sonnet-4-6',
         max_tokens: 200,
-        system: [
-          {
-            type: 'text',
-            text: SYSTEM_PROMPT,
-            cache_control: { type: 'ephemeral' },
-          },
-          {
-            type: 'text',
-            text: COMMUNITY_CONTEXT,
-            cache_control: { type: 'ephemeral' },
-          },
-        ],
+        system: systemBlocks,
         messages: [
           {
             role: 'user',
@@ -225,9 +325,7 @@ async function main() {
       });
 
       const draft =
-        aiResponse.content[0].type === 'text'
-          ? aiResponse.content[0].text.trim()
-          : '';
+        aiResponse.content[0].type === 'text' ? aiResponse.content[0].text.trim() : '';
       console.log('done.\n');
 
       console.log('DRAFT REPLY:\n');
@@ -266,15 +364,11 @@ async function main() {
         console.log('Skipped.\n');
         skipped++;
       }
-
-      processed++;
     }
 
     // --- Summary ---
     divider();
-    console.log(
-      `Done. Processed ${processed} thread(s): ${sent} sent, ${skipped} skipped.`,
-    );
+    console.log(`Done. ${sent} sent, ${skipped} skipped.`);
   } finally {
     rl.close();
     await skool.close();
