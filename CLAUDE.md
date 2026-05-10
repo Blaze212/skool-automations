@@ -37,8 +37,25 @@ All functions import from `supabase/functions/_shared/` — never inline raw `De
 
 - `env.ts` — `loadSupabaseEnv()`, `loadSupabaseServiceEnv()` — fail-fast env loaders
 - `supabase-admin.ts` — `createAdminClient(schema?)` — service-role client factory; always call inside the handler, never at module scope
-- `errors.ts` — `ValidationException`, `AccessDeniedException`, `InternalServiceException`, `logError`, `errorBody`
-- `logger.ts` — structured child logger; use `logger.child({ fn: '<name>' })` at the top of each handler
+- `errors.ts` — full typed error class table; `logError`, `errorBody`, `normalizeError`
+- `logger.ts` — pino logger; use `logger.child({ fn: '<name>' })` at the top of each handler and pass it down — never use root `logger` inside a handler
+
+### Error classes
+
+| Class | HTTP | Code |
+|---|---|---|
+| `ValidationException` | 400 | `VALIDATION_ERROR` |
+| `AccessDeniedException` | 403 | `ACCESS_DENIED` |
+| `UpgradeRequiredException` | 402 | `UPGRADE_REQUIRED` |
+| `ThrottlingException` | 429 | `THROTTLED` |
+| `ResourceNotFoundException` | 404 | `NOT_FOUND` |
+| `ConflictException` | 409 | `CONFLICT` |
+| `InternalServiceException` | 500 | `INTERNAL_ERROR` |
+| `AiException` | 502 | `AI_ERROR` |
+| `OpenAiException` | 502 | `OPENAI_ERROR` |
+| `AnthropicException` | 502 | `ANTHROPIC_ERROR` |
+
+All error responses use `errorBody(normalized)` — shape is `{ success: false, error: string, code: string }`. Never hand-craft error shapes.
 
 ### Function shape
 
@@ -46,7 +63,30 @@ Follow the `/edge-function-env-pattern` and `/new-edge-function` skills. Key rul
 
 1. Webhook functions validate `X-Webhook-Secret` header before any processing
 2. Two-layer try/catch: outer for framework panics, inner for application errors
-3. Throw typed error classes (`ValidationException`, etc.) — never `new Error(...)`
-4. All catch blocks call `logError(err, ...)` — no bare `console.error`
+3. Throw typed error classes — never `new Error(...)`; pass `sourceError: err` when wrapping
+4. All catch blocks call `logError(err as Error, ...)` at the handler boundary — sub-functions throw, they don't log
 5. `verify_jwt = false` in `config.toml` for every function (ES256 JWTs; auth is handled in-function)
 6. Create Supabase clients inside the handler, not at module scope
+
+### Module isolation — Deno.serve side-effect rule
+
+Every file containing `Deno.serve()` or `serve()` registers an HTTP handler as a module-level side effect. **Never import from a file that contains `serve()`**. If shared logic is needed, extract it into a separate file with no `serve()` call and import from there.
+
+### `unknown` type ban
+
+**Never use the `unknown` type.** Ask for explicit permission before using it. Use `Error` for caught errors (enabled by `useUnknownInCatchVariables: false` in `supabase/functions/deno.json`). Cast with `err as Error` at handler catch boundaries.
+
+## Verification
+
+After every change, run in this order:
+
+1. `pnpm typecheck:functions` — Deno type-check all edge functions
+2. `pnpm test` — run unit tests; fix failures before proceeding
+3. `pnpm format:functions` — auto-format with deno fmt
+4. `pnpm lint:functions` — fix lint errors
+
+## Tests
+
+All code changes must be accompanied by unit tests in `tests/unit/`. Edge function tests live in `tests/unit/functions/<name>.test.ts`.
+
+The vitest config aliases Deno URL imports (`deno.land/std`, `esm.sh`, `npm:`) to mocks in `tests/__mocks__/`. When adding a new Deno-specific import to a function, add the corresponding mock alias to `vitest.config.ts`.
