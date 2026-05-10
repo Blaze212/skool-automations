@@ -22,9 +22,51 @@ export class AccessDeniedException extends AppError {
   }
 }
 
+export class UpgradeRequiredException extends AppError {
+  constructor(opts: { message?: string; sourceError?: Error } = {}) {
+    super(opts.message ?? 'Upgrade required', 402, 'UPGRADE_REQUIRED', opts.sourceError)
+  }
+}
+
+export class ThrottlingException extends AppError {
+  constructor(opts: { message?: string; sourceError?: Error } = {}) {
+    super(opts.message ?? 'Too many requests', 429, 'THROTTLED', opts.sourceError)
+  }
+}
+
+export class ResourceNotFoundException extends AppError {
+  constructor(opts: { message: string; sourceError?: Error }) {
+    super(opts.message, 404, 'NOT_FOUND', opts.sourceError)
+  }
+}
+
+export class ConflictException extends AppError {
+  constructor(opts: { message: string; sourceError?: Error }) {
+    super(opts.message, 409, 'CONFLICT', opts.sourceError)
+  }
+}
+
 export class InternalServiceException extends AppError {
   constructor(opts: { message: string; sourceError?: Error }) {
     super(opts.message, 500, 'INTERNAL_ERROR', opts.sourceError)
+  }
+}
+
+export class AiException extends AppError {
+  constructor(opts: { message: string; sourceError?: Error }) {
+    super(opts.message, 502, 'AI_ERROR', opts.sourceError)
+  }
+}
+
+export class OpenAiException extends AppError {
+  constructor(opts: { message: string; sourceError?: Error }) {
+    super(opts.message, 502, 'OPENAI_ERROR', opts.sourceError)
+  }
+}
+
+export class AnthropicException extends AppError {
+  constructor(opts: { message: string; sourceError?: Error }) {
+    super(opts.message, 502, 'ANTHROPIC_ERROR', opts.sourceError)
   }
 }
 
