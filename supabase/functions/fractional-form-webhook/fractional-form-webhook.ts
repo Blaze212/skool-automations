@@ -1,6 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createAdminClient } from '../_shared/supabase-admin.ts'
-import { errorBody, logError, ValidationException } from '../_shared/errors.ts'
+import { errorBody, logError, normalizeError, ValidationException } from '../_shared/errors.ts'
 import { logger } from '../_shared/logger.ts'
 
 serve(async (req: Request) => {
@@ -69,7 +69,7 @@ serve(async (req: Request) => {
         headers: { 'Content-Type': 'application/json' },
       })
     } catch (err) {
-      const normalized = logError(err, 'fractional-form-webhook failed', { runId })
+      const normalized = logError(err as Error, 'fractional-form-webhook failed', { runId })
 
       if (runId) {
         const supabase = createAdminClient('internal_automations')
@@ -89,7 +89,8 @@ serve(async (req: Request) => {
     }
   } catch (err) {
     console.error('fractional-form-webhook: unhandled framework error', err)
-    return new Response(JSON.stringify({ ok: false, error: 'Internal server error' }), {
+    const normalized = normalizeError(err as Error)
+    return new Response(JSON.stringify(errorBody(normalized)), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     })
