@@ -76,6 +76,45 @@ Every file containing `Deno.serve()` or `serve()` registers an HTTP handler as a
 
 **Never use the `unknown` type.** Ask for explicit permission before using it. Use `Error` for caught errors (enabled by `useUnknownInCatchVariables: false` in `supabase/functions/deno.json`). Cast with `err as Error` at handler catch boundaries.
 
+## Local development setup
+
+This project shares the CareerSystems local Supabase stack — it does **not** run its own Docker containers.
+
+**Prerequisite:** CareerSystems Supabase must be running.
+
+```bash
+# From the CareerSystems workspace (only needed once per machine boot)
+cd /Users/barton/workspaces/careersystems/workspace && supabase start
+```
+
+**First-time migration** (applies skool schema to the CS local DB):
+
+```bash
+pnpm migrate:local
+```
+
+This pushes `supabase/migrations/` to `postgresql://postgres:postgres@127.0.0.1:54322/postgres`. Migration names carry the `skool-` prefix so they don't conflict with CS migrations in the shared tracking table.
+
+**Serve functions locally:**
+
+```bash
+pnpm functions:serve
+# Function available at http://localhost:8000
+```
+
+Uses `deno run` directly (not `supabase functions serve`, which requires its own local Docker stack). The `--env-file=.env.local` flag injects credentials so the function connects to the CS Supabase at `127.0.0.1:54321`. `WEBHOOK_SECRET` defaults to `local-test-secret`.
+
+Each function listens on port 8000. When a second function is added, `functions:serve` will need to become a script that runs both on separate ports.
+
+**Manual test curl:**
+
+```bash
+curl -X POST http://localhost:8000 \
+  -H "Content-Type: application/json" \
+  -H "X-Webhook-Secret: local-test-secret" \
+  -d '{"data":{"Client full name":["Jane Doe"],"Email for Google Drive sharing":["jane@example.com"],"Email for Skool (leave blank if same as Drive email)":[""],"Program start date":["2026-06-01"],"Notes":[""]}}'
+```
+
 ## Verification
 
 After every change, run in this order:
