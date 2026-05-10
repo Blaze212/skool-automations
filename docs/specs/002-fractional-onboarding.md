@@ -550,6 +550,104 @@ Skool may retire or rename the Fractional Advisory course.
 
 ---
 
+## Failure Notifications
+
+### Interface
+
+All notification delivery goes through a single `sendNotification()` function backed by a `NotificationProvider` interface. This decouples the edge function from any specific channel and makes it trivial to add Slack, PagerDuty, or any other provider later without touching call sites.
+
+**`supabase/functions/_shared/notifications.ts`**
+
+```typescript
+export interface Notification {
+  subject: string;
+  body: string;
+  level: 'info' | 'warning' | 'error';
+}
+
+export interface NotificationProvider {
+  send(notification: Notification): Promise<void>;
+}
+
+export async function sendNotification(
+  provider: NotificationProvider,
+  notification: Notification
+): Promise<void> {
+  try {
+    await provider.send(notification);
+  } catch (err) {
+    // Alerts are best-effort — never let a notification failure mask the original error
+    console.error('sendNotification failed:', err);
+  }
+}
+```
+
+### Providers
+
+**`GmailNotificationProvider`** — ships in Phase 3 (reuses `GOOGLE_SERVICE_ACCOUNT_JSON`):
+
+```typescript
+export class GmailNotificationProvider implements NotificationProvider {
+  constructor(private readonly to: string) {}
+
+  async send(notification: Notification): Promise<void> {
+    // Sends via Gmail API using service account impersonation
+  }
+}
+```
+
+**`SlackNotificationProvider`** — future / optional:
+
+```typescript
+export class SlackNotificationProvider implements NotificationProvider {
+  constructor(private readonly webhookUrl: string) {}
+
+  async send(notification: Notification): Promise<void> {
+    // POST to Slack incoming webhook
+  }
+}
+```
+
+### Wiring in the Edge Function
+
+```typescript
+const notifier = new GmailNotificationProvider(
+  Deno.env.get('ALERT_EMAIL_RECIPIENT')!  // bartonholdridge@gmail.com
+);
+
+// Partial failure example
+if (!memberId) {
+  await sendNotification(notifier, {
+    subject: `Skool member not found — ${clientName}`,
+    body: `Skool member not found for ${clientName}. Grant course access manually.\nWorkflow run: ${run.id}`,
+    level: 'warning',
+  });
+}
+
+// Full failure (top-level catch)
+await sendNotification(notifier, {
+  subject: `Onboarding failed — ${clientName}`,
+  body: `Step: ${failedStep}\nError: ${err.message}\nWorkflow run: ${run.id}`,
+  level: 'error',
+});
+```
+
+### When to alert
+
+| Trigger | Level |
+|---|---|
+| Any step throws an uncaught exception | `error` |
+| Skool member not found by name | `warning` |
+| Skool cookie auth returns 401/403 | `error` |
+| Trello template card missing | `warning` |
+
+### Decision needed
+
+- [ ] Confirm `bartonholdridge@gmail.com` as `ALERT_EMAIL_RECIPIENT`
+- [ ] Confirm whether to add a Slack provider in Phase 3 or defer until needed
+
+---
+
 ## Open Questions
 
 - [ ] Confirm Calendly link to embed in welcome email

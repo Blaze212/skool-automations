@@ -6,7 +6,7 @@ project_id = "skool-automations"
 [api]
 enabled = true
 # Expose the skool schema so PostgREST routes /rest/v1 requests for it.
-schemas = ["public", "graphql_public", "skool"]
+schemas = ["public", "graphql_public", "skool", "internal_automations"]
 extra_search_path = ["public", "extensions"]
 max_rows = 1000
 
@@ -14,3 +14,6 @@ max_rows = 1000
 port = 54322
 shadow_port = 54320
 major_version = 15
+
+[functions.fractional-form-webhook]
+verify_jwt = false
