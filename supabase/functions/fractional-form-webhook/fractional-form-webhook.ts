@@ -1,9 +1,8 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createAdminClient } from '../_shared/supabase-admin.ts'
 import { errorBody, logError, normalizeError, ValidationException } from '../_shared/errors.ts'
 import { logger } from '../_shared/logger.ts'
 
-serve(async (req: Request) => {
+export async function handler(req: Request): Promise<Response> {
   // Outer catch: framework panics / Deno runtime crashes
   try {
     const secret = Deno.env.get('WEBHOOK_SECRET')
@@ -96,4 +95,4 @@ serve(async (req: Request) => {
       headers: { 'Content-Type': 'application/json' },
     })
   }
-})
+}

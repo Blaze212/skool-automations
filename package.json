@@ -10,8 +10,11 @@
     "format:functions": "cd supabase/functions && deno fmt",
     "lint:functions": "cd supabase/functions && deno lint",
     "test": "vitest run",
-    "migrate:local": "supabase db push --db-url postgresql://postgres:postgres@127.0.0.1:54322/postgres",
-    "functions:serve": "deno run --env-file=.env.local --allow-net --allow-env --allow-sys=hostname --config supabase/functions/deno.json supabase/functions/fractional-form-webhook/fractional-form-webhook.ts"
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:reset": "supabase db reset",
+    "migrate:local": "supabase db push",
+    "functions:serve": "supabase functions serve --env-file .env.local"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",

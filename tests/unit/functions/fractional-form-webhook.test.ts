@@ -6,18 +6,11 @@ vi.mock('../../../supabase/functions/_shared/supabase-admin.ts', () => ({
 
 import { createAdminClient } from '../../../supabase/functions/_shared/supabase-admin.ts'
 
-// Deno global is only accessed inside the handler (not at module load), so
-// stubbing here — before the dynamic import — is sufficient.
 const denoEnvGet = vi.fn()
 vi.stubGlobal('Deno', { env: { get: denoEnvGet } })
 
-await import(
-  '../../../supabase/functions/fractional-form-webhook/fractional-form-webhook.ts'
-)
-
-// serve() mock captures the handler into __serveHandler (see tests/__mocks__/deno-serve.ts)
-const handler = () =>
-  (globalThis as Record<string, unknown>).__serveHandler as (req: Request) => Promise<Response>
+// Import handler directly — no need to capture it through serve()
+import { handler } from '../../../supabase/functions/fractional-form-webhook/fractional-form-webhook.ts'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -67,7 +60,7 @@ describe('fractional-form-webhook', () => {
     denoEnvGet.mockImplementation((key: string) => {
       const env: Record<string, string> = {
         WEBHOOK_SECRET: VALID_SECRET,
-        SUPABASE_URL: 'http://localhost:54321',
+        SUPABASE_URL: 'http://localhost:54331',
         SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key',
         SUPABASE_ANON_KEY: 'test-anon-key',
       }
@@ -76,20 +69,20 @@ describe('fractional-form-webhook', () => {
   })
 
   it('returns 401 when X-Webhook-Secret header is absent', async () => {
-    const res = await handler()(makeRequest({ body: VALID_BODY }))
+    const res = await handler(makeRequest({ body: VALID_BODY }))
     expect(res.status).toBe(401)
   })
 
   it('returns 401 when X-Webhook-Secret is wrong', async () => {
-    const res = await handler()(makeRequest({ secret: 'wrong-secret', body: VALID_BODY }))
+    const res = await handler(makeRequest({ secret: 'wrong-secret', body: VALID_BODY }))
     expect(res.status).toBe(401)
   })
 
   it('returns 200 success:false with VALIDATION_ERROR when required fields are missing', async () => {
-    const res = await handler()(
+    const res = await handler(
       makeRequest({
         secret: VALID_SECRET,
-        body: { data: { 'Client full name': ['Jane Doe'] } }, // missing drive email
+        body: { data: { 'Client full name': ['Jane Doe'] } },
       }),
     )
     expect(res.status).toBe(200)
@@ -106,7 +99,7 @@ describe('fractional-form-webhook', () => {
       ) as ReturnType<typeof createAdminClient>,
     )
 
-    const res = await handler()(makeRequest({ secret: VALID_SECRET, body: VALID_BODY }))
+    const res = await handler(makeRequest({ secret: VALID_SECRET, body: VALID_BODY }))
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.ok).toBe(true)
@@ -120,7 +113,7 @@ describe('fractional-form-webhook', () => {
       ) as ReturnType<typeof createAdminClient>,
     )
 
-    const res = await handler()(makeRequest({ secret: VALID_SECRET, body: VALID_BODY }))
+    const res = await handler(makeRequest({ secret: VALID_SECRET, body: VALID_BODY }))
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.success).toBe(false)

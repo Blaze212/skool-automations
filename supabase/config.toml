@@ -4,6 +4,8 @@
 project_id = "skool-automations"
 
 [api]
+# Offset from CareerSystems (54321) to avoid port conflicts when both stacks run locally.
+port = 54331
 enabled = true
 # Expose the skool schema so PostgREST routes /rest/v1 requests for it.
 schemas = ["public", "graphql_public", "skool", "internal_automations"]
@@ -11,9 +13,18 @@ extra_search_path = ["public", "extensions"]
 max_rows = 1000
 
 [db]
-port = 54322
-shadow_port = 54320
+port = 54332
+shadow_port = 54330
 major_version = 15
+
+[studio]
+port = 54333
+
+[inbucket]
+port = 54334
+
+[analytics]
+port = 54337
 
 [functions.fractional-form-webhook]
 verify_jwt = false

@@ -4,32 +4,30 @@ Internal automation tooling for Barton's fractional advisory practice.
 
 ## Migration naming
 
-All migration files must follow this convention:
+All migration files must follow the Supabase CLI convention with a `skool_` namespace prefix:
 
 ```
-YYYYMMDD-NNN-skool-<description>.sql
+YYYYMMDDHHMMSS_skool_<description>.sql
 ```
 
-- `YYYYMMDD` — date the migration was authored
-- `NNN` — zero-padded sequence number within that date (001, 002, …)
-- `skool` — project namespace (these migrations share a prod migration table with the client-facing CareerSystems project)
-- `<description>` — concise kebab-case description of what the migration does
+- `YYYYMMDDHHMMSS` — 14-digit timestamp (Supabase CLI requirement for local migration runner)
+- `skool_` — namespace prefix; these migrations share a prod migration tracking table with the CareerSystems project, so the prefix prevents name collisions
+- `<description>` — concise snake_case description
 
-**Example:** `20260601-001-skool-fractional-onboarding.sql`
-
-The existing `20260506000000_skool_knowledge.sql` predates this convention and should be renamed when it is safe to do so (i.e., before the migration has been applied to a shared production database).
+**Example:** `20260601000001_skool_fractional_onboarding.sql`
 
 ## Edge Functions
 
 ### File naming
 
-The main entrypoint for each function is named after its folder, not `index.ts`:
+Each function uses a two-file layout:
 
 ```
-supabase/functions/<name>/<name>.ts
+supabase/functions/<name>/index.ts          ← thin entrypoint: just serve(handler)
+supabase/functions/<name>/<name>.ts         ← all logic, exported as handler()
 ```
 
-This makes the file findable by name in VS Code fuzzy search.
+`index.ts` is required by the Supabase edge runtime. Putting all logic in `<name>.ts` makes it findable by name in VS Code fuzzy search, keeps `serve()` isolated to one file, and lets tests import `handler` directly without mocking `serve()`.
 
 ### Shared utilities
 
@@ -78,38 +76,39 @@ Every file containing `Deno.serve()` or `serve()` registers an HTTP handler as a
 
 ## Local development setup
 
-This project shares the CareerSystems local Supabase stack — it does **not** run its own Docker containers.
+skool-automations runs its own local Supabase stack on ports 54331–54333, independent of CareerSystems (54321–54324). Both projects can run simultaneously without conflict. Production uses a single shared Supabase instance; the `skool-` migration prefix prevents conflicts in the shared tracking table.
 
-**Prerequisite:** CareerSystems Supabase must be running.
-
-```bash
-# From the CareerSystems workspace (only needed once per machine boot)
-cd /Users/barton/workspaces/careersystems/workspace && supabase start
-```
-
-**First-time migration** (applies skool schema to the CS local DB):
+**First-time setup (Docker required):**
 
 ```bash
-pnpm migrate:local
+pnpm db:start       # start local stack
+pnpm migrate:local  # apply skool migrations
 ```
 
-This pushes `supabase/migrations/` to `postgresql://postgres:postgres@127.0.0.1:54322/postgres`. Migration names carry the `skool-` prefix so they don't conflict with CS migrations in the shared tracking table.
-
-**Serve functions locally:**
+**Serve functions:**
 
 ```bash
 pnpm functions:serve
-# Function available at http://localhost:8000
+# Functions at http://127.0.0.1:54331/functions/v1/<name>
 ```
 
-Uses `deno run` directly (not `supabase functions serve`, which requires its own local Docker stack). The `--env-file=.env.local` flag injects credentials so the function connects to the CS Supabase at `127.0.0.1:54321`. `WEBHOOK_SECRET` defaults to `local-test-secret`.
+`supabase functions serve` auto-injects `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` from the local stack. `.env.local` only needs secrets Supabase doesn't inject (currently just `WEBHOOK_SECRET`).
 
-Each function listens on port 8000. When a second function is added, `functions:serve` will need to become a script that runs both on separate ports.
+**Other lifecycle commands:**
+
+```bash
+pnpm db:stop    # stop containers
+pnpm db:reset   # wipe and re-apply all migrations (useful after schema changes)
+```
+
+**Local resources:**
+- Studio: http://127.0.0.1:54333
+- DB: `postgresql://postgres:postgres@127.0.0.1:54332/postgres`
 
 **Manual test curl:**
 
 ```bash
-curl -X POST http://localhost:8000 \
+curl -X POST http://127.0.0.1:54331/functions/v1/fractional-form-webhook \
   -H "Content-Type: application/json" \
   -H "X-Webhook-Secret: local-test-secret" \
   -d '{"data":{"Client full name":["Jane Doe"],"Email for Google Drive sharing":["jane@example.com"],"Email for Skool (leave blank if same as Drive email)":[""],"Program start date":["2026-06-01"],"Notes":[""]}}'
