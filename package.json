@@ -8,7 +8,8 @@
     "chatbot-mvp": "doppler run -- tsx scripts/chatbot-mvp.ts",
     "typecheck:functions": "cd supabase/functions && deno check **/*.ts",
     "format:functions": "cd supabase/functions && deno fmt",
-    "lint:functions": "cd supabase/functions && deno lint"
+    "lint:functions": "cd supabase/functions && deno lint",
+    "test": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",
@@ -20,6 +21,7 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.5"
   }
 }

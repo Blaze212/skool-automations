@@ -1,0 +1,128 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('../../../supabase/functions/_shared/supabase-admin.ts', () => ({
+  createAdminClient: vi.fn(),
+}))
+
+import { createAdminClient } from '../../../supabase/functions/_shared/supabase-admin.ts'
+
+// Deno global is only accessed inside the handler (not at module load), so
+// stubbing here — before the dynamic import — is sufficient.
+const denoEnvGet = vi.fn()
+vi.stubGlobal('Deno', { env: { get: denoEnvGet } })
+
+await import(
+  '../../../supabase/functions/fractional-form-webhook/fractional-form-webhook.ts'
+)
+
+// serve() mock captures the handler into __serveHandler (see tests/__mocks__/deno-serve.ts)
+const handler = () =>
+  (globalThis as Record<string, unknown>).__serveHandler as (req: Request) => Promise<Response>
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const VALID_SECRET = 'test-secret'
+const VALID_BODY = {
+  data: {
+    'Client full name': ['Jane Doe'],
+    'Email for Google Drive sharing': ['jane@example.com'],
+    'Email for Skool (leave blank if same as Drive email)': [''],
+    'Program start date': ['2026-06-01'],
+    Notes: [''],
+  },
+}
+
+function makeRequest(opts: { secret?: string; body?: unknown } = {}) {
+  return new Request('http://localhost/functions/v1/fractional-form-webhook', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(opts.secret !== undefined ? { 'X-Webhook-Secret': opts.secret } : {}),
+    },
+    body: JSON.stringify(opts.body ?? {}),
+  })
+}
+
+type QueryResult = { data: Record<string, string> | null; error: Error | null }
+
+function makeDbMock(clientResult: QueryResult, runResult: QueryResult) {
+  const single = vi.fn().mockResolvedValueOnce(clientResult).mockResolvedValueOnce(runResult)
+  const select = vi.fn(() => ({ single }))
+  const insert = vi.fn(() => ({ select }))
+  const eq = vi.fn().mockResolvedValue({ data: null, error: null })
+  const update = vi.fn(() => ({ eq }))
+  const from = vi.fn(() => ({ insert, update }))
+  return { from }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('fractional-form-webhook', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    denoEnvGet.mockImplementation((key: string) => {
+      const env: Record<string, string> = {
+        WEBHOOK_SECRET: VALID_SECRET,
+        SUPABASE_URL: 'http://localhost:54321',
+        SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key',
+        SUPABASE_ANON_KEY: 'test-anon-key',
+      }
+      return env[key]
+    })
+  })
+
+  it('returns 401 when X-Webhook-Secret header is absent', async () => {
+    const res = await handler()(makeRequest({ body: VALID_BODY }))
+    expect(res.status).toBe(401)
+  })
+
+  it('returns 401 when X-Webhook-Secret is wrong', async () => {
+    const res = await handler()(makeRequest({ secret: 'wrong-secret', body: VALID_BODY }))
+    expect(res.status).toBe(401)
+  })
+
+  it('returns 200 success:false with VALIDATION_ERROR when required fields are missing', async () => {
+    const res = await handler()(
+      makeRequest({
+        secret: VALID_SECRET,
+        body: { data: { 'Client full name': ['Jane Doe'] } }, // missing drive email
+      }),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.success).toBe(false)
+    expect(body.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('returns 200 ok:true on happy path', async () => {
+    vi.mocked(createAdminClient).mockReturnValue(
+      makeDbMock(
+        { data: { id: 'client-uuid' }, error: null },
+        { data: { id: 'run-uuid' }, error: null },
+      ) as ReturnType<typeof createAdminClient>,
+    )
+
+    const res = await handler()(makeRequest({ secret: VALID_SECRET, body: VALID_BODY }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.ok).toBe(true)
+  })
+
+  it('returns 200 success:false when client DB insert fails', async () => {
+    vi.mocked(createAdminClient).mockReturnValue(
+      makeDbMock(
+        { data: null, error: new Error('duplicate email') },
+        { data: null, error: null },
+      ) as ReturnType<typeof createAdminClient>,
+    )
+
+    const res = await handler()(makeRequest({ secret: VALID_SECRET, body: VALID_BODY }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.success).toBe(false)
+  })
+})
