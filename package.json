@@ -5,7 +5,10 @@
   "packageManager": "pnpm@9.0.0",
   "type": "module",
   "scripts": {
-    "chatbot-mvp": "doppler run -- tsx scripts/chatbot-mvp.ts"
+    "chatbot-mvp": "doppler run -- tsx scripts/chatbot-mvp.ts",
+    "typecheck:functions": "cd supabase/functions && deno check **/*.ts",
+    "format:functions": "cd supabase/functions && deno fmt",
+    "lint:functions": "cd supabase/functions && deno lint"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",

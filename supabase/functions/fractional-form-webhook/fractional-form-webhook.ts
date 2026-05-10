@@ -73,12 +73,13 @@ serve(async (req: Request) => {
 
       if (runId) {
         const supabase = createAdminClient('internal_automations')
-        await supabase
-          .from('fractional_workflow_runs')
-          .update({ status: 'failed', error: normalized.message,
-                    completed_at: new Date().toISOString() })
-          .eq('id', runId)
-          .catch(() => {}) // best-effort — don't mask the original error
+        try {
+          await supabase
+            .from('fractional_workflow_runs')
+            .update({ status: 'failed', error: normalized.message,
+                      completed_at: new Date().toISOString() })
+            .eq('id', runId)
+        } catch { /* best-effort — don't mask the original error */ }
       }
 
       // Always 200 — Apps Script does not retry on non-200
