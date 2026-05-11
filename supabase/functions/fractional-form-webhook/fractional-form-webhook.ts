@@ -12,6 +12,7 @@ export async function handler(req: Request): Promise<Response> {
     }
 
     const log = logger.child({ fn: 'fractional-form-webhook' })
+    log.info('fractional-form-webhook: request received, starting processing')
     let runId: string | null = null
 
     // Inner catch: all normal application errors
