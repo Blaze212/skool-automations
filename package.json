@@ -5,6 +5,7 @@
   "packageManager": "pnpm@9.15.0",
   "type": "module",
   "scripts": {
+    "prepare": "husky || true",
     "check": "pnpm lint && pnpm format && pnpm typecheck",
     "chatbot-mvp": "doppler run -- tsx scripts/chatbot-mvp.ts",
     "typecheck:functions": "cd supabase/functions && deno check **/*.ts",
@@ -31,10 +32,16 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^4.1.6",
+    "husky": "^9.0.0",
+    "lint-staged": "^15.0.0",
     "prettier": "^3.5.3",
     "prettier-plugin-tailwindcss": "^0.6.11",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.6"
+  },
+  "lint-staged": {
+    "*.{js,ts,json,yaml,yml,md}": "prettier --write",
+    "supabase/functions/**/*.ts": "deno fmt --config supabase/functions/deno.json"
   }
 }
