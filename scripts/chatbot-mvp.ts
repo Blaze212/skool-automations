@@ -109,7 +109,7 @@ async function retrieveChunks(
 
 function formatChunksForContext(chunks: WorkbookChunk[]): string {
   return chunks
-    .map(c => {
+    .map((c) => {
       const link = c.anchor_link ? `\nSee: ${c.anchor_link}` : '';
       return `### ${c.section_title}\n${c.content}${link}`;
     })
@@ -121,16 +121,12 @@ function formatChunksForContext(chunks: WorkbookChunk[]): string {
 // ---------------------------------------------------------------------------
 
 function ask(rl: readline.Interface, question: string): Promise<string> {
-  return new Promise(resolve => rl.question(question, resolve));
+  return new Promise((resolve) => rl.question(question, resolve));
 }
 
-function formatThread(
-  messages: ChatMessage[],
-  ownerId: string,
-  memberName: string,
-): string {
+function formatThread(messages: ChatMessage[], ownerId: string, memberName: string): string {
   return messages
-    .map(m => {
+    .map((m) => {
       const sender = m.senderId === ownerId ? 'Katie' : memberName;
       const time = new Date(m.createdAt).toLocaleString('en-US', {
         month: 'short',
@@ -182,10 +178,15 @@ async function main() {
   if (ragEnabled) {
     process.stdout.write(`Loading local embedding model (${EMBED_MODEL})... `);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    embedder = (await (pipeline as any)('feature-extraction', EMBED_MODEL)) as FeatureExtractionPipeline;
+    embedder = (await (pipeline as any)(
+      'feature-extraction',
+      EMBED_MODEL,
+    )) as FeatureExtractionPipeline;
     console.log('ready.\n');
   } else {
-    console.log('Note: RAG disabled (missing SUPABASE_SERVICE_ROLE_KEY). Using base prompt only.\n');
+    console.log(
+      'Note: RAG disabled (missing SUPABASE_SERVICE_ROLE_KEY). Using base prompt only.\n',
+    );
   }
 
   try {
@@ -227,7 +228,7 @@ async function main() {
       process.exit(1);
     }
 
-    const unread = chatsResult.channels.filter(c => c.unreadCount > 0);
+    const unread = chatsResult.channels.filter((c) => c.unreadCount > 0);
     console.log(`done. ${chatsResult.channels.length} total, ${unread.length} unread.\n`);
 
     if (unread.length === 0) {
@@ -273,13 +274,13 @@ async function main() {
       if (ragEnabled && embedder && supabase) {
         process.stdout.write('Retrieving workbook context... ');
         try {
-          const memberMessages = messages.filter(m => m.senderId !== ownerId);
+          const memberMessages = messages.filter((m) => m.senderId !== ownerId);
           const query = memberMessages[memberMessages.length - 1]?.content ?? lastMsg.content;
           chunks = await retrieveChunks(supabase, embedder, query);
           if (chunks.length > 0) {
             console.log(`${chunks.length} section(s) found.`);
-            chunks.forEach(c =>
-              console.log(`  · ${c.section_title} (${Math.round(c.similarity * 100)}% match)`)
+            chunks.forEach((c) =>
+              console.log(`  · ${c.section_title} (${Math.round(c.similarity * 100)}% match)`),
             );
           } else {
             console.log('no relevant sections found.');
@@ -289,7 +290,9 @@ async function main() {
           if (msg.includes('relation') || msg.includes('does not exist')) {
             console.log('workbook not synced yet — run sync-workbook.ts first.');
           } else if (err?.code === 'PGRST301' || /No suitable key/.test(msg)) {
-            console.log('JWT/key mismatch. Run `supabase status` and update SUPABASE_SERVICE_ROLE_KEY.');
+            console.log(
+              'JWT/key mismatch. Run `supabase status` and update SUPABASE_SERVICE_ROLE_KEY.',
+            );
           } else {
             console.log(`retrieval error: ${msg}`);
             if (err?.code) console.log(`  (code: ${err.code})`);
@@ -326,8 +329,7 @@ async function main() {
         ],
       });
 
-      const draft =
-        aiResponse.content[0].type === 'text' ? aiResponse.content[0].text.trim() : '';
+      const draft = aiResponse.content[0].type === 'text' ? aiResponse.content[0].text.trim() : '';
       console.log('done.\n');
 
       console.log('DRAFT REPLY:\n');
@@ -377,7 +379,7 @@ async function main() {
   }
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('\nFatal error:', err instanceof Error ? err.message : err);
   process.exit(1);
 });

@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-embed
+pnpm-lock.yaml
+supabase/.temp
+supabase/functions
+doppler.json
+coverage
+forKatie
+docs
+inputs
+resumes
+.venv
+n8n
+.claude

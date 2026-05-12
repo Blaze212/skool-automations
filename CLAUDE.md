@@ -40,18 +40,18 @@ All functions import from `supabase/functions/_shared/` — never inline raw `De
 
 ### Error classes
 
-| Class | HTTP | Code |
-|---|---|---|
-| `ValidationException` | 400 | `VALIDATION_ERROR` |
-| `AccessDeniedException` | 403 | `ACCESS_DENIED` |
-| `UpgradeRequiredException` | 402 | `UPGRADE_REQUIRED` |
-| `ThrottlingException` | 429 | `THROTTLED` |
-| `ResourceNotFoundException` | 404 | `NOT_FOUND` |
-| `ConflictException` | 409 | `CONFLICT` |
-| `InternalServiceException` | 500 | `INTERNAL_ERROR` |
-| `AiException` | 502 | `AI_ERROR` |
-| `OpenAiException` | 502 | `OPENAI_ERROR` |
-| `AnthropicException` | 502 | `ANTHROPIC_ERROR` |
+| Class                       | HTTP | Code               |
+| --------------------------- | ---- | ------------------ |
+| `ValidationException`       | 400  | `VALIDATION_ERROR` |
+| `AccessDeniedException`     | 403  | `ACCESS_DENIED`    |
+| `UpgradeRequiredException`  | 402  | `UPGRADE_REQUIRED` |
+| `ThrottlingException`       | 429  | `THROTTLED`        |
+| `ResourceNotFoundException` | 404  | `NOT_FOUND`        |
+| `ConflictException`         | 409  | `CONFLICT`         |
+| `InternalServiceException`  | 500  | `INTERNAL_ERROR`   |
+| `AiException`               | 502  | `AI_ERROR`         |
+| `OpenAiException`           | 502  | `OPENAI_ERROR`     |
+| `AnthropicException`        | 502  | `ANTHROPIC_ERROR`  |
 
 All error responses use `errorBody(normalized)` — shape is `{ success: false, error: string, code: string }`. Never hand-craft error shapes.
 
@@ -102,6 +102,7 @@ pnpm db:reset   # wipe and re-apply all migrations (useful after schema changes)
 ```
 
 **Local resources:**
+
 - Studio: http://127.0.0.1:54333
 - DB: `postgresql://postgres:postgres@127.0.0.1:54332/postgres`
 

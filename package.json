@@ -5,13 +5,15 @@
   "packageManager": "pnpm@9.15.0",
   "type": "module",
   "scripts": {
+    "check": "pnpm lint && pnpm format && pnpm typecheck",
     "chatbot-mvp": "doppler run -- tsx scripts/chatbot-mvp.ts",
     "typecheck:functions": "cd supabase/functions && deno check **/*.ts",
     "typecheck": "tsc --noEmit && pnpm typecheck:functions",
     "format:functions": "cd supabase/functions && deno fmt",
-    "format:check": "cd supabase/functions && deno fmt --check",
+    "format:check": "prettier --check . && cd supabase/functions && deno fmt --check",
     "lint:functions": "cd supabase/functions && deno lint",
     "lint": "pnpm lint:functions",
+    "format": "prettier --write .",
     "test": "vitest run",
     "test:unit:coverage": "vitest run --coverage",
     "db:start": "supabase start",
@@ -30,6 +32,8 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^4.1.6",
+    "prettier": "^3.5.3",
+    "prettier-plugin-tailwindcss": "^0.6.11",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.6"

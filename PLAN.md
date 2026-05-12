@@ -5,6 +5,7 @@
 This repo (`skool-automations`) already houses the CareerSystems Skool chatbot automation. The fractional advisory workflows are a second set of automations being added to the same codebase, following the same patterns and stack.
 
 **Dual purpose:**
+
 1. Automate fulfillment for Barton's own Fractional Advisory clients
 2. The platform becomes the reusable product offered to fractional clients when they land their own clients — making it R&D that pays for itself
 
@@ -22,18 +23,18 @@ This repo (`skool-automations`) already houses the CareerSystems Skool chatbot a
 
 ## Stack (existing, do not change)
 
-| Layer | Tool |
-|---|---|
-| Runtime | TypeScript, `tsx`, Node.js |
-| Package manager | pnpm |
-| Secrets | Doppler |
-| Database | Supabase (`internal_automations` schema) |
-| Edge logic | Supabase Edge Functions (Deno) |
-| Skool (runtime) | Raw `fetch` to `api2.skool.com` using stored cookies |
-| Skool (auth refresh) | `skool-cli` v2.2.1 via GitHub Actions cron |
-| Google APIs | `googleapis` npm package + service account |
-| AI | `@anthropic-ai/sdk` |
-| Scripts | `doppler run -- pnpm tsx scripts/[name].ts` |
+| Layer                | Tool                                                 |
+| -------------------- | ---------------------------------------------------- |
+| Runtime              | TypeScript, `tsx`, Node.js                           |
+| Package manager      | pnpm                                                 |
+| Secrets              | Doppler                                              |
+| Database             | Supabase (`internal_automations` schema)             |
+| Edge logic           | Supabase Edge Functions (Deno)                       |
+| Skool (runtime)      | Raw `fetch` to `api2.skool.com` using stored cookies |
+| Skool (auth refresh) | `skool-cli` v2.2.1 via GitHub Actions cron           |
+| Google APIs          | `googleapis` npm package + service account           |
+| AI                   | `@anthropic-ai/sdk`                                  |
+| Scripts              | `doppler run -- pnpm tsx scripts/[name].ts`          |
 
 ---
 
@@ -111,16 +112,15 @@ One script attached to the Google Sheet. Only `WEBHOOK_URL` changes per form via
 
 ```javascript
 function onFormSubmit(e) {
-  const webhookUrl = PropertiesService.getScriptProperties()
-                       .getProperty('WEBHOOK_URL');
+  const webhookUrl = PropertiesService.getScriptProperties().getProperty('WEBHOOK_URL');
   UrlFetchApp.fetch(webhookUrl, {
     method: 'POST',
     contentType: 'application/json',
     payload: JSON.stringify({
       formId: e.source.getId(),
       timestamp: new Date().toISOString(),
-      data: e.namedValues
-    })
+      data: e.namedValues,
+    }),
   });
 }
 ```
@@ -130,40 +130,43 @@ function onFormSubmit(e) {
 ## Database (adds to existing `internal_automations` schema)
 
 ### `internal_automations.fractional_clients`
+
 Canonical record for every Fractional Advisory client.
 
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid | PK, default gen_random_uuid() |
-| full_name | text | |
-| drive_email | text | email used for Google Drive sharing |
-| skool_email | text | email for Skool lookup (may differ from drive_email) |
-| trello_card_id | text | populated post-onboarding |
-| drive_folder_id | text | populated post-onboarding |
-| workbook_doc_id | text | populated post-onboarding |
-| skool_member_id | text | populated after Skool lookup |
-| program_start_date | date | |
-| notes | text | |
-| created_at | timestamptz | default now() |
+| Column             | Type        | Notes                                                |
+| ------------------ | ----------- | ---------------------------------------------------- |
+| id                 | uuid        | PK, default gen_random_uuid()                        |
+| full_name          | text        |                                                      |
+| drive_email        | text        | email used for Google Drive sharing                  |
+| skool_email        | text        | email for Skool lookup (may differ from drive_email) |
+| trello_card_id     | text        | populated post-onboarding                            |
+| drive_folder_id    | text        | populated post-onboarding                            |
+| workbook_doc_id    | text        | populated post-onboarding                            |
+| skool_member_id    | text        | populated after Skool lookup                         |
+| program_start_date | date        |                                                      |
+| notes              | text        |                                                      |
+| created_at         | timestamptz | default now()                                        |
 
 ### `internal_automations.fractional_workflow_runs`
+
 Tracks every workflow execution per client. Enables retries, auditing, status visibility.
 
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid | PK |
-| client_id | uuid | FK → internal_automations.fractional_clients |
-| workflow | text | e.g. `onboard`, `offer-configurator` |
-| status | text | `pending` \| `running` \| `complete` \| `failed` |
-| error | text | populated on failure |
-| started_at | timestamptz | |
-| completed_at | timestamptz | |
+| Column       | Type        | Notes                                            |
+| ------------ | ----------- | ------------------------------------------------ |
+| id           | uuid        | PK                                               |
+| client_id    | uuid        | FK → internal_automations.fractional_clients     |
+| workflow     | text        | e.g. `onboard`, `offer-configurator`             |
+| status       | text        | `pending` \| `running` \| `complete` \| `failed` |
+| error        | text        | populated on failure                             |
+| started_at   | timestamptz |                                                  |
+| completed_at | timestamptz |                                                  |
 
 ---
 
 ## Google Form — Onboarding
 
 **5 fields:**
+
 1. Client full name
 2. Email for Google Drive sharing
 3. Email for Skool (note: "leave blank if same as above")
@@ -176,16 +179,16 @@ Responses sheet triggers the Apps Script webhook → Edge Function URL.
 
 ## Known IDs & Config
 
-| Resource | Value |
-|---|---|
-| Google Drive parent folder | `1L9tPoCkyIsqzRTVdwxg0LfzW1EszsDSn` |
-| Workbook template doc ID | `1UZGnCnJGBCGX6z31wxj94cVRUOZFnGhnesZOir44NDQ` |
-| Trello board ID | `kPkBmPHb` |
-| Trello template card ID | `7TLXJXkG` |
-| Skool community slug | `career-systems` |
-| Skool group ID | `1a0f19d9d9274b7db163fbaf242fdab0` |
-| Skool course ID (Fractional Advisory) | `57877eaeabb442dc85d41a24d65bd183` |
-| Skool classroom root ID | `0912b0a3` |
+| Resource                              | Value                                          |
+| ------------------------------------- | ---------------------------------------------- |
+| Google Drive parent folder            | `1L9tPoCkyIsqzRTVdwxg0LfzW1EszsDSn`            |
+| Workbook template doc ID              | `1UZGnCnJGBCGX6z31wxj94cVRUOZFnGhnesZOir44NDQ` |
+| Trello board ID                       | `kPkBmPHb`                                     |
+| Trello template card ID               | `7TLXJXkG`                                     |
+| Skool community slug                  | `career-systems`                               |
+| Skool group ID                        | `1a0f19d9d9274b7db163fbaf242fdab0`             |
+| Skool course ID (Fractional Advisory) | `57877eaeabb442dc85d41a24d65bd183`             |
+| Skool classroom root ID               | `0912b0a3`                                     |
 
 | Trello list (new cards) | "New Clients" |
 
@@ -195,14 +198,14 @@ Responses sheet triggers the Apps Script webhook → Edge Function URL.
 
 ## The Six Fractional Workflows
 
-| # | Spec | Workflow | Time Saved | Key Modules | Where it runs |
-|---|---|---|---|---|---|
-| 1 | 055 | **Onboard Client** | 10 min | Drive, Gmail, Trello + Skool | Edge Fn |
-| 2 | 056 | **Offer Configurator** | 10 min | Docs, Claude, Drive, Gmail | TBD |
-| 3 | 057 | **Company List** | 10 min | Sheets, Claude, Drive | TBD |
-| 4 | 058 | **People Finder** | 10 min | Sheets, Claude, Drive | TBD |
-| 5 | 059 | **Value Add Asset** | 20 min | Docs, Claude, Drive, Gmail | TBD |
-| 6 | 060 | **Messages** | 10 min | Docs, Sheets, Claude, Gmail | TBD |
+| #   | Spec | Workflow               | Time Saved | Key Modules                  | Where it runs |
+| --- | ---- | ---------------------- | ---------- | ---------------------------- | ------------- |
+| 1   | 055  | **Onboard Client**     | 10 min     | Drive, Gmail, Trello + Skool | Edge Fn       |
+| 2   | 056  | **Offer Configurator** | 10 min     | Docs, Claude, Drive, Gmail   | TBD           |
+| 3   | 057  | **Company List**       | 10 min     | Sheets, Claude, Drive        | TBD           |
+| 4   | 058  | **People Finder**      | 10 min     | Sheets, Claude, Drive        | TBD           |
+| 5   | 059  | **Value Add Asset**    | 20 min     | Docs, Claude, Drive, Gmail   | TBD           |
+| 6   | 060  | **Messages**           | 10 min     | Docs, Sheets, Claude, Gmail  | TBD           |
 
 Workflows 2–6 details to be documented by Barton before specs are written.
 
@@ -210,19 +213,19 @@ Workflows 2–6 details to be documented by Barton before specs are written.
 
 ## New Env Vars (Doppler)
 
-| Var | Purpose |
-|---|---|
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | Already exists — reuse for Drive + Gmail |
-| `TRELLO_API_KEY` | Trello REST API key |
-| `TRELLO_TOKEN` | Trello user token |
-| `TRELLO_BOARD_ID` | `kPkBmPHb` |
-| `TRELLO_TEMPLATE_CARD_ID` | ID of the Fractional Advisory template card |
-| `FRACTIONAL_DRIVE_FOLDER_ID` | `1L9tPoCkyIsqzRTVdwxg0LfzW1EszsDSn` |
-| `FRACTIONAL_WORKBOOK_TEMPLATE_ID` | `1UZGnCnJGBCGX6z31wxj94cVRUOZFnGhnesZOir44NDQ` |
-| `SKOOL_COURSE_ID` | `57877eaeabb442dc85d41a24d65bd183` — Fractional Advisory course |
-| `SKOOL_GROUP_ID` | `1a0f19d9d9274b7db163fbaf242fdab0` — Career Systems group |
-| `SKOOL_COOKIES` | JSON cookie array from skool-cli — refreshed by GitHub Actions cron |
-| `SKOOL_GROUP_ID` | Career Systems group ID (resolved from slug `career-systems`) |
+| Var                               | Purpose                                                             |
+| --------------------------------- | ------------------------------------------------------------------- |
+| `GOOGLE_SERVICE_ACCOUNT_JSON`     | Already exists — reuse for Drive + Gmail                            |
+| `TRELLO_API_KEY`                  | Trello REST API key                                                 |
+| `TRELLO_TOKEN`                    | Trello user token                                                   |
+| `TRELLO_BOARD_ID`                 | `kPkBmPHb`                                                          |
+| `TRELLO_TEMPLATE_CARD_ID`         | ID of the Fractional Advisory template card                         |
+| `FRACTIONAL_DRIVE_FOLDER_ID`      | `1L9tPoCkyIsqzRTVdwxg0LfzW1EszsDSn`                                 |
+| `FRACTIONAL_WORKBOOK_TEMPLATE_ID` | `1UZGnCnJGBCGX6z31wxj94cVRUOZFnGhnesZOir44NDQ`                      |
+| `SKOOL_COURSE_ID`                 | `57877eaeabb442dc85d41a24d65bd183` — Fractional Advisory course     |
+| `SKOOL_GROUP_ID`                  | `1a0f19d9d9274b7db163fbaf242fdab0` — Career Systems group           |
+| `SKOOL_COOKIES`                   | JSON cookie array from skool-cli — refreshed by GitHub Actions cron |
+| `SKOOL_GROUP_ID`                  | Career Systems group ID (resolved from slug `career-systems`)       |
 
 ---
 

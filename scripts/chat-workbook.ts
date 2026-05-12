@@ -60,7 +60,7 @@ async function retrieveChunks(
 
 function formatChunks(chunks: WorkbookChunk[]): string {
   return chunks
-    .map(c => {
+    .map((c) => {
       const link = c.anchor_link ? `\nLink: ${c.anchor_link}` : '';
       return `### ${c.section_title}\n${c.content}${link}`;
     })
@@ -68,7 +68,7 @@ function formatChunks(chunks: WorkbookChunk[]): string {
 }
 
 function ask(rl: readline.Interface, prompt: string): Promise<string> {
-  return new Promise(resolve => rl.question(prompt, resolve));
+  return new Promise((resolve) => rl.question(prompt, resolve));
 }
 
 async function main() {
@@ -76,15 +76,24 @@ async function main() {
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SECRET_KEY;
   const supabaseUrl = process.env.SUPABASE_URL ?? LOCAL_SUPABASE_URL;
 
-  if (!anthropicKey) { console.error('Missing: ANTHROPIC_API_KEY'); process.exit(1); }
-  if (!supabaseKey) { console.error('Missing: SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SECRET_KEY)'); process.exit(1); }
+  if (!anthropicKey) {
+    console.error('Missing: ANTHROPIC_API_KEY');
+    process.exit(1);
+  }
+  if (!supabaseKey) {
+    console.error('Missing: SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SECRET_KEY)');
+    process.exit(1);
+  }
 
   const anthropic = new Anthropic({ apiKey: anthropicKey });
   const supabase = createClient(supabaseUrl, supabaseKey);
 
   process.stdout.write(`Loading local embedding model (${EMBED_MODEL})... `);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const embedder = (await (pipeline as any)('feature-extraction', EMBED_MODEL)) as FeatureExtractionPipeline;
+  const embedder = (await (pipeline as any)(
+    'feature-extraction',
+    EMBED_MODEL,
+  )) as FeatureExtractionPipeline;
   console.log('ready.');
   console.log(`Supabase: ${supabaseUrl} (schema: internal_cs)`);
   console.log('Type a question. /reset to clear history, /quit to exit.\n');
@@ -117,8 +126,8 @@ async function main() {
       }
 
       console.log('Retrieved:');
-      chunks.forEach(c =>
-        console.log(`  · ${c.section_title}  (${Math.round(c.similarity * 100)}%)`)
+      chunks.forEach((c) =>
+        console.log(`  · ${c.section_title}  (${Math.round(c.similarity * 100)}%)`),
       );
 
       const systemBlocks: Anthropic.Messages.TextBlockParam[] = [
@@ -145,7 +154,7 @@ async function main() {
   }
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('\nFatal:', err instanceof Error ? err.message : err);
   process.exit(1);
 });

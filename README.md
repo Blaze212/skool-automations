@@ -1,1 +1,1 @@
-This project will house the skool automations. There 
+This project will house the skool automations. There
