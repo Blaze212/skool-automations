@@ -3,7 +3,6 @@ dist
 dist-embed
 pnpm-lock.yaml
 supabase/.temp
-supabase/functions
 doppler.json
 coverage
 forKatie

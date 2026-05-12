@@ -1,7 +1,10 @@
-import pino from 'npm:pino'
+import pino from 'npm:pino';
 
-export const logger = pino({ level: 'info' }, {
-  write(msg: string) {
-    console.log(msg.trimEnd())
+export const logger = pino(
+  { level: 'info' },
+  {
+    write(msg: string) {
+      console.log(msg.trimEnd());
+    },
   },
-})
+);
