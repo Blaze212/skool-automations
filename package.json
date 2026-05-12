@@ -7,9 +7,13 @@
   "scripts": {
     "chatbot-mvp": "doppler run -- tsx scripts/chatbot-mvp.ts",
     "typecheck:functions": "cd supabase/functions && deno check **/*.ts",
+    "typecheck": "tsc --noEmit && pnpm typecheck:functions",
     "format:functions": "cd supabase/functions && deno fmt",
+    "format:check": "cd supabase/functions && deno fmt --check",
     "lint:functions": "cd supabase/functions && deno lint",
+    "lint": "pnpm lint:functions",
     "test": "vitest run",
+    "test:unit:coverage": "vitest run --coverage",
     "db:start": "supabase start",
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset",
@@ -25,8 +29,9 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^4.1.6",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.6"
   }
 }

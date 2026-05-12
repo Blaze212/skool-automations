@@ -6,6 +6,12 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/unit/**/*.test.ts'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'lcov'],
+      include: ['supabase/functions/**/*.ts'],
+      exclude: ['supabase/functions/**/index.ts'],
+    },
   },
   resolve: {
     alias: {

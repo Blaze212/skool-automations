@@ -118,10 +118,18 @@ curl -X POST http://127.0.0.1:54331/functions/v1/fractional-onboarding-form-webh
 
 After every change, run in this order:
 
-1. `pnpm typecheck:functions` — Deno type-check all edge functions
+1. `pnpm typecheck` — fix type errors (scripts/ via tsc + edge functions via `deno check`; use `pnpm typecheck:functions` to check only edge functions)
 2. `pnpm test` — run unit tests; fix failures before proceeding
-3. `pnpm format:functions` — auto-format with deno fmt
-4. `pnpm lint:functions` — fix lint errors
+3. `pnpm format:functions` — auto-format with deno fmt (required before lint)
+4. `pnpm lint` — fix lint errors
+
+## Don't
+
+- Don't hardcode secrets or commit `.env` files — secrets are injected via Supabase CLI locally and via GitHub Actions secrets in CI.
+- **Never run `supabase db push` locally** — migrations are deployed exclusively via CI on push to main. Running it locally will push unapplied migrations directly to production.
+- **Never use the `unknown` type** — ask for explicit permission before using it. Use `Error` for caught errors (enabled by `useUnknownInCatchVariables: false` in `supabase/functions/deno.json`).
+- Never set `verify_jwt = true` in `supabase/config.toml` for any function — ES256 JWTs will fail. Auth is handled in-function.
+- Never import from a file that contains `Deno.serve()` — see Module Isolation rule above.
 
 ## Tests
 
