@@ -4,17 +4,17 @@ Internal automation tooling for Barton's fractional advisory practice.
 
 ## Migration naming
 
-All migration files must follow the Supabase CLI convention with a `skool_` namespace prefix:
+All migration files must follow the Supabase CLI convention with an `internal_cs_` namespace prefix:
 
 ```
-YYYYMMDDHHMMSS_skool_<description>.sql
+YYYYMMDDHHMMSS_internal_cs_<description>.sql
 ```
 
 - `YYYYMMDDHHMMSS` — 14-digit timestamp (Supabase CLI requirement for local migration runner)
-- `skool_` — namespace prefix; these migrations share a prod migration tracking table with the CareerSystems project, so the prefix prevents name collisions
+- `internal_cs_` — namespace prefix; these migrations share a prod migration tracking table with the CareerSystems project, so the prefix prevents name collisions
 - `<description>` — concise snake_case description
 
-**Example:** `20260601000001_skool_fractional_onboarding.sql`
+**Example:** `20260512000001_internal_cs_rename_schema.sql`
 
 ## Edge Functions
 
@@ -76,13 +76,13 @@ Every file containing `Deno.serve()` or `serve()` registers an HTTP handler as a
 
 ## Local development setup
 
-skool-automations runs its own local Supabase stack on ports 54331–54333, independent of CareerSystems (54321–54324). Both projects can run simultaneously without conflict. Production uses a single shared Supabase instance; the `skool-` migration prefix prevents conflicts in the shared tracking table.
+skool-automations runs its own local Supabase stack on ports 54331–54333, independent of CareerSystems (54321–54324). Both projects can run simultaneously without conflict. Production uses a single shared Supabase instance; the `internal_cs_` migration prefix prevents conflicts in the shared tracking table.
 
 **First-time setup (Docker required):**
 
 ```bash
 pnpm db:start       # start local stack
-pnpm migrate:local  # apply skool migrations
+pnpm migrate:local  # apply migrations
 ```
 
 **Serve functions:**

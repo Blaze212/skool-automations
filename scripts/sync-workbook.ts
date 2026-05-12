@@ -201,7 +201,7 @@ async function main() {
   const embedder = (await (pipeline as any)('feature-extraction', EMBED_MODEL)) as FeatureExtractionPipeline;
   console.log('ready.');
   const supabase = createClient(supabaseUrl, supabaseKey, {
-    db: { schema: 'skool' },
+    db: { schema: 'internal_cs' },
   });
 
   // --- Fetch document (includeTabsContent=true to get all tabs, not just first) ---
@@ -245,7 +245,7 @@ async function main() {
   }
 
   // --- Load existing chunks for change detection ---
-  console.log(`Connecting to Supabase: ${supabaseUrl} (schema: skool)`);
+  console.log(`Connecting to Supabase: ${supabaseUrl} (schema: internal_cs)`);
   const { data: existing, error: fetchErr } = await supabase
     .from('workbook_chunks')
     .select('heading_id, content_hash, embed_model');
@@ -260,7 +260,7 @@ async function main() {
       console.error('\n→ JWT/key mismatch. The service role key does not match the running Supabase.');
       console.error('  Run `supabase status` and use the "Secret" value as SUPABASE_SERVICE_ROLE_KEY.');
     } else if (fetchErr.code === 'PGRST106' || /schema must be one/.test(fetchErr.message)) {
-      console.error('\n→ The skool schema is not exposed. Add it to [api] schemas in supabase/config.toml.');
+      console.error('\n→ The internal_cs schema is not exposed. Add it to [api] schemas in supabase/config.toml.');
     } else if (/relation .* does not exist/.test(fetchErr.message)) {
       console.error('\n→ The workbook_chunks table is missing. Run the migration SQL.');
     }

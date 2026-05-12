@@ -7,8 +7,8 @@ project_id = "skool-automations"
 # Offset from CareerSystems (54321) to avoid port conflicts when both stacks run locally.
 port = 54331
 enabled = true
-# Expose the skool schema so PostgREST routes /rest/v1 requests for it.
-schemas = ["public", "graphql_public", "skool", "internal_automations"]
+# Expose the internal_cs schema so PostgREST routes /rest/v1 requests for it.
+schemas = ["public", "graphql_public", "internal_cs"]
 extra_search_path = ["public", "extensions"]
 max_rows = 1000
 

@@ -48,7 +48,7 @@ async function retrieveChunks(
   const output = await embedder(query, { pooling: 'mean', normalize: true });
   const queryEmbedding = Array.from(output.data as Float32Array);
 
-  const { data, error } = await supabase.schema('skool').rpc('match_workbook_chunks', {
+  const { data, error } = await supabase.schema('internal_cs').rpc('match_workbook_chunks', {
     query_embedding: queryEmbedding,
     match_count: TOP_K,
     min_similarity: MIN_SIMILARITY,
@@ -86,7 +86,7 @@ async function main() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const embedder = (await (pipeline as any)('feature-extraction', EMBED_MODEL)) as FeatureExtractionPipeline;
   console.log('ready.');
-  console.log(`Supabase: ${supabaseUrl} (schema: skool)`);
+  console.log(`Supabase: ${supabaseUrl} (schema: internal_cs)`);
   console.log('Type a question. /reset to clear history, /quit to exit.\n');
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
