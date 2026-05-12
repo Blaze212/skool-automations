@@ -51,4 +51,12 @@ export class FractionalDb {
       .update({ status: 'failed', error: errorMessage, completed_at: new Date().toISOString() })
       .eq('id', runId);
   }
+
+  async updateClientDriveInfo(
+    clientId: string,
+    data: { drive_folder_id: string; workbook_doc_id: string },
+  ): Promise<void> {
+    const { error } = await this.db.from('fractional_clients').update(data).eq('id', clientId);
+    if (error) throw error;
+  }
 }

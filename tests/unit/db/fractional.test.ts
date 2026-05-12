@@ -103,4 +103,41 @@ describe('FractionalDb', () => {
       expect(mocks.eq).toHaveBeenCalledWith('id', 'run-uuid');
     });
   });
+
+  describe('updateClientDriveInfo', () => {
+    it('updates drive_folder_id and workbook_doc_id', async () => {
+      const { client, mocks } = makeMockClient();
+      const db = new FractionalDb(client as never);
+
+      await db.updateClientDriveInfo('client-uuid', {
+        drive_folder_id: 'folder-id',
+        workbook_doc_id: 'doc-id',
+      });
+
+      expect(mocks.from).toHaveBeenCalledWith('fractional_clients');
+      expect(mocks.update).toHaveBeenCalledWith({
+        drive_folder_id: 'folder-id',
+        workbook_doc_id: 'doc-id',
+      });
+      expect(mocks.eq).toHaveBeenCalledWith('id', 'client-uuid');
+    });
+
+    it('throws when the DB returns an error', async () => {
+      const single = vi.fn();
+      const select = vi.fn(() => ({ single }));
+      const insert = vi.fn(() => ({ select }));
+      const eq = vi.fn().mockResolvedValue({ data: null, error: new Error('update failed') });
+      const update = vi.fn(() => ({ eq }));
+      const from = vi.fn(() => ({ insert, update }));
+      const client = { from } as never;
+      const db = new FractionalDb(client);
+
+      await expect(
+        db.updateClientDriveInfo('client-uuid', {
+          drive_folder_id: 'folder-id',
+          workbook_doc_id: 'doc-id',
+        }),
+      ).rejects.toThrow('update failed');
+    });
+  });
 });

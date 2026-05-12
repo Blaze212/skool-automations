@@ -1,12 +1,13 @@
 import { createAdminClient } from '../_shared/supabase-admin.ts';
 import { FractionalDb } from '../_shared/db/fractional.ts';
+import { copyWorkbookTemplate, createClientFolder, shareFolder } from '../_shared/drive.ts';
 import { errorBody, logError, normalizeError, ValidationException } from '../_shared/errors.ts';
 import { logger } from '../_shared/logger.ts';
 
 export async function handler(req: Request): Promise<Response> {
   // Outer catch: framework panics / Deno runtime crashes
   try {
-    const secret = Deno.env.get('WEBHOOK_SECRET');
+    const secret = Deno.env.get('GOOGLE_APP_SCRIPTS_WEBHOOK_SECRET');
     const incoming = req.headers.get('X-Webhook-Secret');
     if (!secret || incoming !== secret) {
       return new Response('Unauthorized', { status: 401 });
@@ -49,6 +50,17 @@ export async function handler(req: Request): Promise<Response> {
       });
 
       runId = await db.insertWorkflowRun(clientId, 'onboard');
+
+      const folderId = await createClientFolder(clientName);
+      const docId = await copyWorkbookTemplate(folderId, clientName);
+      await shareFolder(folderId, driveEmail);
+
+      log.info({ clientId, folderId, docId }, 'drive setup complete');
+
+      await db.updateClientDriveInfo(clientId, {
+        drive_folder_id: folderId,
+        workbook_doc_id: docId,
+      });
 
       await db.completeWorkflowRun(runId);
 

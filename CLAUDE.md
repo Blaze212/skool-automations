@@ -92,7 +92,7 @@ pnpm functions:serve
 # Functions at http://127.0.0.1:54331/functions/v1/<name>
 ```
 
-`supabase functions serve` auto-injects `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` from the local stack. `.env.local` only needs secrets Supabase doesn't inject (currently just `WEBHOOK_SECRET`).
+`supabase functions serve` auto-injects `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` from the local stack. `.env.local` only needs secrets Supabase doesn't inject (currently just `GOOGLE_APP_SCRIPTS_WEBHOOK_SECRET`).
 
 **Other lifecycle commands:**
 

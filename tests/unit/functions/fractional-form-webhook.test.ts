@@ -4,7 +4,18 @@ vi.mock('../../../supabase/functions/_shared/supabase-admin.ts', () => ({
   createAdminClient: vi.fn(),
 }));
 
+vi.mock('../../../supabase/functions/_shared/drive.ts', () => ({
+  createClientFolder: vi.fn().mockResolvedValue('folder-id'),
+  copyWorkbookTemplate: vi.fn().mockResolvedValue('doc-id'),
+  shareFolder: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { createAdminClient } from '../../../supabase/functions/_shared/supabase-admin.ts';
+import {
+  createClientFolder,
+  copyWorkbookTemplate,
+  shareFolder,
+} from '../../../supabase/functions/_shared/drive.ts';
 
 const denoEnvGet = vi.fn();
 vi.stubGlobal('Deno', { env: { get: denoEnvGet } });
@@ -59,7 +70,7 @@ describe('fractional-onboarding-form-webhook', () => {
     vi.clearAllMocks();
     denoEnvGet.mockImplementation((key: string) => {
       const env: Record<string, string> = {
-        WEBHOOK_SECRET: VALID_SECRET,
+        GOOGLE_APP_SCRIPTS_WEBHOOK_SECRET: VALID_SECRET,
         SUPABASE_URL: 'http://localhost:54331',
         SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key',
         SUPABASE_ANON_KEY: 'test-anon-key',
@@ -103,6 +114,21 @@ describe('fractional-onboarding-form-webhook', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
+  });
+
+  it('calls Drive functions with client name and email on happy path', async () => {
+    vi.mocked(createAdminClient).mockReturnValue(
+      makeDbMock(
+        { data: { id: 'client-uuid' }, error: null },
+        { data: { id: 'run-uuid' }, error: null },
+      ) as ReturnType<typeof createAdminClient>,
+    );
+
+    await handler(makeRequest({ secret: VALID_SECRET, body: VALID_BODY }));
+
+    expect(createClientFolder).toHaveBeenCalledWith('Jane Doe');
+    expect(copyWorkbookTemplate).toHaveBeenCalledWith('folder-id', 'Jane Doe');
+    expect(shareFolder).toHaveBeenCalledWith('folder-id', 'jane@example.com');
   });
 
   it('returns 200 success:false when client DB insert fails', async () => {
