@@ -2,7 +2,7 @@
   "name": "skool-automations",
   "version": "0.0.1",
   "private": true,
-  "packageManager": "pnpm@9.0.0",
+  "packageManager": "pnpm@9.15.0",
   "type": "module",
   "scripts": {
     "chatbot-mvp": "doppler run -- tsx scripts/chatbot-mvp.ts",
