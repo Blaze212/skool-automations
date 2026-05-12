@@ -10,6 +10,12 @@ export async function handler(req: Request): Promise<Response> {
     const secret = Deno.env.get('GOOGLE_APP_SCRIPTS_WEBHOOK_SECRET');
     const incoming = req.headers.get('X-Webhook-Secret');
     if (!secret || incoming !== secret) {
+      logger.warn(
+        {
+          incoming: incoming ?? 'null',
+        },
+        'Unauthorized request to fractional-onboarding-form-webhook invlalid or missing secret',
+      );
       return new Response('Unauthorized', { status: 401 });
     }
 
