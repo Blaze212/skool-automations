@@ -1,4 +1,5 @@
 import { createAdminClient } from '../_shared/supabase-admin.ts'
+import { FractionalDb } from '../_shared/db/fractional.ts'
 import { errorBody, logError, normalizeError, ValidationException } from '../_shared/errors.ts'
 import { logger } from '../_shared/logger.ts'
 
@@ -11,8 +12,8 @@ export async function handler(req: Request): Promise<Response> {
       return new Response('Unauthorized', { status: 401 })
     }
 
-    const log = logger.child({ fn: 'fractional-form-webhook' })
-    log.info('fractional-form-webhook: request received, starting processing')
+    const log = logger.child({ fn: 'fractional-onboarding-form-webhook' })
+    log.info('fractional-onboarding-form-webhook: request received, starting processing')
     let runId: string | null = null
 
     // Inner catch: all normal application errors
@@ -35,31 +36,19 @@ export async function handler(req: Request): Promise<Response> {
 
       log.info({ clientName, driveEmail }, 'request received')
 
-      const supabase = createAdminClient('internal_automations')
+      const db = new FractionalDb(createAdminClient('internal_automations'))
 
-      const { data: client, error: clientErr } = await supabase
-        .from('fractional_clients')
-        .insert({ full_name: clientName, drive_email: driveEmail, skool_email: skoolEmail,
-                  program_start_date: startDate, notes })
-        .select('id')
-        .single()
+      const clientId = await db.insertClient({
+        full_name: clientName,
+        drive_email: driveEmail,
+        skool_email: skoolEmail,
+        program_start_date: startDate,
+        notes,
+      })
 
-      if (clientErr) throw clientErr
+      runId = await db.insertWorkflowRun(clientId, 'onboard')
 
-      const { data: run, error: runErr } = await supabase
-        .from('fractional_workflow_runs')
-        .insert({ client_id: client.id, workflow: 'onboard', status: 'running',
-                  started_at: new Date().toISOString() })
-        .select('id')
-        .single()
-
-      if (runErr) throw runErr
-      runId = run.id
-
-      await supabase
-        .from('fractional_workflow_runs')
-        .update({ status: 'complete', completed_at: new Date().toISOString() })
-        .eq('id', runId)
+      await db.completeWorkflowRun(runId)
 
       log.info({ runId }, 'onboarding workflow run complete')
 
@@ -69,16 +58,12 @@ export async function handler(req: Request): Promise<Response> {
         headers: { 'Content-Type': 'application/json' },
       })
     } catch (err) {
-      const normalized = logError(err as Error, 'fractional-form-webhook failed', { runId })
+      const normalized = logError(err as Error, 'fractional-onboarding-form-webhook failed', { runId })
 
       if (runId) {
-        const supabase = createAdminClient('internal_automations')
+        const db = new FractionalDb(createAdminClient('internal_automations'))
         try {
-          await supabase
-            .from('fractional_workflow_runs')
-            .update({ status: 'failed', error: normalized.message,
-                      completed_at: new Date().toISOString() })
-            .eq('id', runId)
+          await db.failWorkflowRun(runId, normalized.message)
         } catch { /* best-effort — don't mask the original error */ }
       }
 
@@ -89,7 +74,7 @@ export async function handler(req: Request): Promise<Response> {
       })
     }
   } catch (err) {
-    console.error('fractional-form-webhook: unhandled framework error', err)
+    console.error('fractional-onboarding-form-webhook: unhandled framework error', err)
     const normalized = normalizeError(err as Error)
     return new Response(JSON.stringify(errorBody(normalized)), {
       status: 500,

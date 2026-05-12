@@ -108,7 +108,7 @@ pnpm db:reset   # wipe and re-apply all migrations (useful after schema changes)
 **Manual test curl:**
 
 ```bash
-curl -X POST http://127.0.0.1:54331/functions/v1/fractional-form-webhook \
+curl -X POST http://127.0.0.1:54331/functions/v1/fractional-onboarding-form-webhook \
   -H "Content-Type: application/json" \
   -H "X-Webhook-Secret: local-test-secret" \
   -d '{"data":{"Client full name":["Jane Doe"],"Email for Google Drive sharing":["jane@example.com"],"Email for Skool (leave blank if same as Drive email)":[""],"Program start date":["2026-06-01"],"Notes":[""]}}'

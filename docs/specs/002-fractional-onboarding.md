@@ -26,6 +26,46 @@ This spec automates all four steps in five incremental phases. Each phase is ind
 
 ---
 
+## Access Setup (One-Time)
+
+Resource ownership is split: Barton owns the Supabase project and the Google service account; Katie owns the Google Drive resources and the Skool community. This automation runs as Barton's service account but operates on Katie's Drive. Setup happens once, before Phase 2 ships.
+
+### Google Drive — Shared Drive pattern
+
+A service account that creates files inside someone else's *My Drive* becomes the **owner** of those new files — they live in the service account's quota, persist only as long as the service account does, and Katie can't fully manage them. The fix is to anchor the automation in a Google **Shared Drive** in Katie's Workspace: files created there are owned by the Shared Drive itself, not the service account.
+
+**Katie's checklist (Workspace required — confirmed):**
+
+1. Create a new Shared Drive — e.g., "Fractional Advisory — Automated Onboarding"
+   (drive.google.com → left sidebar → Shared drives → New)
+2. Add Barton's service account email (`xxx@xxx.iam.gserviceaccount.com`) as a member with role **Content Manager**
+   - Content Manager can create/edit/move/delete files but cannot change Shared Drive membership — correct level for automation
+3. The Shared Drive's own ID is used directly as `FRACTIONAL_DRIVE_ID` in Doppler — new client folders are created at the root of the Shared Drive. (Optionally create a "Clients" sub-folder if you prefer the visual grouping; in that case use the folder ID instead.)
+4. Copy the workbook template into the Shared Drive (right-click → Make a copy, then move the copy in) — the new doc ID becomes `FRACTIONAL_WORKBOOK_TEMPLATE_ID`
+5. Verify external sharing is enabled: Workspace Admin Console → Apps → Google Workspace → Drive and Docs → Sharing settings → "Allow users to share files outside of [domain]" must be **ON**, otherwise clients on personal Gmail addresses won't receive folder shares. Per-Shared-Drive overrides exist if the org policy is stricter.
+
+**Code-side requirement:** All Drive API calls in `drive.ts` must pass `supportsAllDrives: true`. Without it the API silently refuses to operate on Shared Drive resources. Applies to `files.create`, `files.copy`, `files.list`, and `permissions.create`.
+
+**Existing My Drive clients — do not migrate.** Direct share permissions survive a move into a Shared Drive but inherited permissions (where access came from a parent folder being shared) do not, and the ownership change is irreversible. Leave existing client folders in Katie's My Drive untouched; only new clients onboarded via this automation land in the Shared Drive. Over time the old My Drive structure becomes the archive.
+
+### Gmail — sender account decision
+
+The original architecture sketch assumed "service account impersonating Barton's Gmail" via domain-wide delegation. **This does not work for personal `@gmail.com` accounts** — DWD requires the impersonated user to live in a Google Workspace domain. Three viable alternatives:
+
+| Approach | Pros | Cons |
+|---|---|---|
+| OAuth 2.0 refresh token for Barton's Gmail | Mail comes from Barton's real Gmail address; clients see a familiar sender | One-time consent flow; refresh token stored in Doppler; must be redone if Google revokes |
+| Transactional email provider (Resend, Postmark, etc.) | Simplest integration; no token plumbing; pick any custom From address | Requires DNS verification on a domain; small monthly cost |
+| Send from Katie's Workspace Gmail via DWD | Reuses existing service account auth cleanly | Sender becomes Katie, not Barton; requires Workspace admin to enable DWD on the service account |
+
+**Recommendation:** Decide before starting Phase 3. A transactional provider is the lowest-friction path; OAuth refresh token is best if the email must clearly come from Barton's personal address.
+
+### Skool — unrelated to Google access
+
+Skool authentication is cookie-based against Katie's Skool account and is handled entirely by the cookie-refresh script (Phase 5). No Google permissions interact with it.
+
+---
+
 ## Trigger
 
 Barton fills out the **Fractional Client Onboarding** Google Form. On submission:
@@ -68,7 +108,7 @@ function onFormSubmit(e) {
 }
 ```
 
-Set `WEBHOOK_URL` in Script Properties → the Supabase Edge Function URL for `fractional-form-webhook`.
+Set `WEBHOOK_URL` in Script Properties → the Supabase Edge Function URL for `fractional-onboarding-form-webhook`.
 
 ---
 
@@ -83,7 +123,7 @@ Set `WEBHOOK_URL` in Script Properties → the Supabase Edge Function URL for `f
         │
         │ onFormSubmit (Apps Script)
         ▼
-[POST /functions/v1/fractional-form-webhook]
+[POST /functions/v1/fractional-onboarding-form-webhook]
         │
         ├──→ Supabase DB              insert fractional_clients row
         │                             insert workflow_run (status: running)
@@ -126,7 +166,7 @@ All modules live in `supabase/functions/_shared/`. Each is a standalone TypeScri
 
 ```typescript
 export async function createClientFolder(clientName: string): Promise<string>
-  // Creates "{clientName} — Fractional Advisory" inside FRACTIONAL_DRIVE_FOLDER_ID
+  // Creates "{clientName} — Fractional Advisory" inside FRACTIONAL_DRIVE_ID (Shared Drive)
   // Returns new folder ID
 
 export async function copyWorkbookTemplate(folderId: string, clientName: string): Promise<string>
@@ -136,6 +176,8 @@ export async function copyWorkbookTemplate(folderId: string, clientName: string)
 export async function shareFolder(folderId: string, email: string): Promise<void>
   // Grants writer access to email
 ```
+
+**Shared Drive requirement:** Every Drive API call in this module must pass `supportsAllDrives: true`. The parent folder and template both live in a Shared Drive (see "Access Setup" section above); calls without this flag will fail or silently return empty results.
 
 ### `gmail.ts`
 
@@ -214,9 +256,9 @@ const res = await fetch(url, {
 
 ---
 
-## Edge Function: `fractional-form-webhook`
+## Edge Function: `fractional-onboarding-form-webhook`
 
-**Location:** `supabase/functions/fractional-form-webhook/index.ts`
+**Location:** `supabase/functions/fractional-onboarding-form-webhook/index.ts`
 
 **Auth:** Supabase anon key in `Authorization: Bearer` header sent by Apps Script (or no auth check if the URL is treated as a secret).
 
@@ -388,8 +430,8 @@ await client.close();
 | `TRELLO_TOKEN` | Trello user token |
 | `TRELLO_BOARD_ID` | `kPkBmPHb` |
 | `TRELLO_TEMPLATE_CARD_ID` | `7TLXJXkG` |
-| `FRACTIONAL_DRIVE_FOLDER_ID` | `1L9tPoCkyIsqzRTVdwxg0LfzW1EszsDSn` |
-| `FRACTIONAL_WORKBOOK_TEMPLATE_ID` | `1UZGnCnJGBCGX6z31wxj94cVRUOZFnGhnesZOir44NDQ` |
+| `FRACTIONAL_DRIVE_ID` | `0ADKUrpWpEPi2Uk9PVA` (Shared Drive root in Katie's Workspace) |
+| `FRACTIONAL_WORKBOOK_TEMPLATE_ID` | TBD — populate after Katie copies the workbook template into the Shared Drive |
 | `SKOOL_COURSE_ID` | `57877eaeabb442dc85d41a24d65bd183` |
 | `SKOOL_GROUP_ID` | `1a0f19d9d9274b7db163fbaf242fdab0` |
 | `SKOOL_COOKIES` | JSON cookie array — written by refresh script |
@@ -408,7 +450,7 @@ await client.close();
 
 **Ships:**
 - `supabase/migrations/20260601000000_fractional.sql` — `fractional_clients` + `fractional_workflow_runs` tables
-- `supabase/functions/fractional-form-webhook/index.ts` — skeleton: parse payload, insert DB rows, return 200
+- `supabase/functions/fractional-onboarding-form-webhook/index.ts` — skeleton: parse payload, insert DB rows, return 200
 - Google Form (5 fields) + linked response Sheet
 - Apps Script `onFormSubmit` webhook poster with `WEBHOOK_URL` property set
 - Doppler secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
@@ -421,12 +463,14 @@ await client.close();
 
 **Goal:** Automatically create the client workspace in Drive.
 
-**Ships:**
-- `supabase/functions/_shared/drive.ts` — `createClientFolder`, `copyWorkbookTemplate`, `shareFolder`
-- Edge Function updated to call Drive module and store `drive_folder_id` + `workbook_doc_id`
-- Doppler secrets: `GOOGLE_SERVICE_ACCOUNT_JSON`, `FRACTIONAL_DRIVE_FOLDER_ID`, `FRACTIONAL_WORKBOOK_TEMPLATE_ID`
+**Prerequisite:** Complete "Access Setup → Google Drive" (Shared Drive created, service account added as Content Manager, parent folder + workbook template placed inside, IDs captured for Doppler).
 
-**Done when:** Submit test form → Drive folder `"{Name} — Fractional Advisory"` created inside parent, workbook copied and renamed, shared with test email.
+**Ships:**
+- `supabase/functions/_shared/drive.ts` — `createClientFolder`, `copyWorkbookTemplate`, `shareFolder` (all calls pass `supportsAllDrives: true`)
+- Edge Function updated to call Drive module and store `drive_folder_id` + `workbook_doc_id`
+- Doppler secrets: `GOOGLE_SERVICE_ACCOUNT_JSON`, `FRACTIONAL_DRIVE_ID` (Shared Drive root), `FRACTIONAL_WORKBOOK_TEMPLATE_ID` (template copy inside Shared Drive)
+
+**Done when:** Submit test form → Drive folder `"{Name} — Fractional Advisory"` created inside the Shared Drive parent, workbook copied and renamed, shared with test email. Katie can see and manage the new files from her account.
 
 ---
 
@@ -434,13 +478,15 @@ await client.close();
 
 **Goal:** Client receives a welcome email immediately after form submission.
 
+**Prerequisite:** Resolve the sender-account decision in "Access Setup → Gmail". Service account impersonation does *not* work against personal `@gmail.com` addresses; pick OAuth refresh token, a transactional provider, or Katie's Workspace Gmail via DWD before implementing.
+
 **Ships:**
-- `supabase/functions/_shared/gmail.ts` — `sendWelcomeEmail`
+- `supabase/functions/_shared/gmail.ts` — `sendWelcomeEmail` (implementation shape depends on chosen sender approach)
 - Edge Function updated to call Gmail module after Drive step
 - Welcome email template with Drive folder link, workbook link, program start date, Calendly link
-- Doppler secrets: none new (reuses `GOOGLE_SERVICE_ACCOUNT_JSON`), but confirm Gmail send-as address
+- Doppler secrets: depends on chosen approach — OAuth refresh token, transactional provider API key, or DWD scope grant on existing service account
 
-**Done when:** Submit test form → welcome email arrives in test inbox with correct Drive links and start date.
+**Done when:** Submit test form → welcome email arrives in test inbox with correct Drive links and start date, sent from the agreed-upon From address.
 
 ---
 
@@ -476,10 +522,12 @@ await client.close();
 
 | Resource | Value |
 |---|---|
-| Google Drive parent folder | `1L9tPoCkyIsqzRTVdwxg0LfzW1EszsDSn` |
-| Workbook template doc ID | `1UZGnCnJGBCGX6z31wxj94cVRUOZFnGhnesZOir44NDQ` |
-| Trello board ID | `kPkBmPHb` |
-| Trello template card ID | `7TLXJXkG` |
+| Shared Drive ID (`FRACTIONAL_DRIVE_ID`) | `0ADKUrpWpEPi2Uk9PVA` — [open](https://drive.google.com/drive/u/0/folders/0ADKUrpWpEPi2Uk9PVA) |
+| Workbook template doc ID | TBD — populate after Katie copies the template into the Shared Drive |
+| Google Form ID | `1k8h4rXGqTNCXeE4BWglGqk4nh8Q6NiGiaYvVjUfsb90` — [edit](https://docs.google.com/forms/d/1k8h4rXGqTNCXeE4BWglGqk4nh8Q6NiGiaYvVjUfsb90/edit) |
+| Form response Sheet ID | `1B0cbth8U82cgDVub8PcRz_LGD4hk_g7Guy0PTYlvAfY` — [open](https://docs.google.com/spreadsheets/d/1B0cbth8U82cgDVub8PcRz_LGD4hk_g7Guy0PTYlvAfY/edit) |
+| Trello board | [Fractional Advisory](https://trello.com/b/kPkBmPHb/fractional-advisory) — ID `kPkBmPHb` |
+| Trello template card | [Client template](https://trello.com/c/7TLXJXkG/14-client) — ID `7TLXJXkG` |
 | Trello list (new cards) | "New Clients" |
 | Skool community slug | `career-systems` |
 | Skool group ID | `1a0f19d9d9274b7db163fbaf242fdab0` |
@@ -651,5 +699,6 @@ await sendNotification(notifier, {
 ## Open Questions
 
 - [ ] Confirm Calendly link to embed in welcome email
-- [ ] Confirm welcome email sender address (Barton's Gmail via service account impersonation)
+- [ ] **Choose Gmail sender approach** (see "Access Setup → Gmail"): OAuth refresh token for Barton's personal Gmail, transactional provider (Resend/Postmark), or DWD against Katie's Workspace Gmail. Original impersonation plan does not work for personal `@gmail.com`.
 - [ ] `skool-cli` `getCookies()` method — confirm exact API for extracting cookies after Playwright login, or write custom extraction if not exposed
+- [ ] Capture `FRACTIONAL_WORKBOOK_TEMPLATE_ID` once Katie copies the workbook template into the Shared Drive (Shared Drive ID itself is now captured)

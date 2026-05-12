@@ -26,5 +26,5 @@ port = 54334
 [analytics]
 port = 54337
 
-[functions.fractional-form-webhook]
+[functions.fractional-onboarding-form-webhook]
 verify_jwt = false

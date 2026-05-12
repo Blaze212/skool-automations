@@ -10,7 +10,7 @@ const denoEnvGet = vi.fn()
 vi.stubGlobal('Deno', { env: { get: denoEnvGet } })
 
 // Import handler directly — no need to capture it through serve()
-import { handler } from '../../../supabase/functions/fractional-form-webhook/fractional-form-webhook.ts'
+import { handler } from '../../../supabase/functions/fractional-onboarding-form-webhook/fractional-onboarding-form-webhook.ts'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -28,7 +28,7 @@ const VALID_BODY = {
 }
 
 function makeRequest(opts: { secret?: string; body?: unknown } = {}) {
-  return new Request('http://localhost/functions/v1/fractional-form-webhook', {
+  return new Request('http://localhost/functions/v1/fractional-onboarding-form-webhook', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -54,7 +54,7 @@ function makeDbMock(clientResult: QueryResult, runResult: QueryResult) {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('fractional-form-webhook', () => {
+describe('fractional-onboarding-form-webhook', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     denoEnvGet.mockImplementation((key: string) => {

@@ -62,7 +62,7 @@ skool-automations/
 │   │   └── 20260601000000_fractional.sql        ← new: clients + workflow_runs
 │   └── functions/
 │       ├── webhook-skool/                 ← existing
-│       └── fractional-form-webhook/       ← new: receives Google Form POST
+│       └── fractional-onboarding-form-webhook/       ← new: receives Google Form POST
 ├── appscript/
 │   └── form-webhook.js                    ← new: generic reusable trigger
 ├── forms/
@@ -88,7 +88,7 @@ Everything runs end-to-end in the Edge Function. Skool API calls use raw `fetch`
       │
       │ onFormSubmit (Apps Script)
       ▼
-[Supabase Edge Function: fractional-form-webhook]
+[Supabase Edge Function: fractional-onboarding-form-webhook]
       │
       ├──→ Supabase DB              write client record, mark workflow running
       ├──→ Google Drive API         create folder, copy + rename workbook template
@@ -234,7 +234,7 @@ Workflows 2–6 details to be documented by Barton before specs are written.
 4. Write spec `055-fractional-onboarding.md`
 5. Add migration: `internal_automations.fractional_clients` + `internal_automations.fractional_workflow_runs`
 6. Build shared modules: `drive.ts`, `gmail.ts`, `trello.ts`, `skool.ts`
-7. Build `fractional-form-webhook` Edge Function (composes all modules)
+7. Build `fractional-onboarding-form-webhook` Edge Function (composes all modules)
 8. Build `scripts/refresh-skool-cookies.ts` + GitHub Actions workflow
 9. Set up Google Form + Apps Script webhook
 10. End-to-end test with a real client
