@@ -16,6 +16,7 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:unit:coverage": "vitest run --coverage",
+    "test:integ": "vitest run --config vitest.integ.config.ts",
     "db:start": "supabase start",
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset",

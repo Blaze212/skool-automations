@@ -29,13 +29,14 @@ export async function handler(req: Request): Promise<Response> {
         throw new ValidationException({ message: 'Request body must be valid JSON' });
       });
 
+      log.info({ body }, 'parsed request body');
+
       const d = body.data ?? {};
-      const clientName = d['Client full name']?.[0]?.trim();
-      const driveEmail = d['Email for Google Drive sharing']?.[0]?.trim();
-      const skoolEmailRaw = d['Email for Skool (leave blank if same as Drive email)']?.[0]?.trim();
-      const skoolEmail = skoolEmailRaw || driveEmail;
-      const startDate = d['Program start date']?.[0]?.trim() || null;
-      const notes = d['Notes']?.[0]?.trim() || null;
+      const clientName = d.full_name?.trim();
+      const driveEmail = d.email_google_drive?.trim();
+      const skoolEmail = d.email_skool?.trim() || driveEmail;
+      const startDate = d.program_start_date?.trim() || null;
+      const notes = d.user_notes?.trim() || null;
 
       if (!clientName || !driveEmail) {
         throw new ValidationException({
@@ -45,7 +46,7 @@ export async function handler(req: Request): Promise<Response> {
 
       log.info({ clientName, driveEmail }, 'request received');
 
-      const db = new FractionalDb(createAdminClient('internal_automations'));
+      const db = new FractionalDb(createAdminClient('internal_cs'));
 
       const clientId = await db.insertClient({
         full_name: clientName,
@@ -83,7 +84,7 @@ export async function handler(req: Request): Promise<Response> {
       });
 
       if (runId) {
-        const db = new FractionalDb(createAdminClient('internal_automations'));
+        const db = new FractionalDb(createAdminClient('internal_cs'));
         try {
           await db.failWorkflowRun(runId, normalized.message);
         } catch {

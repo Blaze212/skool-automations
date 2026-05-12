@@ -30,11 +30,11 @@ import { handler } from '../../../supabase/functions/fractional-onboarding-form-
 const VALID_SECRET = 'test-secret';
 const VALID_BODY = {
   data: {
-    'Client full name': ['Jane Doe'],
-    'Email for Google Drive sharing': ['jane@example.com'],
-    'Email for Skool (leave blank if same as Drive email)': [''],
-    'Program start date': ['2026-06-01'],
-    Notes: [''],
+    full_name: 'Jane Doe',
+    email_google_drive: 'jane@example.com',
+    email_skool: '',
+    program_start_date: '2026-06-01',
+    user_notes: '',
   },
 };
 
@@ -93,7 +93,7 @@ describe('fractional-onboarding-form-webhook', () => {
     const res = await handler(
       makeRequest({
         secret: VALID_SECRET,
-        body: { data: { 'Client full name': ['Jane Doe'] } },
+        body: { data: { full_name: 'Jane Doe' } },
       }),
     );
     expect(res.status).toBe(200);

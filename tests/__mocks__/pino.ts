@@ -8,6 +8,7 @@ const child = vi.fn(() => ({
 
 const logger = {
   info: vi.fn(),
+  warn: vi.fn(),
   error: vi.fn(),
   child,
 };

@@ -9,7 +9,7 @@ port = 54331
 enabled = true
 # Expose the internal_cs schema so PostgREST routes /rest/v1 requests for it.
 schemas = ["public", "graphql_public", "internal_cs"]
-extra_search_path = ["public", "extensions"]
+extra_search_path = ["public", "extensions", "internal_cs"]
 max_rows = 1000
 
 [db]

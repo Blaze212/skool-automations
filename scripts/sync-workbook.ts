@@ -31,7 +31,7 @@ const REPO_ROOT = join(fileURLToPath(import.meta.url), '..', '..');
 
 // Default URL only — the secret key is per-installation in newer Supabase CLI
 // versions (format: sb_secret_...). Get yours with `supabase status`.
-const LOCAL_SUPABASE_URL = 'http://127.0.0.1:54321';
+const LOCAL_SUPABASE_URL = 'http://127.0.0.1:54331';
 
 // ---------------------------------------------------------------------------
 // Types
