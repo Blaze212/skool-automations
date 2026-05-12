@@ -62,9 +62,10 @@ jobs:
 
       - name: Link Supabase project
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
-
-      - name: Run DB migrations
-        run: supabase db push
+      
+      # Migrations are run via https://github.com/Blaze212/career-systems CI
+      # - name: Run DB migrations
+      #   run: supabase db push
 
       - name: Deploy edge functions
         run: supabase functions deploy
