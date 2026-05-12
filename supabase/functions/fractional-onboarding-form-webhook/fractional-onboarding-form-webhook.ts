@@ -1,6 +1,6 @@
 import { createAdminClient } from '../_shared/supabase-admin.ts';
 import { FractionalDb } from '../_shared/db/fractional.ts';
-import { copyWorkbookTemplate, createClientFolder, shareFolder } from '../_shared/drive.ts';
+import { createGoogleDriveClient } from '../_shared/google-drive.ts';
 import { errorBody, logError, normalizeError, ValidationException } from '../_shared/errors.ts';
 import { logger } from '../_shared/logger.ts';
 
@@ -58,9 +58,10 @@ export async function handler(req: Request): Promise<Response> {
 
       runId = await db.insertWorkflowRun(clientId, 'onboard');
 
-      const folderId = await createClientFolder(clientName);
-      const docId = await copyWorkbookTemplate(folderId, clientName);
-      await shareFolder(folderId, driveEmail);
+      const drive = createGoogleDriveClient();
+      const folderId = await drive.createClientFolder(clientName);
+      const docId = await drive.copyWorkbookTemplate(folderId, clientName);
+      await drive.shareFolder(folderId, driveEmail);
 
       log.info({ clientId, folderId, docId }, 'drive setup complete');
 

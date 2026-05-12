@@ -10,10 +10,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
 
-vi.mock('../../../supabase/functions/_shared/drive.ts', () => ({
-  createClientFolder: vi.fn().mockResolvedValue('integ-test-folder-id'),
-  copyWorkbookTemplate: vi.fn().mockResolvedValue('integ-test-doc-id'),
-  shareFolder: vi.fn().mockResolvedValue(undefined),
+vi.mock('../../../supabase/functions/_shared/google-drive.ts', () => ({
+  createGoogleDriveClient: vi.fn().mockReturnValue({
+    createClientFolder: vi.fn().mockResolvedValue('integ-test-folder-id'),
+    copyWorkbookTemplate: vi.fn().mockResolvedValue('integ-test-doc-id'),
+    shareFolder: vi.fn().mockResolvedValue(undefined),
+  }),
 }));
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? 'http://127.0.0.1:54331';
