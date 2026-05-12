@@ -26,7 +26,12 @@ export class FractionalDb {
   async insertWorkflowRun(clientId: string, workflow: string): Promise<string> {
     const { data: row, error } = await this.db
       .from('fractional_workflow_runs')
-      .insert({ client_id: clientId, workflow, status: 'running', started_at: new Date().toISOString() })
+      .insert({
+        client_id: clientId,
+        workflow,
+        status: 'running',
+        started_at: new Date().toISOString(),
+      })
       .select('id')
       .single()
     if (error) throw error

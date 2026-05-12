@@ -121,7 +121,7 @@ After every change, run in this order:
 
 1. `pnpm typecheck` — fix type errors (scripts/ via tsc + edge functions via `deno check`; use `pnpm typecheck:functions` to check only edge functions)
 2. `pnpm test` — run unit tests; fix failures before proceeding
-3. `pnpm format:functions` — auto-format with deno fmt (required before lint)
+3. `pnpm format` — auto-format scripts/tests with Prettier; `pnpm format:functions` — auto-format edge functions with deno fmt (required before lint)
 4. `pnpm lint` — fix lint errors
 
 ## Don't

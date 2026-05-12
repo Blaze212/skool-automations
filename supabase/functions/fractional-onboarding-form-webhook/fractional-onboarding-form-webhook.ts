@@ -31,7 +31,9 @@ export async function handler(req: Request): Promise<Response> {
       const notes = d['Notes']?.[0]?.trim() || null
 
       if (!clientName || !driveEmail) {
-        throw new ValidationException({ message: 'Missing required fields: client name or drive email' })
+        throw new ValidationException({
+          message: 'Missing required fields: client name or drive email',
+        })
       }
 
       log.info({ clientName, driveEmail }, 'request received')
@@ -58,7 +60,9 @@ export async function handler(req: Request): Promise<Response> {
         headers: { 'Content-Type': 'application/json' },
       })
     } catch (err) {
-      const normalized = logError(err as Error, 'fractional-onboarding-form-webhook failed', { runId })
+      const normalized = logError(err as Error, 'fractional-onboarding-form-webhook failed', {
+        runId,
+      })
 
       if (runId) {
         const db = new FractionalDb(createAdminClient('internal_automations'))
