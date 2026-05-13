@@ -94,10 +94,11 @@ export async function handler(req: Request): Promise<Response> {
       }
 
       const formattedDate = formatDate(body.date);
-      // Write only to columns E–K; A–D are left blank for manual entry.
-      // Anchoring at E (first non-blank column) ensures Sheets API table
-      // detection starts at the right place.
+      // Columns B–K (A is intentionally blank, left for manual use)
       const row = [
+        '', // B: INDUSTRY  (manual)
+        '', // C: COMPANY   (manual)
+        '', // D: ROLE TITLE (manual)
         body.name, // E: PERSON'S NAME
         body.title, // F: PERSON'S TITLE
         '', // G: BUCKET    (manual)
@@ -108,7 +109,7 @@ export async function handler(req: Request): Promise<Response> {
       ];
 
       const sheets = createGoogleSheetsClient();
-      await sheets.appendRow(sheet_id, 'Outreach Log!E:K', row);
+      await sheets.appendRow(sheet_id, 'Outreach Log!B:K', row);
 
       log.info(
         {

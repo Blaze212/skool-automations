@@ -96,7 +96,10 @@ describe('linkedin-tracker-webhook', () => {
     expect(body.success).toBe(true);
 
     const sheets = vi.mocked(createGoogleSheetsClient).mock.results[0].value;
-    expect(sheets.appendRow).toHaveBeenCalledWith(SHEET_ID, 'Outreach Log!E:K', [
+    expect(sheets.appendRow).toHaveBeenCalledWith(SHEET_ID, 'Outreach Log!B:K', [
+      '',
+      '',
+      '',
       'Jane Doe',
       'Software Engineer at Acme',
       '',
@@ -153,7 +156,7 @@ describe('linkedin-tracker-webhook', () => {
 
     const sheets = vi.mocked(createGoogleSheetsClient).mock.results[0].value;
     const rowArg = sheets.appendRow.mock.calls[0][2] as string[];
-    expect(rowArg).toHaveLength(7);
+    expect(rowArg).toHaveLength(10);
     // debug not in row
     expect(rowArg.join('')).not.toContain('button_aria_label');
   });
