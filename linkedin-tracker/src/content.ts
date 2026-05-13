@@ -33,37 +33,29 @@ function buildDebugPayload(button: HTMLElement, container: HTMLElement | null): 
   };
 }
 
-// Extract the headline from a profile card using DOM traversal instead of
-// CSS class selectors (LinkedIn's class names are hashed and change frequently).
-function extractCardTitle(card: HTMLElement | null, name: string): string {
+// Extract the headline from a profile card using structural DOM navigation.
+// LinkedIn hashes its class names, so we anchor on the profile link href (stable)
+// instead of class selectors or text content patterns.
+// Structure: name <p> → next sibling element = title, regardless of class names.
+function extractCardTitle(card: HTMLElement | null, connectLink: HTMLElement): string {
   if (!card) return '';
-  const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      // Skip text inside buttons, svgs, images, and LinkedIn action links
-      const blocked = (node.parentElement as HTMLElement | null)?.closest(
-        'button, svg, figure, [aria-label^="Invite"], [aria-label="More"], [aria-label="Message"], [aria-label="Write with AI"]',
-      );
-      return blocked ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
-    },
-  });
-  let seenName = false;
-  let node: Node | null;
-  while ((node = walker.nextNode())) {
-    const text = node.textContent?.trim() ?? '';
-    if (!text || text.length < 3) continue;
-    if (text === name || text.startsWith(name + ' ')) {
-      seenName = true;
-      continue;
+  const href = connectLink.getAttribute('href') ?? '';
+  const m = href.match(/vanityName=([^&]+)/);
+  if (!m) return '';
+
+  // The profile name link uses the same vanityName — find it by href.
+  const nameLink = card.querySelector(`a[href*="/in/${m[1]}"]`) as HTMLElement | null;
+  const namePara = nameLink?.closest('p') as HTMLElement | null;
+  if (!namePara) return '';
+
+  // Walk siblings after the name <p>; skip action rows (contain buttons or labelled links).
+  let el = namePara.nextElementSibling as HTMLElement | null;
+  while (el) {
+    if (!el.querySelector('button, a[aria-label]')) {
+      const text = el.textContent?.trim() ?? '';
+      if (text.length >= 5) return text;
     }
-    if (!seenName) continue;
-    // Skip noise: connection degree, pronouns, follower counts, "Current: " prefix
-    if (/^\s*[•·]?\s*(1st|2nd|3rd)\s*$/.test(text)) continue;
-    if (/^(he|she|they)\/.+/i.test(text)) continue;
-    if (/^\d+(,\d+)*\+?$/.test(text)) continue;
-    if (/^(connections|followers|Contact info)$/i.test(text)) continue;
-    if (text === 'Connect' || text === 'Message' || text === 'More' || text === '·') continue;
-    if (text.startsWith('Current: ')) continue;
-    if (text.length >= 5) return text;
+    el = el.nextElementSibling as HTMLElement | null;
   }
   return '';
 }
@@ -256,7 +248,7 @@ document.body.addEventListener(
     if (inviteToConnect) {
       _pendingConnectionName = inviteToConnect[1].trim();
       const card = el.closest('li, [data-view-name]') as HTMLElement | null;
-      _pendingConnectionTitle = extractCardTitle(card, _pendingConnectionName);
+      _pendingConnectionTitle = extractCardTitle(card, el);
       _pendingConnectionProfileUrl = extractProfileUrl(el);
       console.log('[LinkedIn Tracker] captured (connect click):', {
         name: _pendingConnectionName,
