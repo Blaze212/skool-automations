@@ -258,11 +258,14 @@ document.body.addEventListener(
       const card = el.closest('li, [data-view-name]') as HTMLElement | null;
       _pendingConnectionTitle = extractCardTitle(card, _pendingConnectionName);
       _pendingConnectionProfileUrl = extractProfileUrl(el);
-      console.log('[LinkedIn Tracker] captured (connect click):', {
-        name: _pendingConnectionName,
-        title: _pendingConnectionTitle,
-        profile_url: _pendingConnectionProfileUrl,
-      });
+      console.log(
+        '[LinkedIn Tracker] connect modal opened for:',
+        _pendingConnectionName,
+        '| title:',
+        _pendingConnectionTitle,
+        '| url:',
+        _pendingConnectionProfileUrl,
+      );
       return;
     }
 
@@ -275,12 +278,14 @@ document.body.addEventListener(
       ariaLabel === 'Send invite' ||
       ariaLabel.startsWith('Send invite to ')
     ) {
-      console.log('[LinkedIn Tracker] sending (send button):', {
-        name: _pendingConnectionName,
-        title: _pendingConnectionTitle,
-        profile_url: _pendingConnectionProfileUrl,
-        button: ariaLabel,
-      });
+      console.log(
+        '[LinkedIn Tracker] connection send matched:',
+        ariaLabel,
+        '| pending name:',
+        _pendingConnectionName,
+        '| pending title:',
+        _pendingConnectionTitle,
+      );
       handleConnectionRequest(
         el,
         _pendingConnectionName ?? undefined,
