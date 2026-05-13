@@ -2,10 +2,14 @@ import { defineConfig } from 'vitest/config';
 import { resolve } from 'path';
 
 export default defineConfig({
+  define: {
+    LINKEDIN_TRACKER_WEBHOOK_URL: JSON.stringify('http://localhost/test-webhook'),
+  },
   test: {
     globals: true,
     environment: 'node',
     include: ['tests/unit/**/*.test.ts'],
+    setupFiles: ['tests/__mocks__/chrome.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

@@ -1,5 +1,6 @@
 node_modules/
 dist/
+linkedin-tracker/dist/
 .env
 *.local
 .pnpm-store/
@@ -7,3 +8,4 @@ docs/workbook-raw.json
 supabase/.branches/_current_branch
 supabase/.temp/cli-latest
 coverage/
+.DS_Store

@@ -28,3 +28,6 @@ port = 54337
 
 [functions.fractional-onboarding-form-webhook]
 verify_jwt = false
+
+[functions.linkedin-tracker-webhook]
+verify_jwt = false
