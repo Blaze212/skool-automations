@@ -94,22 +94,22 @@ export async function handler(req: Request): Promise<Response> {
       }
 
       const formattedDate = formatDate(body.date);
+      // Columns B–K (A is intentionally blank, left for manual use)
       const row = [
-        '',
-        '',
-        '',
-        '',
-        body.name,
-        body.title,
-        '',
-        body.message_type,
-        formattedDate,
-        'Sent',
-        body.message_text,
+        '', // B: INDUSTRY  (manual)
+        '', // C: COMPANY   (manual)
+        '', // D: ROLE TITLE (manual)
+        body.name, // E: PERSON'S NAME
+        body.title, // F: PERSON'S TITLE
+        '', // G: BUCKET    (manual)
+        body.message_type, // H: MESSAGE TYPE
+        formattedDate, // I: DATE
+        'Sent', // J: STATUS
+        body.message_text, // K: NOTES
       ];
 
       const sheets = createGoogleSheetsClient();
-      await sheets.appendRow(sheet_id, 'Outreach Log!A:K', row);
+      await sheets.appendRow(sheet_id, 'Outreach Log!B:K', row);
 
       log.info(
         {

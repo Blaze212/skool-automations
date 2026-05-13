@@ -34,6 +34,7 @@ export class GoogleSheetsClient {
       `${SHEETS_API}/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}:append`,
     );
     url.searchParams.set('valueInputOption', 'USER_ENTERED');
+    url.searchParams.set('insertDataOption', 'INSERT_ROWS');
 
     const res = await this.deps.fetch(url.toString(), {
       method: 'POST',
