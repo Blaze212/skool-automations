@@ -53,13 +53,11 @@ describe('background handleMessage', () => {
     });
     vi.stubGlobal(
       'fetch',
-      vi
-        .fn()
-        .mockResolvedValue({
-          ok: false,
-          status: 403,
-          text: () => Promise.resolve('Forbidden'),
-        } as unknown as Response),
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        text: () => Promise.resolve('Forbidden'),
+      } as unknown as Response),
     );
 
     await handleMessage(BASE_EVENT);
