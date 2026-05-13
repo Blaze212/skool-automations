@@ -78,7 +78,12 @@ export async function handler(req: Request): Promise<Response> {
         .eq('api_key', body.api_key)
         .single();
 
-      if (error || !client) {
+      if (error) {
+        log.error({ supabaseError: error }, 'DB lookup error for api_key');
+        throw new AccessDeniedException({ message: 'Unknown api_key' });
+      }
+      if (!client) {
+        log.warn({ api_key_prefix: body.api_key.slice(0, 8) }, 'api_key not found in DB');
         throw new AccessDeniedException({ message: 'Unknown api_key' });
       }
 
