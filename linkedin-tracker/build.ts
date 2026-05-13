@@ -1,7 +1,9 @@
 import * as esbuild from 'esbuild';
 import { copyFileSync, mkdirSync } from 'fs';
 
-const WEBHOOK_URL = process.env.LINKEDIN_TRACKER_WEBHOOK_URL ?? '';
+const WEBHOOK_URL =
+  process.env.LINKEDIN_TRACKER_WEBHOOK_URL ??
+  'https://ktazhzplyhpqayjaghur.supabase.co/functions/v1/linkedin-tracker-webhook';
 if (!WEBHOOK_URL) {
   console.warn(
     '[build] WARNING: LINKEDIN_TRACKER_WEBHOOK_URL is not set — background.js will not POST events.\n' +
