@@ -34,7 +34,7 @@ function formatDate(iso: string): string {
 }
 
 function validateBody(body: Partial<RequestBody>): RequestBody {
-  const required = ['api_key', 'date', 'name', 'title', 'message_type', 'status'] as const;
+  const required = ['api_key', 'date', 'name', 'message_type', 'status'] as const;
   for (const field of required) {
     if (!body[field]) {
       throw new ValidationException({ message: `Missing required field: ${field}` });
