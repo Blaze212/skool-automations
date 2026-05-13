@@ -1,4 +1,9 @@
 import { STORAGE_KEYS, type DebugPayload, type TrackerEvent } from './types.ts';
+import { ConnectionSearchCard } from './connection-search-card.ts';
+import { ProfilePageCard } from './profile-page-card.ts';
+
+export { ConnectionSearchCard } from './connection-search-card.ts';
+export { ProfilePageCard } from './profile-page-card.ts';
 
 let _lastSent: { name: string; ts: number } | null = null;
 
@@ -31,43 +36,6 @@ function buildDebugPayload(button: HTMLElement, container: HTMLElement | null): 
     container_html: (container?.outerHTML ?? '').substring(0, 10000),
     page_url: window.location.href,
   };
-}
-
-// Extract the headline from a profile card using structural DOM navigation.
-// LinkedIn hashes its class names, so we anchor on the profile link href (stable)
-// instead of class selectors or text content patterns.
-// Structure: name <p> → next sibling element = title, regardless of class names.
-function extractCardTitle(card: HTMLElement | null, connectLink: HTMLElement): string {
-  if (!card) return '';
-  const href = connectLink.getAttribute('href') ?? '';
-  const m = href.match(/vanityName=([^&]+)/);
-  if (!m) return '';
-
-  // The profile name link uses the same vanityName — find it by href.
-  const nameLink = card.querySelector(`a[href*="/in/${m[1]}"]`) as HTMLElement | null;
-  const namePara = nameLink?.closest('p') as HTMLElement | null;
-  if (!namePara) return '';
-
-  // Walk siblings after the name <p>; skip action rows (contain buttons or labelled links).
-  let el = namePara.nextElementSibling as HTMLElement | null;
-  while (el) {
-    if (!el.querySelector('button, a[aria-label]')) {
-      const text = el.textContent?.trim() ?? '';
-      if (text.length >= 5) return text;
-    }
-    el = el.nextElementSibling as HTMLElement | null;
-  }
-  return '';
-}
-
-// Extract the LinkedIn profile URL from the connect link's href vanityName param.
-function extractProfileUrl(connectLink: HTMLElement): string {
-  const href = connectLink.getAttribute('href') ?? '';
-  const m = href.match(/vanityName=([^&]+)/);
-  if (m) return `https://www.linkedin.com/in/${m[1]}/`;
-  const pathMatch = window.location.pathname.match(/^\/in\/([^/]+)/);
-  if (pathMatch) return `https://www.linkedin.com/in/${pathMatch[1]}/`;
-  return '';
 }
 
 export async function handleConnectionRequest(
@@ -134,6 +102,7 @@ export async function handleConnectionRequest(
     title,
     company: '',
     profile_url: pendingProfileUrl ?? '',
+    page_url: window.location.href,
     message_type: 'Connection Request',
     // TODO: capture note text in V2 (separate <textarea> in note composer)
     message_text: '',
@@ -150,20 +119,102 @@ export async function handleConnectionRequest(
   }
 }
 
+function extractMessagingRecipient(composerContainer: HTMLElement | null): {
+  name: string;
+  profileUrl: string;
+  title: string;
+} {
+  // Primary: find the profile picture, walk up to the entity lockup container, then
+  // extract name+URL from the /in/ link and title from the div[title] attribute.
+  let convRoot: HTMLElement | null = composerContainer?.parentElement ?? null;
+  while (convRoot && convRoot !== document.body && convRoot !== document.documentElement) {
+    const img = convRoot.querySelector('img') as HTMLImageElement | null;
+    if (img) {
+      let lockup: HTMLElement | null = img.parentElement;
+      while (lockup && lockup !== convRoot) {
+        if (lockup.querySelector('a[href*="/in/"]')) {
+          // Skip the profile picture link (contains <img> with a11y status text).
+          const allLinks = Array.from(
+            lockup.querySelectorAll('a[href*="/in/"]'),
+          ) as HTMLAnchorElement[];
+          const profileLink = allLinks.find((a) => !a.querySelector('img')) ?? null;
+          if (profileLink) {
+            const name = profileLink.textContent?.trim() ?? '';
+            const profileUrl = profileLink.href;
+            let title = '';
+            for (const el of Array.from(lockup.querySelectorAll('div[title], span[title]'))) {
+              const t = (el as HTMLElement).getAttribute('title') ?? '';
+              if (t.length >= 5 && !t.startsWith('·') && !/^\d/.test(t)) {
+                title = t;
+                break;
+              }
+            }
+            if (name) return { name, profileUrl, title };
+          }
+          break;
+        }
+        lockup = lockup.parentElement;
+      }
+    }
+    convRoot = convRoot.parentElement;
+  }
+
+  // Fallback 1: <header> containing a profile link (overlay popup, no visible picture).
+  let name = '';
+  let profileUrl = '';
+  let node: HTMLElement | null = composerContainer?.parentElement ?? null;
+  while (node && node !== document.body && node !== document.documentElement) {
+    const headerLink = node.querySelector('header a[href*="/in/"]') as HTMLAnchorElement | null;
+    if (headerLink) {
+      name = headerLink.textContent?.trim() ?? '';
+      profileUrl = headerLink.href;
+      break;
+    }
+    node = node.parentElement;
+  }
+
+  // Fallback 2: class-based selectors.
+  if (!name) {
+    const nameEl = (document.querySelector('.msg-entity-lockup__entity-title') ??
+      document.querySelector('.msg-conversation-listitem__participant-names') ??
+      document.querySelector('.msg-overlay-bubble-header__title a')) as HTMLElement | null;
+    name = nameEl?.textContent?.trim() ?? '';
+  }
+  const titleEl = document.querySelector('.artdeco-entity-lockup__subtitle') as HTMLElement | null;
+  const title = titleEl?.textContent?.trim() ?? '';
+
+  return { name, profileUrl, title };
+}
+
 export async function handleDirectMessage(button: HTMLElement | null): Promise<void> {
-  const composer = (document.querySelector('.msg-form__contenteditable[contenteditable]') ??
+  // Walk up from the send button to find the nearest ancestor containing a contenteditable.
+  const anchor = button ?? (document.activeElement as HTMLElement | null);
+  let composerContainer: HTMLElement | null = null;
+  let node: HTMLElement | null = anchor?.parentElement ?? null;
+  while (node && node !== document.body && node !== document.documentElement) {
+    if (node.querySelector('[contenteditable="true"]')) {
+      composerContainer = node;
+      break;
+    }
+    node = node.parentElement;
+  }
+
+  const composer = (composerContainer?.querySelector('[contenteditable="true"]') ??
+    document.querySelector('.msg-form__contenteditable[contenteditable]') ??
     document.querySelector('[data-artdeco-is-focused][contenteditable]') ??
     (document.activeElement?.getAttribute('contenteditable') === 'true'
       ? document.activeElement
       : null)) as HTMLElement | null;
   const messageText = composer?.textContent?.trim() ?? '';
 
-  const nameEl = (document.querySelector('.msg-entity-lockup__entity-title') ??
-    document.querySelector('.msg-conversation-listitem__participant-names')) as HTMLElement | null;
-  const name = nameEl?.textContent?.trim() ?? '';
+  const { name, profileUrl, title } = extractMessagingRecipient(composerContainer);
 
-  const titleEl = document.querySelector('.msg-entity-lockup__subtitle') as HTMLElement | null;
-  const title = titleEl?.textContent?.trim() ?? '';
+  console.log('[LinkedIn Tracker] captured (direct message):', {
+    name,
+    title,
+    profile_url: profileUrl,
+    message_text: messageText,
+  });
 
   const scrapeFailed = !name;
   if (!name) {
@@ -187,7 +238,8 @@ export async function handleDirectMessage(button: HTMLElement | null): Promise<v
     name,
     title,
     company: '',
-    profile_url: '',
+    profile_url: profileUrl,
+    page_url: window.location.href,
     message_type: 'Direct Message',
     message_text: messageText,
     status: 'Sent',
@@ -232,6 +284,31 @@ document.body.addEventListener(
       anyA?.getAttribute('aria-label'),
     );
 
+    // When the click lands inside a contenteditable, log what we'd extract as the recipient.
+    const ce = path.find(
+      (node) => (node as HTMLElement).getAttribute?.('contenteditable') === 'true',
+    ) as HTMLElement | null;
+    if (ce) {
+      let formNode: HTMLElement | null = ce.parentElement;
+      while (formNode && formNode !== document.body && formNode !== document.documentElement) {
+        if (formNode.tagName === 'FORM' || formNode.classList.contains('msg-form')) break;
+        formNode = formNode.parentElement;
+      }
+      if (formNode && formNode !== document.body && formNode !== document.documentElement) {
+        const {
+          name: pName,
+          profileUrl: pUrl,
+          title: pTitle,
+        } = extractMessagingRecipient(formNode);
+        console.log('[LinkedIn Tracker] messaging form active, extraction preview:', {
+          name: pName || '(not found)',
+          profile_url: pUrl || '(not found)',
+          title: pTitle || '(not found)',
+          message_text: ce.textContent?.trim() || '(empty)',
+        });
+      }
+    }
+
     // Match the first button or aria-labelled anchor in the composed path
     const el =
       (path.find(
@@ -247,9 +324,11 @@ document.body.addEventListener(
     const inviteToConnect = ariaLabel.match(/^Invite (.+) to connect$/);
     if (inviteToConnect) {
       _pendingConnectionName = inviteToConnect[1].trim();
-      const card = el.closest('li, [data-view-name]') as HTMLElement | null;
-      _pendingConnectionTitle = extractCardTitle(card, el);
-      _pendingConnectionProfileUrl = extractProfileUrl(el);
+      const searchCard = ConnectionSearchCard.fromConnectLink(el);
+      const profileCard = searchCard === null ? ProfilePageCard.fromConnectLink(el) : null;
+      const card = searchCard ?? profileCard;
+      _pendingConnectionTitle = card?.title ?? '';
+      _pendingConnectionProfileUrl = card?.profileUrl ?? '';
       console.log('[LinkedIn Tracker] captured (connect click):', {
         name: _pendingConnectionName,
         title: _pendingConnectionTitle,
@@ -285,7 +364,14 @@ document.body.addEventListener(
       return;
     }
 
-    if (ariaLabel === 'Send message') {
+    // Overlay send button has no aria-label — detect by text content inside a messaging form.
+    const sendForm = el.closest('form');
+    if (
+      ariaLabel === 'Send message' ||
+      (el.tagName === 'BUTTON' &&
+        el.textContent?.trim() === 'Send' &&
+        !!sendForm?.querySelector('[contenteditable]'))
+    ) {
       handleDirectMessage(el).catch((err) =>
         console.warn('[LinkedIn Tracker] handleDirectMessage error:', err),
       );
@@ -301,8 +387,7 @@ document.body.addEventListener(
     if (e.key !== 'Enter' || e.shiftKey) return;
     const active = document.activeElement as HTMLElement | null;
     if (active?.getAttribute('contenteditable') !== 'true') return;
-    if (!active.classList.contains('msg-form__contenteditable') && !active.closest('.msg-form'))
-      return;
+    if (!active.closest('form, .msg-form')) return;
 
     handleDirectMessage(null).catch((err) =>
       console.warn('[LinkedIn Tracker] handleDirectMessage error:', err),

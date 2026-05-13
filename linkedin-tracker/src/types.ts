@@ -12,6 +12,7 @@ export interface TrackerEvent {
   title: string;
   company: string;
   profile_url: string;
+  page_url: string;
   message_type: 'Connection Request' | 'Direct Message';
   message_text: string;
   status: 'Sent';

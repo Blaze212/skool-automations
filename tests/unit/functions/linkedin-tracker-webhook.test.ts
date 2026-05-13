@@ -177,6 +177,25 @@ describe('linkedin-tracker-webhook', () => {
     expect(rowArg[10]).toBe('https://www.linkedin.com/in/janedoe/');
   });
 
+  it('page_url present → accepted and not written to sheet row', async () => {
+    vi.mocked(createAdminClient).mockReturnValue(
+      makeDbMock({ sheet_id: SHEET_ID }) as ReturnType<typeof createAdminClient>,
+    );
+
+    const res = await handler(
+      makeRequest({
+        ...VALID_BODY,
+        page_url: 'https://www.linkedin.com/search/results/people/?keywords=oracle',
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    const sheets = vi.mocked(createGoogleSheetsClient).mock.results[0].value;
+    const rowArg = sheets.appendRow.mock.calls[0][2] as string[];
+    expect(rowArg).toHaveLength(11);
+    expect(rowArg.join('')).not.toContain('search/results');
+  });
+
   it('Sheets API throws → 500', async () => {
     vi.mocked(createAdminClient).mockReturnValue(
       makeDbMock({ sheet_id: SHEET_ID }) as ReturnType<typeof createAdminClient>,
