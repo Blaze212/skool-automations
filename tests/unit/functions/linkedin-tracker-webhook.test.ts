@@ -129,6 +129,14 @@ describe('linkedin-tracker-webhook', () => {
     expect(body.code).toBe('VALIDATION_ERROR');
   });
 
+  it('empty title is accepted → 200', async () => {
+    vi.mocked(createAdminClient).mockReturnValue(
+      makeDbMock({ sheet_id: SHEET_ID }) as ReturnType<typeof createAdminClient>,
+    );
+    const res = await handler(makeRequest({ ...VALID_BODY, title: '' }));
+    expect(res.status).toBe(200);
+  });
+
   it('debug field present → logged but not in row array', async () => {
     vi.mocked(createAdminClient).mockReturnValue(
       makeDbMock({ sheet_id: SHEET_ID }) as ReturnType<typeof createAdminClient>,
