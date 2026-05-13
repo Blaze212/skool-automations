@@ -52,6 +52,24 @@ function makeDbMock(client: { sheet_id: string } | null) {
 }
 
 describe('linkedin-tracker-webhook', () => {
+  it('OPTIONS preflight → 204 with CORS headers', async () => {
+    const req = new Request('http://localhost/functions/v1/linkedin-tracker-webhook', {
+      method: 'OPTIONS',
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(204);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(res.headers.get('Access-Control-Allow-Methods')).toContain('POST');
+  });
+
+  it('POST response includes CORS header', async () => {
+    vi.mocked(createAdminClient).mockReturnValue(
+      makeDbMock({ sheet_id: SHEET_ID }) as ReturnType<typeof createAdminClient>,
+    );
+    const res = await handler(makeRequest(VALID_BODY));
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     denoEnvGet.mockImplementation((key: string) => {
