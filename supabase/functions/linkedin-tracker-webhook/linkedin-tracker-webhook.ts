@@ -43,7 +43,24 @@ function validateBody(body: Partial<RequestBody>): RequestBody {
   return body as RequestBody;
 }
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
+function json(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+  });
+}
+
 export async function handler(req: Request): Promise<Response> {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+
   try {
     const log = logger.child({ fn: 'linkedin-tracker-webhook' });
 
@@ -99,23 +116,14 @@ export async function handler(req: Request): Promise<Response> {
         'linkedin-tracker-webhook: row appended',
       );
 
-      return new Response(JSON.stringify({ success: true }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return json({ success: true }, 200);
     } catch (err) {
       const normalized = logError(err as Error, 'linkedin-tracker-webhook failed');
-      return new Response(JSON.stringify(errorBody(normalized)), {
-        status: normalized.status,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return json(errorBody(normalized), normalized.status);
     }
   } catch (err) {
     console.error('linkedin-tracker-webhook: unhandled framework error', err);
     const normalized = normalizeError(err as Error);
-    return new Response(JSON.stringify(errorBody(normalized)), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return json(errorBody(normalized), 500);
   }
 }
