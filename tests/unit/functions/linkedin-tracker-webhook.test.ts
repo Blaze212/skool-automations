@@ -96,7 +96,7 @@ describe('linkedin-tracker-webhook', () => {
     expect(body.success).toBe(true);
 
     const sheets = vi.mocked(createGoogleSheetsClient).mock.results[0].value;
-    expect(sheets.appendRow).toHaveBeenCalledWith(SHEET_ID, 'Outreach Log!B:K', [
+    expect(sheets.appendRow).toHaveBeenCalledWith(SHEET_ID, 'Outreach Log!B:L', [
       '',
       '',
       '',
@@ -106,6 +106,7 @@ describe('linkedin-tracker-webhook', () => {
       'Connection Request',
       '5/13/2026',
       'Sent',
+      '',
       '',
     ]);
   });
@@ -156,9 +157,24 @@ describe('linkedin-tracker-webhook', () => {
 
     const sheets = vi.mocked(createGoogleSheetsClient).mock.results[0].value;
     const rowArg = sheets.appendRow.mock.calls[0][2] as string[];
-    expect(rowArg).toHaveLength(10);
+    expect(rowArg).toHaveLength(11);
     // debug not in row
     expect(rowArg.join('')).not.toContain('button_aria_label');
+  });
+
+  it('profile_url present → written to last column', async () => {
+    vi.mocked(createAdminClient).mockReturnValue(
+      makeDbMock({ sheet_id: SHEET_ID }) as ReturnType<typeof createAdminClient>,
+    );
+
+    const res = await handler(
+      makeRequest({ ...VALID_BODY, profile_url: 'https://www.linkedin.com/in/janedoe/' }),
+    );
+    expect(res.status).toBe(200);
+
+    const sheets = vi.mocked(createGoogleSheetsClient).mock.results[0].value;
+    const rowArg = sheets.appendRow.mock.calls[0][2] as string[];
+    expect(rowArg[10]).toBe('https://www.linkedin.com/in/janedoe/');
   });
 
   it('Sheets API throws → 500', async () => {

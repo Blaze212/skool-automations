@@ -22,6 +22,7 @@ interface RequestBody {
   name: string;
   title: string;
   company: string;
+  profile_url?: string;
   message_type: 'Connection Request' | 'Direct Message';
   message_text: string;
   status: 'Sent';
@@ -94,7 +95,7 @@ export async function handler(req: Request): Promise<Response> {
       }
 
       const formattedDate = formatDate(body.date);
-      // Columns B–K (A is intentionally blank, left for manual use)
+      // Columns B–L (A is intentionally blank, left for manual use)
       const row = [
         '', // B: INDUSTRY  (manual)
         '', // C: COMPANY   (manual)
@@ -106,10 +107,11 @@ export async function handler(req: Request): Promise<Response> {
         formattedDate, // I: DATE
         'Sent', // J: STATUS
         body.message_text, // K: NOTES
+        body.profile_url ?? '', // L: PROFILE URL
       ];
 
       const sheets = createGoogleSheetsClient();
-      await sheets.appendRow(sheet_id, 'Outreach Log!B:K', row);
+      await sheets.appendRow(sheet_id, 'Outreach Log!B:L', row);
 
       log.info(
         {

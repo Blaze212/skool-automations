@@ -33,10 +33,56 @@ function buildDebugPayload(button: HTMLElement, container: HTMLElement | null): 
   };
 }
 
+// Extract the headline from a profile card using DOM traversal instead of
+// CSS class selectors (LinkedIn's class names are hashed and change frequently).
+function extractCardTitle(card: HTMLElement | null, name: string): string {
+  if (!card) return '';
+  const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      // Skip text inside buttons, svgs, images, and LinkedIn action links
+      const blocked = (node.parentElement as HTMLElement | null)?.closest(
+        'button, svg, figure, [aria-label^="Invite"], [aria-label="More"], [aria-label="Message"], [aria-label="Write with AI"]',
+      );
+      return blocked ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  let seenName = false;
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const text = node.textContent?.trim() ?? '';
+    if (!text || text.length < 3) continue;
+    if (text === name || text.startsWith(name + ' ')) {
+      seenName = true;
+      continue;
+    }
+    if (!seenName) continue;
+    // Skip noise: connection degree, pronouns, follower counts, "Current: " prefix
+    if (/^[•·]?\s*(1st|2nd|3rd)\s*$/.test(text)) continue;
+    if (/^(he|she|they)\/.+/i.test(text)) continue;
+    if (/^\d+(,\d+)*\+?$/.test(text)) continue;
+    if (/^(connections|followers|Contact info)$/i.test(text)) continue;
+    if (text === 'Connect' || text === 'Message' || text === 'More' || text === '·') continue;
+    if (text.startsWith('Current: ')) continue;
+    if (text.length >= 5) return text;
+  }
+  return '';
+}
+
+// Extract the LinkedIn profile URL from the connect link's href vanityName param.
+function extractProfileUrl(connectLink: HTMLElement): string {
+  const href = connectLink.getAttribute('href') ?? '';
+  const m = href.match(/vanityName=([^&]+)/);
+  if (m) return `https://www.linkedin.com/in/${m[1]}/`;
+  const pathMatch = window.location.pathname.match(/^\/in\/([^/]+)/);
+  if (pathMatch) return `https://www.linkedin.com/in/${pathMatch[1]}/`;
+  return '';
+}
+
 export async function handleConnectionRequest(
   el: HTMLElement,
   pendingName?: string,
   pendingTitle?: string,
+  pendingProfileUrl?: string,
 ): Promise<void> {
   console.log('[LinkedIn Tracker] handleConnectionRequest called, pendingName:', pendingName);
   const modal = el.closest('[role="dialog"]') as HTMLElement | null;
@@ -95,6 +141,7 @@ export async function handleConnectionRequest(
     name,
     title,
     company: '',
+    profile_url: pendingProfileUrl ?? '',
     message_type: 'Connection Request',
     // TODO: capture note text in V2 (separate <textarea> in note composer)
     message_text: '',
@@ -148,6 +195,7 @@ export async function handleDirectMessage(button: HTMLElement | null): Promise<v
     name,
     title,
     company: '',
+    profile_url: '',
     message_type: 'Direct Message',
     message_text: messageText,
     status: 'Sent',
@@ -165,6 +213,7 @@ export async function handleDirectMessage(button: HTMLElement | null): Promise<v
 // The link opens a modal — we wait for the modal's actual send button before logging.
 let _pendingConnectionName: string | null = null;
 let _pendingConnectionTitle: string | null = null;
+let _pendingConnectionProfileUrl: string | null = null;
 
 document.body.addEventListener(
   'click',
@@ -206,19 +255,16 @@ document.body.addEventListener(
     const inviteToConnect = ariaLabel.match(/^Invite (.+) to connect$/);
     if (inviteToConnect) {
       _pendingConnectionName = inviteToConnect[1].trim();
-      // Capture headline from profile card surrounding the connect link
-      const card = el.closest(
-        'li, [data-view-name], .entity-result, .artdeco-entity-lockup',
-      ) as HTMLElement | null;
-      const subtitleEl = card?.querySelector(
-        '.entity-result__primary-subtitle, .artdeco-entity-lockup__subtitle, .pv-text-details__left-panel div',
-      ) as HTMLElement | null;
-      _pendingConnectionTitle = subtitleEl?.textContent?.trim() ?? null;
+      const card = el.closest('li, [data-view-name]') as HTMLElement | null;
+      _pendingConnectionTitle = extractCardTitle(card, _pendingConnectionName);
+      _pendingConnectionProfileUrl = extractProfileUrl(el);
       console.log(
         '[LinkedIn Tracker] connect modal opened for:',
         _pendingConnectionName,
         '| title:',
         _pendingConnectionTitle,
+        '| url:',
+        _pendingConnectionProfileUrl,
       );
       return;
     }
@@ -244,9 +290,11 @@ document.body.addEventListener(
         el,
         _pendingConnectionName ?? undefined,
         _pendingConnectionTitle ?? undefined,
+        _pendingConnectionProfileUrl ?? undefined,
       ).catch((err) => console.warn('[LinkedIn Tracker] handleConnectionRequest error:', err));
       _pendingConnectionName = null;
       _pendingConnectionTitle = null;
+      _pendingConnectionProfileUrl = null;
       return;
     }
 
