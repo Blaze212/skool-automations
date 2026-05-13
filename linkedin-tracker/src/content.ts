@@ -16,8 +16,12 @@ function recordSent(name: string): void {
 }
 
 async function getDebugMode(): Promise<boolean> {
-  const result = await chrome.storage.sync.get(STORAGE_KEYS.DEBUG_MODE);
-  return !!(result as Record<string, unknown>)[STORAGE_KEYS.DEBUG_MODE];
+  try {
+    const result = await chrome.storage.sync.get(STORAGE_KEYS.DEBUG_MODE);
+    return !!(result as Record<string, unknown>)[STORAGE_KEYS.DEBUG_MODE];
+  } catch {
+    return false;
+  }
 }
 
 function buildDebugPayload(button: HTMLElement, container: HTMLElement | null): DebugPayload {
@@ -236,18 +240,20 @@ document.body.addEventListener(
         '| pending title:',
         _pendingConnectionTitle,
       );
-      void handleConnectionRequest(
+      handleConnectionRequest(
         el,
         _pendingConnectionName ?? undefined,
         _pendingConnectionTitle ?? undefined,
-      );
+      ).catch((err) => console.warn('[LinkedIn Tracker] handleConnectionRequest error:', err));
       _pendingConnectionName = null;
       _pendingConnectionTitle = null;
       return;
     }
 
     if (ariaLabel === 'Send message') {
-      void handleDirectMessage(el);
+      handleDirectMessage(el).catch((err) =>
+        console.warn('[LinkedIn Tracker] handleDirectMessage error:', err),
+      );
       return;
     }
   },
@@ -263,7 +269,9 @@ document.body.addEventListener(
     if (!active.classList.contains('msg-form__contenteditable') && !active.closest('.msg-form'))
       return;
 
-    void handleDirectMessage(null);
+    handleDirectMessage(null).catch((err) =>
+      console.warn('[LinkedIn Tracker] handleDirectMessage error:', err),
+    );
   },
   { capture: true },
 );
