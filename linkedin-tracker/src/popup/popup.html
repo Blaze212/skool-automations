@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LinkedIn Tracker</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        min-width: 280px;
+        padding: 12px;
+      }
+      .status {
+        font-size: 12px;
+        margin-bottom: 8px;
+      }
+      .configured {
+        color: green;
+      }
+      .not-configured {
+        color: grey;
+      }
+      input[type='text'] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px;
+        margin-bottom: 4px;
+      }
+      .api-key-error {
+        color: red;
+        font-size: 11px;
+        margin-bottom: 4px;
+      }
+      button {
+        padding: 6px 12px;
+        cursor: pointer;
+      }
+      .save-confirm {
+        color: green;
+        font-size: 12px;
+        margin-left: 8px;
+      }
+      .timestamp {
+        font-size: 11px;
+        color: #555;
+        margin-top: 8px;
+      }
+      .last-error {
+        font-size: 11px;
+        color: red;
+        margin-top: 4px;
+      }
+      label {
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="status" class="status not-configured">Not configured</div>
+    <input type="text" id="api-key-input" placeholder="Enter API key" />
+    <div id="api-key-error" class="api-key-error" style="display: none">
+      API key cannot be empty
+    </div>
+    <div>
+      <button id="save-btn">Save</button>
+      <span id="save-confirm" class="save-confirm" style="display: none">Saved ✓</span>
+    </div>
+    <div id="timestamp" class="timestamp" style="display: none"></div>
+    <div id="last-error" class="last-error" style="display: none"></div>
+    <label>
+      <input type="checkbox" id="debug-toggle" />
+      Debug mode (sends selector diagnostics on failure)
+    </label>
+    <script src="popup.js"></script>
+  </body>
+</html>

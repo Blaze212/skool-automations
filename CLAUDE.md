@@ -88,11 +88,11 @@ pnpm migrate:local  # apply migrations
 **Serve functions:**
 
 ```bash
-pnpm functions:serve
+pnpm dev:functions
 # Functions at http://127.0.0.1:54331/functions/v1/<name>
 ```
 
-`supabase functions serve` auto-injects `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` from the local stack. `.env.local` only needs secrets Supabase doesn't inject (currently just `GOOGLE_APP_SCRIPTS_WEBHOOK_SECRET`).
+`supabase functions serve` runs the edge runtime in Docker — `doppler run --` alone does not reach the container. `dev:functions` dumps Doppler secrets to `/tmp/skool-funcs.env` and passes that file via `--env-file`. `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are auto-injected by the CLI from the local stack.
 
 **Other lifecycle commands:**
 

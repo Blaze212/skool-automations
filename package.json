@@ -9,7 +9,8 @@
     "check": "pnpm lint && pnpm format && pnpm typecheck",
     "chatbot-mvp": "doppler run -- tsx scripts/chatbot-mvp.ts",
     "typecheck:functions": "cd supabase/functions && deno check **/*.ts",
-    "typecheck": "tsc --noEmit && pnpm typecheck:functions",
+    "typecheck:extension": "tsc --noEmit --project linkedin-tracker/tsconfig.json",
+    "typecheck": "tsc --noEmit && pnpm typecheck:functions && pnpm typecheck:extension",
     "format:check": "prettier --check . && cd supabase/functions",
     "lint:functions": "cd supabase/functions && deno lint",
     "lint": "pnpm lint:functions",
@@ -21,7 +22,8 @@
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset",
     "migrate:local": "supabase migration up",
-    "functions:serve": "supabase functions serve --env-file .env.local"
+    "dev:functions": "doppler secrets download --no-file --format env-no-quotes > /tmp/skool-funcs.env && supabase functions serve --env-file /tmp/skool-funcs.env",
+    "build:extension": "tsx linkedin-tracker/build.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",
@@ -31,9 +33,13 @@
     "skool-cli": "^2.2.1"
   },
   "devDependencies": {
+    "@types/chrome": "^0.0.300",
+    "@types/jsdom": "^28.0.3",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^4.1.6",
+    "esbuild": "^0.28.0",
     "husky": "^9.0.0",
+    "jsdom": "^29.1.1",
     "lint-staged": "^15.0.0",
     "prettier": "^3.5.3",
     "prettier-plugin-tailwindcss": "^0.6.11",
