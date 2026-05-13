@@ -57,7 +57,7 @@ function extractCardTitle(card: HTMLElement | null, name: string): string {
     }
     if (!seenName) continue;
     // Skip noise: connection degree, pronouns, follower counts, "Current: " prefix
-    if (/^[•·]?\s*(1st|2nd|3rd)\s*$/.test(text)) continue;
+    if (/^\s*[•·]?\s*(1st|2nd|3rd)\s*$/.test(text)) continue;
     if (/^(he|she|they)\/.+/i.test(text)) continue;
     if (/^\d+(,\d+)*\+?$/.test(text)) continue;
     if (/^(connections|followers|Contact info)$/i.test(text)) continue;
