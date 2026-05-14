@@ -1,9 +1,9 @@
 import * as esbuild from 'esbuild';
-import { copyFileSync, mkdirSync } from 'fs';
+import { copyFileSync, mkdirSync, readdirSync } from 'fs';
 
 const WEBHOOK_URL =
   process.env.LINKEDIN_TRACKER_WEBHOOK_URL ??
-  'https://ktazhzplyhpqayjaghur.supabase.co/functions/v1/linkedin-tracker-webhook';
+  'https://ktazhzplyhpqayjaghur.supabase.co/functions/v1/cs-internal-linkedin-tracker-webhook';
 if (!WEBHOOK_URL) {
   console.warn(
     '[build] WARNING: LINKEDIN_TRACKER_WEBHOOK_URL is not set — background.js will not POST events.\n' +
@@ -12,6 +12,7 @@ if (!WEBHOOK_URL) {
 }
 
 mkdirSync('linkedin-tracker/dist/popup', { recursive: true });
+mkdirSync('linkedin-tracker/dist/icons', { recursive: true });
 
 await esbuild.build({
   entryPoints: ['linkedin-tracker/src/content.ts'],
@@ -45,5 +46,9 @@ await esbuild.build({
 
 copyFileSync('linkedin-tracker/src/manifest.json', 'linkedin-tracker/dist/manifest.json');
 copyFileSync('linkedin-tracker/src/popup/popup.html', 'linkedin-tracker/dist/popup/popup.html');
+
+for (const file of readdirSync('linkedin-tracker/src/icons')) {
+  copyFileSync(`linkedin-tracker/src/icons/${file}`, `linkedin-tracker/dist/icons/${file}`);
+}
 
 console.log('Extension build complete');
