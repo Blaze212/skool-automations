@@ -29,6 +29,12 @@ supabase/functions/<name>/<name>.ts         ← all logic, exported as handler()
 
 `index.ts` is required by the Supabase edge runtime. Putting all logic in `<name>.ts` makes it findable by name in VS Code fuzzy search, keeps `serve()` isolated to one file, and lets tests import `handler` directly without mocking `serve()`.
 
+When a function's DB access grows into a class (e.g. a table-scoped DB class), extract it into its own file alongside the handler:
+
+```
+supabase/functions/<name>/<table-name>-db.ts   ← DB class for a single table
+```
+
 ### Shared utilities
 
 All functions import from `supabase/functions/_shared/` — never inline raw `Deno.env.get()` or `createClient()` calls:
