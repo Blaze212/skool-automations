@@ -87,4 +87,39 @@ describe('background handleMessage', () => {
       }),
     );
   });
+
+  it('handleMessage returns { ok: true } on 200 response', async () => {
+    (chrome.storage.sync.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      [STORAGE_KEYS.API_KEY]: 'my-api-key',
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200 } as Response));
+
+    const result = await handleMessage(BASE_EVENT);
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('handleMessage returns { ok: false, message: "Connection timed out" } on AbortController timeout', async () => {
+    vi.useFakeTimers();
+    (chrome.storage.sync.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      [STORAGE_KEYS.API_KEY]: 'my-api-key',
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((_url: string, opts?: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          opts?.signal?.addEventListener('abort', () => {
+            reject(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' }));
+          });
+        });
+      }),
+    );
+
+    const promise = handleMessage(BASE_EVENT);
+    await vi.advanceTimersByTimeAsync(10_001);
+    const result = await promise;
+
+    expect(result).toEqual({ ok: false, message: 'Connection timed out' });
+    vi.useRealTimers();
+  });
 });

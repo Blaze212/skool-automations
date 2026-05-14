@@ -72,7 +72,7 @@ Every file containing `Deno.serve()` or `serve()` registers an HTTP handler as a
 
 ### `unknown` type ban
 
-**Never use the `unknown` type.** Ask for explicit permission before using it. Use `Error` for caught errors (enabled by `useUnknownInCatchVariables: false` in `supabase/functions/deno.json`). Cast with `err as Error` at handler catch boundaries.
+**Never use the `unknown` type** outside of `catch` blocks. Ask for explicit permission before using it elsewhere. Use `Error` for caught errors (enabled by `useUnknownInCatchVariables: false` in `supabase/functions/deno.json`). Cast with `err as Error` at handler catch boundaries.
 
 ## Local development setup
 
@@ -128,7 +128,7 @@ After every change, run in this order:
 
 - Don't hardcode secrets or commit `.env` files — secrets are injected via Supabase CLI locally and via GitHub Actions secrets in CI.
 - **Never run `supabase db push` locally** — migrations are deployed exclusively via CI on push to main. Running it locally will push unapplied migrations directly to production.
-- **Never use the `unknown` type** — ask for explicit permission before using it. Use `Error` for caught errors (enabled by `useUnknownInCatchVariables: false` in `supabase/functions/deno.json`).
+- **Never use the `unknown` type** outside of `catch` blocks — ask for explicit permission before using it elsewhere. Use `Error` for caught errors (enabled by `useUnknownInCatchVariables: false` in `supabase/functions/deno.json`).
 - Never set `verify_jwt = true` in `supabase/config.toml` for any function — ES256 JWTs will fail. Auth is handled in-function.
 - Never import from a file that contains `Deno.serve()` — see Module Isolation rule above.
 

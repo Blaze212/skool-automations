@@ -5,14 +5,23 @@ import { initPopup } from '../../../linkedin-tracker/src/popup/popup.ts';
 import { STORAGE_KEYS } from '../../../linkedin-tracker/src/types.ts';
 
 const POPUP_HTML = `
-  <div id="status" class="status not-configured">Not configured</div>
-  <input type="text" id="api-key-input" placeholder="Enter API key" />
-  <div id="api-key-error" style="display:none">API key cannot be empty</div>
-  <button id="save-btn">Save</button>
-  <span id="save-confirm" style="display:none">Saved ✓</span>
-  <div id="timestamp" style="display:none"></div>
-  <div id="last-error" style="display:none"></div>
-  <label><input type="checkbox" id="debug-toggle" /></label>
+  <div id="setup-mode">
+    <p><a id="tracker-link" href="https://app.cmcareersystems.com/tracker">app.cmcareersystems.com/tracker</a></p>
+    <input type="text" id="api-key-input" placeholder="Enter API key" />
+    <div id="api-key-error" style="display:none">API key cannot be empty</div>
+    <button id="save-btn">Save</button>
+    <span id="save-confirm" style="display:none">Saved ✓</span>
+    <details id="manual-setup"><summary>Manual setup</summary></details>
+  </div>
+  <div id="configured-mode" style="display:none">
+    <div id="status" class="status not-configured">Not configured</div>
+    <div id="timestamp" style="display:none"></div>
+    <div id="last-error" style="display:none"></div>
+    <button id="test-btn">Test connection</button>
+    <span id="test-result" style="display:none"></span>
+    <button id="reset-btn">Reset</button>
+    <label><input type="checkbox" id="debug-toggle" /></label>
+  </div>
 `;
 
 describe('popup', () => {
@@ -115,5 +124,127 @@ describe('popup', () => {
     toggle.checked = true;
     toggle.dispatchEvent(new Event('change'));
     expect(chrome.storage.sync.set).toHaveBeenCalledWith({ [STORAGE_KEYS.DEBUG_MODE]: true });
+  });
+
+  it('setup mode shown when no api_key in storage; Tracker link present', async () => {
+    await initPopup();
+    expect(document.getElementById('setup-mode')!.style.display).not.toBe('none');
+    expect(document.getElementById('configured-mode')!.style.display).toBe('none');
+    const link = document.getElementById('tracker-link') as HTMLAnchorElement;
+    expect(link.href).toContain('app.cmcareersystems.com/tracker');
+  });
+
+  it('configured mode shown when api_key present', async () => {
+    (chrome.storage.sync.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      [STORAGE_KEYS.API_KEY]: 'existing-key',
+    });
+    await initPopup();
+    expect(document.getElementById('configured-mode')!.style.display).not.toBe('none');
+    expect(document.getElementById('setup-mode')!.style.display).toBe('none');
+  });
+
+  it('test connection: success → "Connection verified ✓" shown', async () => {
+    (chrome.storage.sync.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      [STORAGE_KEYS.API_KEY]: 'existing-key',
+    });
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(
+      (_msg: unknown, cb: (res: { ok: boolean }) => void) => cb({ ok: true }),
+    );
+    await initPopup();
+    document.getElementById('test-btn')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const result = document.getElementById('test-result')!;
+    expect(result.style.display).not.toBe('none');
+    expect(result.textContent).toContain('Connection verified ✓');
+  });
+
+  it('test connection: 403 → "Sheet not shared" message shown', async () => {
+    (chrome.storage.sync.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      [STORAGE_KEYS.API_KEY]: 'existing-key',
+    });
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(
+      (_msg: unknown, cb: (res: { ok: boolean; message: string }) => void) =>
+        cb({ ok: false, message: 'Sheet not shared' }),
+    );
+    await initPopup();
+    document.getElementById('test-btn')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.getElementById('test-result')!.textContent).toBe('Sheet not shared');
+  });
+
+  it('test connection: 500 → "Connection failed. Check your key." shown', async () => {
+    (chrome.storage.sync.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      [STORAGE_KEYS.API_KEY]: 'existing-key',
+    });
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(
+      (_msg: unknown, cb: (res: { ok: boolean; message: string }) => void) =>
+        cb({ ok: false, message: 'Connection failed. Check your key.' }),
+    );
+    await initPopup();
+    document.getElementById('test-btn')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.getElementById('test-result')!.textContent).toBe(
+      'Connection failed. Check your key.',
+    );
+  });
+
+  it('test connection: AbortError → "Connection timed out" shown', async () => {
+    (chrome.storage.sync.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      [STORAGE_KEYS.API_KEY]: 'existing-key',
+    });
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(
+      (_msg: unknown, cb: (res: { ok: boolean; message: string }) => void) =>
+        cb({ ok: false, message: 'Connection timed out' }),
+    );
+    await initPopup();
+    document.getElementById('test-btn')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.getElementById('test-result')!.textContent).toBe('Connection timed out');
+  });
+
+  it('reset clears api_key and returns to setup mode', async () => {
+    (chrome.storage.sync.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      [STORAGE_KEYS.API_KEY]: 'existing-key',
+    });
+    await initPopup();
+    expect(document.getElementById('configured-mode')!.style.display).not.toBe('none');
+    document.getElementById('reset-btn')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(chrome.storage.sync.set).toHaveBeenCalledWith({ [STORAGE_KEYS.API_KEY]: '' });
+    expect(document.getElementById('setup-mode')!.style.display).not.toBe('none');
+    expect(document.getElementById('configured-mode')!.style.display).toBe('none');
+  });
+
+  it('manual setup <details> collapsed by default; save still works when expanded', async () => {
+    await initPopup();
+    const details = document.getElementById('manual-setup') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    details.open = true;
+    const input = document.getElementById('api-key-input') as HTMLInputElement;
+    input.value = 'new-key-from-manual';
+    document.getElementById('save-btn')!.click();
+    expect(chrome.storage.sync.set).toHaveBeenCalledWith({
+      [STORAGE_KEYS.API_KEY]: 'new-key-from-manual',
+    });
+  });
+
+  it('test connection button disabled while test in-flight', async () => {
+    (chrome.storage.sync.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      [STORAGE_KEYS.API_KEY]: 'existing-key',
+    });
+    let resolveSendMessage!: (res: { ok: boolean }) => void;
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(
+      (_msg: unknown, cb: (res: { ok: boolean }) => void) => {
+        resolveSendMessage = cb;
+      },
+    );
+    await initPopup();
+    const testBtn = document.getElementById('test-btn') as HTMLButtonElement;
+    testBtn.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(testBtn.disabled).toBe(true);
+    resolveSendMessage({ ok: true });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(testBtn.disabled).toBe(false);
   });
 });
