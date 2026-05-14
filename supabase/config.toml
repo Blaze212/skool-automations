@@ -31,3 +31,6 @@ verify_jwt = false
 
 [functions.linkedin-tracker-webhook]
 verify_jwt = false
+
+[functions.linkedin-tracker-provision]
+verify_jwt = false

@@ -7,18 +7,13 @@
     <style>
       body {
         font-family: sans-serif;
-        min-width: 280px;
+        min-width: 300px;
         padding: 12px;
-      }
-      .status {
-        font-size: 12px;
-        margin-bottom: 8px;
       }
       .configured {
         color: green;
-      }
-      .not-configured {
-        color: grey;
+        font-size: 12px;
+        margin-bottom: 8px;
       }
       input[type='text'] {
         width: 100%;
@@ -26,7 +21,7 @@
         padding: 6px;
         margin-bottom: 4px;
       }
-      .api-key-error {
+      .error-msg {
         color: red;
         font-size: 11px;
         margin-bottom: 4px;
@@ -34,11 +29,11 @@
       button {
         padding: 6px 12px;
         cursor: pointer;
+        margin-right: 6px;
       }
-      .save-confirm {
+      .confirm {
         color: green;
         font-size: 12px;
-        margin-left: 8px;
       }
       .timestamp {
         font-size: 11px;
@@ -57,24 +52,62 @@
         gap: 6px;
         margin-top: 8px;
       }
+      details {
+        margin-top: 10px;
+        font-size: 12px;
+      }
+      summary {
+        cursor: pointer;
+        color: #666;
+      }
+      a {
+        color: #0066cc;
+      }
+      .setup-link {
+        font-size: 13px;
+        margin-bottom: 10px;
+      }
     </style>
   </head>
   <body>
-    <div id="status" class="status not-configured">Not configured</div>
-    <input type="text" id="api-key-input" placeholder="Enter API key" />
-    <div id="api-key-error" class="api-key-error" style="display: none">
-      API key cannot be empty
+    <!-- Setup mode: shown when no api_key is stored -->
+    <div id="setup-mode">
+      <p class="setup-link">
+        Get your API key at
+        <a href="https://app.cmcareersystems.com/tracker" target="_blank"
+          >app.cmcareersystems.com/tracker</a
+        >
+      </p>
+      <input type="text" id="api-key-input" placeholder="Enter API key" />
+      <div id="api-key-error" class="error-msg" style="display: none">API key cannot be empty</div>
+      <div>
+        <button id="save-btn">Save</button>
+        <span id="save-confirm" class="confirm" style="display: none">Saved ✓</span>
+      </div>
+      <details id="manual-setup">
+        <summary>Manual setup</summary>
+        <div style="margin-top: 6px">
+          <p style="margin: 0 0 4px">Enter your API key above to configure the extension.</p>
+        </div>
+      </details>
     </div>
-    <div>
-      <button id="save-btn">Save</button>
-      <span id="save-confirm" class="save-confirm" style="display: none">Saved ✓</span>
+
+    <!-- Configured mode: shown when api_key is stored -->
+    <div id="configured-mode" style="display: none">
+      <div id="status" class="configured">Configured</div>
+      <div id="timestamp" class="timestamp" style="display: none"></div>
+      <div id="last-error" class="last-error" style="display: none"></div>
+      <div style="margin-top: 8px">
+        <button id="test-btn">Test connection</button>
+        <button id="reset-btn">Reset</button>
+      </div>
+      <div id="test-result" style="display: none; margin-top: 6px; font-size: 12px"></div>
+      <label>
+        <input type="checkbox" id="debug-toggle" />
+        Debug mode (sends selector diagnostics on failure)
+      </label>
     </div>
-    <div id="timestamp" class="timestamp" style="display: none"></div>
-    <div id="last-error" class="last-error" style="display: none"></div>
-    <label>
-      <input type="checkbox" id="debug-toggle" />
-      Debug mode (sends selector diagnostics on failure)
-    </label>
+
     <script src="popup.js"></script>
   </body>
 </html>
