@@ -96,7 +96,9 @@ async function handlePost(
     throw new ValidationException({ message: 'Missing required field: sheet_id' });
   }
   if (!SHEET_ID_RE.test(sheetId)) {
-    throw new ValidationException({ message: 'Invalid sheet_id format' });
+    throw new ValidationException({
+      message: `Invalid sheet_id format: ${sheetId} does not match the required pattern`,
+    });
   }
 
   const serviceAccountEmail = requireServiceAccountEmail();
