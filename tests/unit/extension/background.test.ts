@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { handleMessage } from '../../../linkedin-tracker/src/background.ts';
+import { handleExternalPing, handleMessage } from '../../../linkedin-tracker/src/background.ts';
 import { STORAGE_KEYS, type TrackerEvent } from '../../../linkedin-tracker/src/types.ts';
 
 const BASE_EVENT: TrackerEvent = {
@@ -121,5 +121,30 @@ describe('background handleMessage', () => {
 
     expect(result).toEqual({ ok: false, message: 'Connection timed out' });
     vi.useRealTimers();
+  });
+});
+
+describe('handleExternalPing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (chrome.runtime.getManifest as ReturnType<typeof vi.fn>).mockReturnValue({ version: '1.2.3' });
+  });
+
+  it('ping message → sendResponse called with { ok: true, version }', () => {
+    const sendResponse = vi.fn();
+    handleExternalPing({ type: 'ping' }, sendResponse);
+    expect(sendResponse).toHaveBeenCalledWith({ ok: true, version: '1.2.3' });
+  });
+
+  it('unknown message type → sendResponse not called', () => {
+    const sendResponse = vi.fn();
+    handleExternalPing({ type: 'unknown' }, sendResponse);
+    expect(sendResponse).not.toHaveBeenCalled();
+  });
+
+  it('null message → sendResponse not called', () => {
+    const sendResponse = vi.fn();
+    handleExternalPing(null, sendResponse);
+    expect(sendResponse).not.toHaveBeenCalled();
   });
 });

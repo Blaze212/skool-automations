@@ -13,7 +13,11 @@ import { vi } from 'vitest';
   },
   runtime: {
     sendMessage: vi.fn(),
+    getManifest: vi.fn().mockReturnValue({ version: '1.0.0' }),
     onMessage: {
+      addListener: vi.fn(),
+    },
+    onMessageExternal: {
       addListener: vi.fn(),
     },
   },

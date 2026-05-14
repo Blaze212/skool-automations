@@ -23,7 +23,8 @@
     "db:reset": "supabase db reset",
     "migrate:local": "supabase migration up",
     "dev:functions": "doppler secrets download --no-file --format env-no-quotes > /tmp/skool-funcs.env && supabase functions serve --env-file /tmp/skool-funcs.env",
-    "build:extension": "tsx linkedin-tracker/build.ts"
+    "build:extension": "tsx linkedin-tracker/build.ts",
+    "package:extension": "doppler run -p skool -c prd -- tsx scripts/package-extension.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",

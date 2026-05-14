@@ -82,3 +82,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   void handleMessage(msg as TrackerEvent).then(sendResponse);
   return true;
 });
+
+export function handleExternalPing(msg: unknown, sendResponse: (response: unknown) => void): void {
+  if ((msg as { type?: string })?.type === 'ping') {
+    sendResponse({ ok: true, version: chrome.runtime.getManifest().version });
+  }
+}
+
+chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
+  handleExternalPing(msg, sendResponse);
+});
