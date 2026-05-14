@@ -1,9 +1,11 @@
 import { STORAGE_KEYS, type DebugPayload, type TrackerEvent } from './types.ts';
 import { ConnectionSearchCard } from './connection-search-card.ts';
 import { ProfilePageCard } from './profile-page-card.ts';
+import { MessengerPageCard } from './messenger-page-card.ts';
 
 export { ConnectionSearchCard } from './connection-search-card.ts';
 export { ProfilePageCard } from './profile-page-card.ts';
+export { MessengerPageCard } from './messenger-page-card.ts';
 
 let _lastSent: { name: string; ts: number } | null = null;
 
@@ -124,11 +126,35 @@ function extractMessagingRecipient(composerContainer: HTMLElement | null): {
   profileUrl: string;
   title: string;
 } {
+  // First: full messenger page — profile card is outside the compose form's ancestor chain.
+  const messengerCard = MessengerPageCard.fromDocument();
+  if (messengerCard?.name) {
+    console.log('[LinkedIn Tracker] extractMessagingRecipient: MessengerPageCard hit', {
+      name: messengerCard.name,
+      profile_url: messengerCard.profileUrl,
+      title: messengerCard.title,
+    });
+    return {
+      name: messengerCard.name,
+      profileUrl: messengerCard.profileUrl,
+      title: messengerCard.title,
+    };
+  }
+  if (messengerCard) {
+    console.warn(
+      '[LinkedIn Tracker] extractMessagingRecipient: .msg-s-profile-card found but name empty',
+    );
+  }
+
   // Primary: find the profile picture, walk up to the entity lockup container, then
   // extract name+URL from the /in/ link and title from the div[title] attribute.
+  // Skip imgs that belong to individual message-list items — those are sender avatars,
+  // not the conversation recipient's profile picture.
   let convRoot: HTMLElement | null = composerContainer?.parentElement ?? null;
   while (convRoot && convRoot !== document.body && convRoot !== document.documentElement) {
-    const img = convRoot.querySelector('img') as HTMLImageElement | null;
+    const imgs = Array.from(convRoot.querySelectorAll('img')) as HTMLImageElement[];
+    const img =
+      imgs.find((i) => !i.closest('.msg-s-event-listitem, .msg-s-message-list__event')) ?? null;
     if (img) {
       let lockup: HTMLElement | null = img.parentElement;
       while (lockup && lockup !== convRoot) {
@@ -365,7 +391,8 @@ document.body.addEventListener(
     }
 
     // Overlay send button has no aria-label — detect by text content inside a messaging form.
-    const sendForm = el.closest('form');
+    // Use .msg-form as a fallback for the full messenger page where the container is a div, not <form>.
+    const sendForm = el.closest('form') ?? el.closest('.msg-form');
     if (
       ariaLabel === 'Send message' ||
       (el.tagName === 'BUTTON' &&

@@ -96,7 +96,7 @@ describe('linkedin-tracker-webhook', () => {
     expect(body.success).toBe(true);
 
     const sheets = vi.mocked(createGoogleSheetsClient).mock.results[0].value;
-    expect(sheets.appendRow).toHaveBeenCalledWith(SHEET_ID, 'Outreach Log!B:L', [
+    expect(sheets.appendRow).toHaveBeenCalledWith(SHEET_ID, 'Outreach Log!B:M', [
       '',
       '',
       '',
@@ -107,7 +107,8 @@ describe('linkedin-tracker-webhook', () => {
       '5/13/2026',
       'Sent',
       '',
-      '',
+      '', // profile_url
+      '', // page_url
     ]);
   });
 
@@ -157,12 +158,12 @@ describe('linkedin-tracker-webhook', () => {
 
     const sheets = vi.mocked(createGoogleSheetsClient).mock.results[0].value;
     const rowArg = sheets.appendRow.mock.calls[0][2] as string[];
-    expect(rowArg).toHaveLength(11);
+    expect(rowArg).toHaveLength(12);
     // debug not in row
     expect(rowArg.join('')).not.toContain('button_aria_label');
   });
 
-  it('profile_url present → written to last column', async () => {
+  it('profile_url present → written to column L (index 10)', async () => {
     vi.mocked(createAdminClient).mockReturnValue(
       makeDbMock({ sheet_id: SHEET_ID }) as ReturnType<typeof createAdminClient>,
     );
@@ -177,7 +178,7 @@ describe('linkedin-tracker-webhook', () => {
     expect(rowArg[10]).toBe('https://www.linkedin.com/in/janedoe/');
   });
 
-  it('page_url present → accepted and not written to sheet row', async () => {
+  it('page_url present → written to column M (index 11)', async () => {
     vi.mocked(createAdminClient).mockReturnValue(
       makeDbMock({ sheet_id: SHEET_ID }) as ReturnType<typeof createAdminClient>,
     );
@@ -192,8 +193,8 @@ describe('linkedin-tracker-webhook', () => {
 
     const sheets = vi.mocked(createGoogleSheetsClient).mock.results[0].value;
     const rowArg = sheets.appendRow.mock.calls[0][2] as string[];
-    expect(rowArg).toHaveLength(11);
-    expect(rowArg.join('')).not.toContain('search/results');
+    expect(rowArg).toHaveLength(12);
+    expect(rowArg[11]).toBe('https://www.linkedin.com/search/results/people/?keywords=oracle');
   });
 
   it('Sheets API throws → 500', async () => {
