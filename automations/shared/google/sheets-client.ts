@@ -2,7 +2,7 @@ import { google } from 'googleapis';
 import { getGoogleAuth, Scopes } from './auth.js';
 
 export class SheetsClient {
-  private sheets;
+  protected sheets;
   readonly spreadsheetId: string;
 
   constructor(serviceAccountKey: string, spreadsheetId: string) {
