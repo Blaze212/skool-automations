@@ -51,21 +51,35 @@ async function extractBuildId(cookies: string, group: string, log?: pino.Logger)
   return match[1];
 }
 
-async function fetchMembersPage(
+/** Admin-authenticated path. Respects the `p` param and returns correct pagination. */
+async function fetchAdminMembersPage(
   cookies: string,
   buildId: string,
   group: string,
   page: number,
   log?: pino.Logger,
 ): Promise<{ members: RawMemberData[]; totalPages: number }> {
-  const url =
-    `https://www.skool.com/_next/data/${buildId}/${group}/-/members.json` +
-    `?group=${group}&page=${page}`;
-  log?.info({ page, url }, 'fetching members page');
+  const params = new URLSearchParams({
+    t: 'active',
+    p: String(page),
+    online: '',
+    levels: '',
+    price: '',
+    courseIds: '',
+    sortType: '',
+    monthly: 'false',
+    annual: 'false',
+    oneTime: 'false',
+    trials: 'false',
+    free: 'false',
+    group,
+  });
+  const url = `https://www.skool.com/_next/data/${buildId}/${group}/-/members.json?${params}`;
+  log?.info({ page, url }, 'fetching admin members page');
   const res = await fetch(url, {
     headers: { ...SKOOL_HEADERS, Cookie: cookies },
   });
-  if (!res.ok) throw new Error(`Members page ${page} fetch failed: ${res.status}`);
+  if (!res.ok) throw new Error(`Admin members page ${page} fetch failed: ${res.status}`);
 
   const json = (await res.json()) as {
     pageProps?: {
@@ -75,11 +89,11 @@ async function fetchMembersPage(
     };
   };
 
-  log?.debug({ page, keys: Object.keys(json.pageProps ?? {}) }, 'members page response keys');
+  log?.debug({ page, keys: Object.keys(json.pageProps ?? {}) }, 'admin page response keys');
 
   const members = json.pageProps?.renderData?.members ?? [];
   const totalPages = json.pageProps?.totalPages ?? 1;
-  log?.info({ page, count: members.length, totalPages }, 'page fetched');
+  log?.info({ page, count: members.length, totalPages }, 'admin page fetched');
 
   return { members, totalPages };
 }
@@ -97,7 +111,39 @@ function normalizeRawMember(raw: RawMemberData): SkoolMember {
   };
 }
 
-export async function fetchAllMembers(options: {
+/**
+ * Fetches ~30 members using the non-admin member-view path.
+ *
+ * WARNING: This endpoint does not support pagination — Skool ignores the page
+ * parameter and always returns the same ~30 members regardless of what is
+ * requested. Use listMembersAsAdmin for full paginated access.
+ */
+export async function getMembersAsUser(options: {
+  group: string;
+  cookies: string;
+  log?: pino.Logger;
+}): Promise<SkoolMember[]> {
+  const { group, cookies, log } = options;
+  const buildId = await extractBuildId(cookies, group, log);
+  const url =
+    `https://www.skool.com/_next/data/${buildId}/${group}/-/members.json` +
+    `?group=${group}&page=1`;
+  log?.info({ url }, 'getMembersAsUser — single request, no pagination');
+  const res = await fetch(url, { headers: { ...SKOOL_HEADERS, Cookie: cookies } });
+  if (!res.ok) throw new Error(`getMembersAsUser fetch failed: ${res.status}`);
+  const json = (await res.json()) as {
+    pageProps?: { renderData?: { members?: RawMemberData[] } };
+  };
+  const members = (json.pageProps?.renderData?.members ?? []).map(normalizeRawMember);
+  log?.info({ count: members.length }, 'getMembersAsUser complete');
+  return members;
+}
+
+/**
+ * Fetches all members using the admin pagination path. Requires an admin session cookie.
+ * Pass maxPages to cap the number of pages fetched (useful for debugging).
+ */
+export async function listMembersAsAdmin(options: {
   group: string;
   cookies: string;
   maxPages?: number;
@@ -111,7 +157,7 @@ export async function fetchAllMembers(options: {
   let totalPages = 1;
 
   do {
-    const result = await fetchMembersPage(cookies, buildId, group, page, log);
+    const result = await fetchAdminMembersPage(cookies, buildId, group, page, log);
     if (page === 1) totalPages = result.totalPages;
     for (const raw of result.members) {
       allMembers.push(normalizeRawMember(raw));
@@ -119,6 +165,6 @@ export async function fetchAllMembers(options: {
     page++;
   } while (page <= totalPages && (maxPages === undefined || page <= maxPages));
 
-  log?.info({ total: allMembers.length }, 'fetchAllMembers complete');
+  log?.info({ total: allMembers.length }, 'listMembersAsAdmin complete');
   return allMembers;
 }

@@ -28,11 +28,11 @@ async function main(): Promise<void> {
     log.info('session ready');
 
     log.info('fetching members');
-    const members = await skool.fetchAllMembers({ group: GROUP, log });
+    const members = await skool.listMembersAsAdmin({ group: GROUP, log });
     log.info({ count: members.length }, 'members fetched');
 
     log.info('upserting into Google Sheets');
-    const result = await sheets.upsertMembers(members);
+    const result = await sheets.upsertMembers(members, log);
     log.info({ inserted: result.inserted, updated: result.updated }, 'upsert complete');
 
     await sheets.appendSyncLog({

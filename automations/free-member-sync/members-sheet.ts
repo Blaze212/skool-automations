@@ -1,3 +1,4 @@
+import type pino from 'pino';
 import { SheetsClient } from '../shared/google/sheets-client.js';
 import type { SkoolMember } from '../shared/skool/types.js';
 
@@ -35,6 +36,7 @@ export interface SyncLogEntry {
 export interface UpsertResult {
   inserted: number;
   updated: number;
+  nameMatched: number; // rows matched by name when Skool ID was missing
 }
 
 function colIndex(header: (typeof HEADER_ROW)[number]): number {
@@ -59,38 +61,62 @@ export class MembersSheet {
     return HEADER_ROW;
   }
 
-  async ensureSheets(): Promise<void> {
-    const { created: membersCreated, sheetId } = await this.client.ensureSheetExists(MEMBERS_SHEET);
+  async ensureSheets(): Promise<{ membersSheetId: number }> {
+    const { created: membersCreated, sheetId: membersSheetId } =
+      await this.client.ensureSheetExists(MEMBERS_SHEET);
     await this.client.ensureSheetExists(SYNC_LOG_SHEET);
     if (membersCreated) {
       await this.client.appendRows(`${MEMBERS_SHEET}!A1`, [Array.from(HEADER_ROW)]);
     }
     // Join Date = col C (index 2), Last Login Date = col D (index 3)
-    await this.client.setColumnNumberFormat(sheetId, 2, 4, 'MMMM D');
+    await this.client.setColumnNumberFormat(membersSheetId, 2, 4, 'MMMM D');
+    return { membersSheetId };
   }
 
-  async upsertMembers(members: SkoolMember[]): Promise<UpsertResult> {
-    await this.ensureSheets();
+  async upsertMembers(members: SkoolMember[], log?: pino.Logger): Promise<UpsertResult> {
+    const { membersSheetId } = await this.ensureSheets();
     const rows = await this.client.readRange(`${MEMBERS_SHEET}!A:R`);
 
     const skoolIdCol = colIndex('Skool Id');
     const emailCol = colIndex('Email');
 
+    const nameCol = colIndex('Name');
     const existingById = new Map<string, number>();
+    const existingByName = new Map<string, number>(); // normalized name → row number, only for rows with empty Skool ID
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (row === undefined) continue;
       const id = row[skoolIdCol] as string | undefined;
-      if (id) existingById.set(id, i + 1);
+      if (id) {
+        existingById.set(id, i + 1);
+      } else {
+        const name = (row[nameCol] as string | undefined)?.trim().toLowerCase();
+        if (name) existingByName.set(name, i + 1);
+      }
     }
 
     const updates: { range: string; values: (string | number | undefined)[][] }[] = [];
-    const appends: (string | number)[][] = [];
+    const newRows: (string | number)[][] = [];
     let inserted = 0;
     let updated = 0;
+    let nameMatched = 0;
 
     for (const member of members) {
-      const existingRowNum = existingById.get(member.skoolId);
+      let existingRowNum = existingById.get(member.skoolId);
+      if (existingRowNum === undefined) {
+        const nameKey = member.name.trim().toLowerCase();
+        const nameRow = existingByName.get(nameKey);
+        if (nameRow !== undefined) {
+          existingRowNum = nameRow;
+          existingByName.delete(nameKey); // prevent a second member with the same name claiming this row
+          existingById.set(member.skoolId, existingRowNum); // prevent same Skool ID re-appearing on a later page from appending
+          nameMatched++;
+          log?.info(
+            { name: member.name, skoolId: member.skoolId, row: existingRowNum },
+            'name-matched — backfilling Skool ID',
+          );
+        }
+      }
 
       if (existingRowNum !== undefined) {
         const existingRow = rows[existingRowNum - 1] ?? [];
@@ -122,17 +148,21 @@ export class MembersSheet {
         newRow[colIndex('Current Situation')] = member.currentSituation;
         newRow[colIndex('Main Goal')] = member.mainGoal;
         newRow[colIndex('Email')] = member.email;
-        appends.push(newRow);
+        newRows.push(newRow);
         inserted++;
       }
     }
 
     await this.client.batchUpdate(updates);
-    if (appends.length > 0) {
-      await this.client.appendRows(`${MEMBERS_SHEET}!A:R`, appends);
+    if (newRows.length > 0) {
+      // Insert blank rows just below the header, then fill them in one write
+      await this.client.insertRows(membersSheetId, 1, newRows.length);
+      await this.client.batchUpdate([
+        { range: `${MEMBERS_SHEET}!A2:R${1 + newRows.length}`, values: newRows },
+      ]);
     }
 
-    return { inserted, updated };
+    return { inserted, updated, nameMatched };
   }
 
   async readAllMembers(): Promise<string[][]> {
