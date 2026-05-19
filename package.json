@@ -34,7 +34,9 @@
     "test:get-posts": "doppler run -- tsx automations/free-member-sync/test-scripts/get-posts.ts",
     "test:get-chats": "doppler run -- tsx automations/free-member-sync/test-scripts/get-chats.ts",
     "test:get-chat-messages": "doppler run -- tsx automations/free-member-sync/test-scripts/get-chat-messages.ts",
-    "test:get-notifications": "doppler run -- tsx automations/free-member-sync/test-scripts/get-notifications.ts"
+    "test:get-notifications": "doppler run -- tsx automations/free-member-sync/test-scripts/get-notifications.ts",
+    "proof-log:upload": "doppler run -- tsx automations/proof-log/drive-uploader.ts",
+    "proof-log:update-sheet": "doppler run -- tsx automations/proof-log/sheets-updater.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",
