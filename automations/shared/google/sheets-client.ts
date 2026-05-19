@@ -2,7 +2,7 @@ import { google } from 'googleapis';
 import { getGoogleAuth, Scopes } from './auth.js';
 
 export class SheetsClient {
-  private sheets;
+  protected sheets;
   readonly spreadsheetId: string;
 
   constructor(serviceAccountKey: string, spreadsheetId: string) {
@@ -30,11 +30,12 @@ export class SheetsClient {
 
   async batchUpdate(
     updates: { range: string; values: (string | number | undefined)[][] }[],
+    valueInputOption: 'RAW' | 'USER_ENTERED' = 'RAW',
   ): Promise<void> {
     if (updates.length === 0) return;
     await this.sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: this.spreadsheetId,
-      requestBody: { valueInputOption: 'RAW', data: updates },
+      requestBody: { valueInputOption, data: updates },
     });
   }
 

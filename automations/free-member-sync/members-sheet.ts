@@ -79,6 +79,8 @@ export class MembersSheet {
 
     const skoolIdCol = colIndex('Skool Id');
     const emailCol = colIndex('Email');
+    const actScoreCol = colIndex('Activation Score');
+    const healthBucketCol = colIndex('Health Bucket');
 
     const nameCol = colIndex('Name');
     const existingById = new Map<string, number>();
@@ -148,6 +150,11 @@ export class MembersSheet {
         newRow[colIndex('Current Situation')] = member.currentSituation;
         newRow[colIndex('Main Goal')] = member.mainGoal;
         newRow[colIndex('Email')] = member.email;
+        // New rows are inserted at the top (row 2), so row number = 2 + current newRows.length
+        const rowNum = 2 + newRows.length;
+        newRow[actScoreCol] = `=COUNTIF(H${rowNum}:M${rowNum},"Y")`;
+        newRow[healthBucketCol] =
+          `=IF(ISBLANK(D${rowNum}),"",IF(AND(N${rowNum}>=3,TODAY()-D${rowNum}<=3),"Green",IF(AND(N${rowNum}>=1,N${rowNum}<=2,TODAY()-D${rowNum}<=7),"Yellow","Red")))`;
         newRows.push(newRow);
         inserted++;
       }
@@ -157,9 +164,10 @@ export class MembersSheet {
     if (newRows.length > 0) {
       // Insert blank rows just below the header, then fill them in one write
       await this.client.insertRows(membersSheetId, 1, newRows.length);
-      await this.client.batchUpdate([
-        { range: `${MEMBERS_SHEET}!A2:R${1 + newRows.length}`, values: newRows },
-      ]);
+      await this.client.batchUpdate(
+        [{ range: `${MEMBERS_SHEET}!A2:R${1 + newRows.length}`, values: newRows }],
+        'USER_ENTERED',
+      );
     }
 
     return { inserted, updated, nameMatched };
