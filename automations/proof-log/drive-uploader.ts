@@ -13,15 +13,18 @@ const MIME_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml',
 };
 
-export function isoWeekFolder(date: Date): string {
-  const thursday = new Date(date);
-  thursday.setUTCDate(date.getUTCDate() + 3 - ((date.getUTCDay() + 6) % 7));
-  const jan4 = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 4));
-  const week = Math.ceil(
-    ((thursday.getTime() - jan4.getTime()) / 86400000 + ((jan4.getUTCDay() + 6) % 7) + 1) / 7,
-  );
-  const paddedWeek = String(week).padStart(2, '0');
-  return `${thursday.getUTCFullYear()}-${paddedWeek}`;
+export type Subfolder = 'original' | 'redacted' | 'final';
+
+const POSTFIXES: Record<Subfolder, string> = {
+  original: '',
+  redacted: '-redacted',
+  final: '-final',
+};
+
+export function applyPostfix(filePath: string, subfolder: Subfolder): string {
+  const ext = extname(filePath);
+  const base = basename(filePath, ext);
+  return base + POSTFIXES[subfolder] + ext;
 }
 
 export function detectMimeType(filePath: string): string {
@@ -46,27 +49,25 @@ async function main(): Promise<void> {
   const [filePath, subfolder] = process.argv.slice(2);
 
   if (!filePath || !subfolder) {
-    process.stderr.write('Usage: tsx drive-uploader.ts <file-path> <originals|redacted|svg>\n');
+    process.stderr.write('Usage: tsx drive-uploader.ts <file-path> <original|redacted|final>\n');
     process.exit(1);
   }
 
-  if (!['originals', 'redacted', 'svg'].includes(subfolder)) {
-    process.stderr.write(`Invalid subfolder: ${subfolder}. Must be originals, redacted, or svg\n`);
+  if (!['original', 'redacted', 'final'].includes(subfolder)) {
+    process.stderr.write(`Invalid subfolder: ${subfolder}. Must be original, redacted, or final\n`);
     process.exit(1);
   }
 
   try {
     const env = loadEnv(['GOOGLE_SERVICE_ACCOUNT_JSON', 'PROOF_LOG_DRIVE_FOLDER_ID']);
     const drive = new DriveClient(env.GOOGLE_SERVICE_ACCOUNT_JSON);
-    const weekFolder = isoWeekFolder(new Date());
     const mimeType = detectMimeType(filePath);
     const content = readFileSync(filePath);
-    const name = basename(filePath);
+    const name = applyPostfix(filePath, subfolder as Subfolder);
 
     const subFolderId = await findOrCreateFolder(drive, env.PROOF_LOG_DRIVE_FOLDER_ID, subfolder);
-    const weekFolderId = await findOrCreateFolder(drive, subFolderId, weekFolder);
 
-    const result = await drive.uploadFile({ name, folderId: weekFolderId, mimeType, content });
+    const result = await drive.uploadFile({ name, folderId: subFolderId, mimeType, content });
     process.stdout.write(result.webViewLink + '\n');
   } catch (err) {
     process.stderr.write((err instanceof Error ? err.message : String(err)) + '\n');

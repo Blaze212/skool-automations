@@ -68,9 +68,9 @@ The Claude Code routine orchestrates the full pipeline with sub-agents for conte
      b. Read and analyze original image → return structured JSON (schema below)
 
 3. For each result (sequentially):
-     a. tsx automations/proof-log/drive-uploader.ts <original>      originals → original Drive link
-     b. tsx automations/proof-log/drive-uploader.ts <redacted.png>  redacted  → redacted final Drive link
-     c. tsx automations/proof-log/drive-uploader.ts <redacted.svg>  svg       → redacted SVG Drive link
+     a. tsx automations/proof-log/drive-uploader.ts <original>      original → original Drive link
+     b. tsx automations/proof-log/drive-uploader.ts <redacted.svg>  redacted → redacted SVG Drive link
+     c. tsx automations/proof-log/drive-uploader.ts <redacted.png>  final    → flat PNG Drive link
      d. tsx automations/proof-log/sheets-updater.ts '<json>'                  → insert row at top of sheet
 
 4. Move processed originals to $PROOF_LOG_DONE_DIR
@@ -117,8 +117,8 @@ relevant description field.
 |---|---|---|
 | A | Date | From analysis JSON (date of post) |
 | B | Screenshot | `=HYPERLINK("original_drive_link","filename.png")` formula |
-| C | Redacted | `=HYPERLINK("redacted_png_drive_link","filename-redacted.png")` formula |
-| D | Redacted (SVG) | `=HYPERLINK("redacted_svg_drive_link","filename-redacted.svg")` formula |
+| C | Redacted | `=HYPERLINK("redacted_svg_drive_link","filename-redacted.svg")` formula — editable SVG |
+| D | Final | `=HYPERLINK("final_png_drive_link","filename-final.png")` formula — flat PNG |
 | E | Area | From analysis JSON |
 | F | Level | From analysis JSON |
 | G | Function | From analysis JSON |
@@ -134,26 +134,24 @@ Row 2 insertion (not append) preserves newest-first ordering. `ProofLogSheet.ins
 uses `spreadsheets.batchUpdate` with `insertDimension` to shift existing rows down before writing.
 
 All three image columns (B, C, D) are `=HYPERLINK(...)` formulas — filename is clickable and
-opens the Drive file directly. Column C links the flat PNG for sharing; column D links the SVG
-for editing in Affinity Designer.
+opens the Drive file directly. Column C links the SVG for editing in Affinity Designer;
+column D links the flat PNG for sharing.
 
 ### Drive folder structure
 
 ```
 proof-log/
-  originals/
-    YYYY-WW/          # ISO week folder, e.g. 2026-21
-      <filename>.png
+  original/
+    <filename>.png
   redacted/
-    YYYY-WW/
-      <filename>-redacted.png
-  svg/
-    YYYY-WW/
-      <filename>-redacted.svg
+    <filename>-redacted.svg
+  final/
+    <filename>-final.png
 ```
 
-`drive-uploader.ts` accepts the target subfolder (`originals`, `redacted`, or `svg`) as a CLI
-argument and auto-creates the week folder if it does not exist.
+`drive-uploader.ts` accepts the target subfolder (`original`, `redacted`, or `final`) as a CLI
+argument. Each subfolder is a flat directory — no date or week subfolders. The uploader
+auto-creates the subfolder under the root Drive folder if it does not exist.
 
 ### Summary output
 
@@ -280,10 +278,10 @@ After Phase 4 is validated:
 - [ ] 3–5 hand-labeled example entries exist in the sheet as reference
 
 ### Phase 2
-- [ ] `tsx automations/proof-log/drive-uploader.ts <file> originals` uploads and prints Drive link
-- [ ] `tsx automations/proof-log/drive-uploader.ts <file> redacted` uploads to redacted subfolder
-- [ ] `tsx automations/proof-log/drive-uploader.ts <file> svg` uploads to svg subfolder
-- [ ] Week subfolder (e.g. `2026-21`) is auto-created if it does not exist
+- [ ] `tsx automations/proof-log/drive-uploader.ts <file> original` uploads with no postfix and prints Drive link
+- [ ] `tsx automations/proof-log/drive-uploader.ts <file> redacted` uploads with `-redacted` postfix
+- [ ] `tsx automations/proof-log/drive-uploader.ts <file> final` uploads with `-final` postfix
+- [ ] Subfolder is auto-created under root Drive folder if it does not exist
 - [ ] `tsx automations/proof-log/sheets-updater.ts '<json>'` inserts at row 2 with all 14 columns; existing rows shift down
 - [ ] Running `sheets-updater.ts` twice inserts two rows (idempotent is not required — each run is a new entry)
 - [ ] Columns B, C, D contain `=HYPERLINK(...)` formulas (not plain text links)

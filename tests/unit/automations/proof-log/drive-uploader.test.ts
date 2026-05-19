@@ -1,32 +1,25 @@
 import { describe, it, expect } from 'vitest';
-import { isoWeekFolder, detectMimeType } from '../../../../automations/proof-log/drive-uploader.js';
+import { applyPostfix, detectMimeType } from '../../../../automations/proof-log/drive-uploader.js';
 
-describe('isoWeekFolder', () => {
-  it('returns YYYY-WW format for a known Monday', () => {
-    // 2026-05-18 is a Monday in week 21
-    expect(isoWeekFolder(new Date('2026-05-18T12:00:00Z'))).toBe('2026-21');
+describe('applyPostfix', () => {
+  it('returns original filename unchanged for original subfolder', () => {
+    expect(applyPostfix('boeing-win.png', 'original')).toBe('boeing-win.png');
   });
 
-  it('returns YYYY-WW format for a known Sunday (same ISO week as prior Monday)', () => {
-    // 2026-05-17 is a Sunday — ISO week 20 (week starts Monday)
-    expect(isoWeekFolder(new Date('2026-05-17T12:00:00Z'))).toBe('2026-20');
+  it('appends -redacted before extension for redacted subfolder', () => {
+    expect(applyPostfix('boeing-win.svg', 'redacted')).toBe('boeing-win-redacted.svg');
   });
 
-  it('zero-pads single-digit week numbers', () => {
-    // 2026-01-05 is a Monday in week 02
-    expect(isoWeekFolder(new Date('2026-01-05T12:00:00Z'))).toBe('2026-02');
+  it('appends -final before extension for final subfolder', () => {
+    expect(applyPostfix('boeing-win.png', 'final')).toBe('boeing-win-final.png');
   });
 
-  it('handles year boundary where week belongs to next year', () => {
-    // 2026-12-31 is a Thursday in ISO week 53 of 2026 (check: Jan 1 2026 is Thursday)
-    // Actually 2026-12-28 is Monday in week 53
-    const result = isoWeekFolder(new Date('2026-12-31T12:00:00Z'));
-    expect(result).toMatch(/^\d{4}-\d{2}$/);
+  it('handles full paths — only basename is used', () => {
+    expect(applyPostfix('/inbox/2026-05/boeing-win.png', 'final')).toBe('boeing-win-final.png');
   });
 
-  it('handles first week of year', () => {
-    // 2026-01-01 is a Thursday — ISO week 01 of 2026
-    expect(isoWeekFolder(new Date('2026-01-01T12:00:00Z'))).toBe('2026-01');
+  it('preserves extension case', () => {
+    expect(applyPostfix('screenshot.PNG', 'redacted')).toBe('screenshot-redacted.PNG');
   });
 });
 
