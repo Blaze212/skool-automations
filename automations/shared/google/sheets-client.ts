@@ -38,6 +38,27 @@ export class SheetsClient {
     });
   }
 
+  async insertRows(sheetId: number, startRowIndex: number, count: number): Promise<void> {
+    await this.sheets.spreadsheets.batchUpdate({
+      spreadsheetId: this.spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            insertDimension: {
+              range: {
+                sheetId,
+                dimension: 'ROWS',
+                startIndex: startRowIndex,
+                endIndex: startRowIndex + count,
+              },
+              inheritFromBefore: false,
+            },
+          },
+        ],
+      },
+    });
+  }
+
   async ensureSheetExists(sheetName: string): Promise<{ created: boolean; sheetId: number }> {
     const meta = await this.sheets.spreadsheets.get({ spreadsheetId: this.spreadsheetId });
     const existing = meta.data.sheets?.find((s) => s.properties?.title === sheetName);

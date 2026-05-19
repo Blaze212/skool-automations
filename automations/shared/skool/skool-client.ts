@@ -10,7 +10,10 @@ import type {
 } from 'skool-cli';
 import type pino from 'pino';
 import { createLogger } from '../logger.js';
-import { fetchAllMembers as fetchAllMembersHttp } from './members-api.js';
+import {
+  getMembersAsUser as getMembersAsUserHttp,
+  listMembersAsAdmin as listMembersAsAdminHttp,
+} from './members-api.js';
 import type { SkoolMember } from './types.js';
 
 export interface PendingMember {
@@ -94,15 +97,22 @@ export class SkoolClient {
     return this.inner.markNotificationsRead();
   }
 
-  async fetchAllMembers(options: {
+  /** Fetches all members via the admin-authenticated paginated path. Pass maxPages to cap (useful for debugging). */
+  async listMembersAsAdmin(options: {
     group: string;
     maxPages?: number;
     log?: pino.Logger;
   }): Promise<SkoolMember[]> {
-    // Use getCookies() — same as skool-cli's internal request() method
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cookies = (await (this.inner as any).api.getCookies()) as string;
-    return fetchAllMembersHttp({ ...options, cookies });
+    return listMembersAsAdminHttp({ ...options, cookies });
+  }
+
+  /** Returns ~30 members via the non-admin path. No pagination — Skool ignores the page param on this endpoint. */
+  async getMembersAsUser(options: { group: string; log?: pino.Logger }): Promise<SkoolMember[]> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cookies = (await (this.inner as any).api.getCookies()) as string;
+    return getMembersAsUserHttp({ ...options, cookies });
   }
 
   async close(): Promise<void> {
