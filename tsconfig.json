@@ -9,5 +9,5 @@
     "rootDir": ".",
     "outDir": "dist"
   },
-  "include": ["scripts/**/*"]
+  "include": ["scripts/**/*", "automations/**/*"]
 }

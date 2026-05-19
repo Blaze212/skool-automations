@@ -214,15 +214,15 @@ Debug mode is an advanced diagnostic tool. Enable it only when you are actively 
 2. **Insert a row into the database:**
 
    ```sql
-   INSERT INTO internal_cs.linkedin_tracker_clients (api_key, sheet_id, label)
+   INSERT INTO internal_cs.linkedin_tracker_clients (api_key, SKOOL_FREE_MEMBER_SYNC_SHEET_ID, label)
    VALUES ('<generated-uuid>', '<google-sheet-id>', '<Client Name>');
    ```
 
-   INSERT INTO internal_cs.linkedin_tracker_clients (api_key, sheet_id, label)
+   INSERT INTO internal_cs.linkedin_tracker_clients (api_key, SKOOL_FREE_MEMBER_SYNC_SHEET_ID, label)
    VALUES ('365A4BCA-59B9-460C-B6E3-BD751B7C23E8', '1m3weGKuymGFjAXPWKO2fjcBgswdD_ubHWrEdK17VcqM', 'barton-test');
 
    The Sheet ID is the long alphanumeric string in the Sheet's URL:
-   `https://docs.google.com/spreadsheets/d/<SHEET_ID>/edit`
+   `https://docs.google.com/spreadsheets/d/<SKOOL_FREE_MEMBER_SYNC_SHEET_ID>/edit`
 
 3. **Share the Sheet with the service account:**
    - Open the client's Google Sheet
