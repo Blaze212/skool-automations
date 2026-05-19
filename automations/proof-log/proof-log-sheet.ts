@@ -4,7 +4,7 @@ export interface ProofLogRow {
   date: string;
   screenshotLink: string;
   redactedLink: string;
-  svgLink: string;
+  finalLink: string;
   area: string;
   level: string;
   function: string;
@@ -53,7 +53,7 @@ export class ProofLogSheet extends SheetsClient {
         row.date,
         hyperlink(row.screenshotLink),
         hyperlink(row.redactedLink),
-        hyperlink(row.svgLink),
+        hyperlink(row.finalLink),
         row.area,
         row.level,
         row.function,
