@@ -3,7 +3,7 @@
 // writes dated tabs + First Message back to col Q, prunes old tabs.
 //
 // Setup:
-//   1. Run createDailyTrigger() once to install the 7am time-driven trigger.
+//   1. Run createDailyTrigger() once to install the 5pm time-driven trigger.
 //   2. The onEdit() function fires automatically on every sheet edit — no setup needed.
 //      When you mark Sent = Y on a segmentation tab, it writes "{Bucket} DM" to col Q
 //      in Members for that person.
@@ -235,8 +235,8 @@ function createDailyTrigger() {
       return;
     }
   }
-  ScriptApp.newTrigger('runDailySegmentation').timeBased().everyDays(1).atHour(7).create();
-  Logger.log('Daily 7am trigger created for runDailySegmentation.');
+  ScriptApp.newTrigger('runDailySegmentation').timeBased().everyDays(1).atHour(17).create();
+  Logger.log('Daily 5pm trigger created for runDailySegmentation.');
 }
 
 function _appendSyncLog(ss, event, status, detail) {

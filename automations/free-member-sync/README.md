@@ -108,6 +108,53 @@ Each run appends one row: `timestamp`, `event`, `status`, `detail`.
 
 ---
 
+## Apps Script — daily segmentation
+
+The `appscripts/` folder contains the Google Apps Script that runs daily segmentation on the sheet.
+
+### Files
+
+| File              | Purpose                                                       |
+| ----------------- | ------------------------------------------------------------- |
+| `segmentation.gs` | Main script — `runDailySegmentation()` and `onEdit()` trigger |
+| `appsscript.json` | Apps Script manifest (runtime, OAuth scopes, timezone)        |
+| `.clasp.json`     | Clasp config — points to the sheet-bound script project       |
+
+### How it works
+
+- **`runDailySegmentation()`** — reads non-purchaser Members rows where col Q (First Message) is empty, groups them by Health Bucket, and creates dated tabs `Red_YYYYMMDD` / `Yellow_YYYYMMDD` / `Green_YYYYMMDD` with a Y/N Sent dropdown. Prunes tabs older than 7 days.
+- **`onEdit()`** — fires automatically on every sheet edit. When you set Sent = Y on a row in a segmentation tab, it writes `{Bucket} DM` to col Q in Members for that person.
+- **`createDailyTrigger()`** — run once to install a 5pm daily time-driven trigger. Idempotent.
+
+### Deploying changes with clasp
+
+Install clasp globally if you haven't already:
+
+```bash
+npm install -g @google/clasp
+```
+
+Log in (opens a browser):
+
+```bash
+clasp login
+```
+
+Push the local script to Google:
+
+```bash
+cd automations/free-member-sync/appscripts
+clasp push
+```
+
+Clasp reads `.clasp.json` to find the target script project. The `--force` flag skips the confirmation prompt if you want to overwrite without being asked.
+
+### First-time trigger setup
+
+After pushing, open the script in the Apps Script editor and run `createDailyTrigger()` once from the editor toolbar. This installs the 5pm daily trigger. You can confirm it's active under **Triggers** (clock icon) in the left sidebar.
+
+---
+
 ## Cron / automation
 
 To run on a schedule, add a cron job or GitHub Actions workflow that calls:
