@@ -24,7 +24,7 @@ function validate(data: unknown): ProofLogRow {
     date: (row.date as string) ?? '',
     screenshotLink: (row.screenshotLink as string) ?? '',
     redactedLink: (row.redactedLink as string) ?? '',
-    svgLink: (row.svgLink as string) ?? '',
+    finalLink: (row.finalLink as string) ?? '',
     area: (row.area as string) ?? '',
     level: (row.level as string) ?? '',
     function: (row.function as string) ?? '',

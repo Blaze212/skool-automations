@@ -26,7 +26,7 @@ const BASE_ROW = {
   date: '2026-05-19',
   screenshotLink: 'https://drive.google.com/file/d/abc123/view?usp=sharing',
   redactedLink: 'https://drive.google.com/file/d/def456/view?usp=sharing',
-  svgLink: 'https://drive.google.com/file/d/ghi789/view?usp=sharing',
+  finalLink: 'https://drive.google.com/file/d/ghi789/view?usp=sharing',
   area: 'Outreach',
   level: 'IC',
   function: 'Program',
@@ -87,7 +87,7 @@ describe('ProofLogSheet.insertRowAtTop', () => {
     expect(row?.[2]).toMatch(/^=HYPERLINK\("/);
     expect(row?.[2]).toContain(BASE_ROW.redactedLink);
     expect(row?.[3]).toMatch(/^=HYPERLINK\("/);
-    expect(row?.[3]).toContain(BASE_ROW.svgLink);
+    expect(row?.[3]).toContain(BASE_ROW.finalLink);
   });
 
   it('uses USER_ENTERED valueInputOption so Sheets evaluates formulas', async () => {
