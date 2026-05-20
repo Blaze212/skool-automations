@@ -54,12 +54,27 @@ export class DriveClient {
       },
       media: { mimeType: options.mimeType, body },
       fields: 'id, webViewLink',
+      supportsAllDrives: true,
     });
 
     const id = res.data.id;
     const webViewLink = res.data.webViewLink;
     if (!id || !webViewLink) throw new Error('Drive upload returned no id or webViewLink');
     return { id, webViewLink };
+  }
+
+  async createFolder(options: { name: string; parentId?: string }): Promise<string> {
+    const res = await this.drive.files.create({
+      requestBody: {
+        name: options.name,
+        mimeType: 'application/vnd.google-apps.folder',
+        ...(options.parentId ? { parents: [options.parentId] } : {}),
+      },
+      fields: 'id',
+    });
+    const id = res.data.id;
+    if (!id) throw new Error(`Failed to create folder: ${options.name}`);
+    return id;
   }
 
   async downloadFile(fileId: string): Promise<Buffer> {
