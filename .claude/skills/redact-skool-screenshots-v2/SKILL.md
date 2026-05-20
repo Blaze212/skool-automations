@@ -162,37 +162,35 @@ Read OUTPUT_DIR/redacted-final.png. Confirm:
 
 ---
 
-### G — Extract proof data
+### G — Extract proof data (two steps)
 
-Read IMAGE_PATH (the ORIGINAL, unredacted image) visually. Extract the post content and fill in this JSON — infer from the post text:
+**G1 — Transcribe post text (vision pass)**
 
-```json
-{
-  "title": "<area> Win - <short topic or poster's first name, e.g. 'Outreach Win - Rosh' or 'Mindset Win - Groundhog Day'>",
-  "post_text": "full verbatim text of the post — include all paragraphs, preserve line breaks as \\n",
-  "area": "Resume | Outreach | Interview | Negotiation | Mindset",
-  "level": "IC | Manager | Director | VP | Fractional",
-  "function": "Product | Ops | HR | Marketing | Finance | Other",
-  "status": "Laid off | Employed | Fractional pivot",
-  "main_objection": "Price | Time | I should know this already | Too introverted | My case is different | Unknown",
-  "trigger": "what changed — one sentence",
-  "behavior": "what they did — one sentence",
-  "outcome": "result with numbers if present — one sentence",
-  "friction_surprise": "what was unexpected or hard",
-  "artifact_candidate": "what could be reused as social proof"
-}
+Read IMAGE_PATH visually. Transcribe the full verbatim text of the post — all paragraphs, preserve line breaks as `\n`. Include post title if visible. Store as `POST_TEXT`.
+
+Also generate a friendly title for the Drive filenames:
+`<area> Win - <poster's first name or short topic>` e.g. `Outreach Win - Rosh` or `Mindset Win - Groundhog Day`.
+Store as `FRIENDLY_TITLE`.
+
+**G2 — Run proof extraction prompt**
+
+Pass the transcribed text to the standalone extraction script:
+
+```bash
+PROOF_JSON=$(doppler run -- python3 SKILL_DIR/scripts/extract_proof_data.py "$POST_TEXT")
+echo "$PROOF_JSON"
 ```
 
-Rules:
-- Use "Unknown" or "N/A" for fields you genuinely cannot infer.
-- Quote numbers directly from the post in `outcome` where they appear.
-- Keep each field to 1–2 sentences maximum.
+The script calls Claude Haiku with the proof log template and returns a JSON object with these fields:
+`area, level, function, status, main_objection, trigger, behavior, outcome, friction_surprise, artifact_candidate`
+
+If the script exits non-zero, note it in the `warnings` array and proceed with empty proof fields.
 
 ---
 
 ### H — Upload all 3 files to Drive
 
-Use the `title` from step G as the Drive filename base. Sanitize it for filenames: replace `/` and `:` with `-`, strip leading/trailing spaces.
+Use `FRIENDLY_TITLE` from step G1 as the Drive filename base. Sanitize: replace `/` and `:` with `-`, strip leading/trailing spaces.
 
 ```bash
 # Original (unredacted) — no postfix
@@ -233,14 +231,18 @@ Print this exact JSON block as the LAST thing you output (the orchestrator reads
 ```json
 {
   "slug": "SLUG",
+  "source_filename": "<original filename in inbox, e.g. screenshot_20260520_131303.png>",
   "post_url": "POST_URL",
+  "original_filename": "<FRIENDLY_TITLE>.png",
+  "png_filename": "<FRIENDLY_TITLE>-final.png",
+  "svg_filename": "<FRIENDLY_TITLE>-editable.svg",
   "original_url": "<ORIGINAL_URL>",
   "png_url": "<PNG_URL>",
   "svg_url": "<SVG_URL>",
   "warnings": ["list any issues: missing fields, verify failures, etc. Empty array if clean."],
   "proof": {
-    "title": "...",
-    "post_text": "...",
+    "title": "FRIENDLY_TITLE",
+    "post_text": "POST_TEXT",
     "area": "...",
     "level": "...",
     "function": "...",
@@ -268,29 +270,80 @@ doppler run -- python3 <skill-dir>/scripts/append_sheet_row.py \
   '<JSON object with all proof fields + png_url + svg_url + date (today ISO)>'
 ```
 
-The JSON object passed to `append_sheet_row.py` must include all 17 keys:
-`date, post_url, title, area, level, function, status, main_objection, trigger, behavior, outcome, friction_surprise, artifact_candidate, post_text, original_url, png_url, svg_url`
+The JSON object passed to `append_sheet_row.py` must include:
+`date, post_url, title, original_filename, png_filename, svg_filename, area, level, function, status, main_objection, trigger, behavior, outcome, friction_surprise, artifact_candidate, post_text, original_url, png_url, svg_url`
 
-`date` must be formatted as `MM/DD/YYYY`. The script renders it as `=HYPERLINK(post_url,"MM/DD/YYYY")` — or plain text if `post_url` is empty.
+`date` must be formatted as `MM/DD/YYYY`. `title` is used to derive filenames if the explicit filename fields are missing. The three `*_filename` fields are used as the visible link text in the sheet (e.g. `Outreach Win - Rosh.png`) so Drive files are searchable by name.
 
-Sheet columns (Overview!A:P):
-`Date | Title | Area | Level | Function | Status | Main Objection | Trigger | Behavior | Outcome | Friction/Surprise | Artifact Candidate | Post Text | Original | PNG | SVG`
+**The script reads the actual header row of the Overview tab and matches values to columns by name — column order does not matter.** Column names it recognises (case-insensitive, punctuation-stripped):
 
-Date, Original, PNG, and SVG cells are written as `=HYPERLINK()` formulas by the script.
+| Sheet column header | Value source |
+|---|---|
+| Date | `=HYPERLINK(post_url,"MM/DD/YYYY")` or plain text |
+| Screenshot | `=HYPERLINK(original_url,"View Original")` |
+| Redacted PNG | `=HYPERLINK(png_url,"View PNG")` |
+| Redacted SVG (Editable) | `=HYPERLINK(svg_url,"View SVG")` |
+| Area | `area` |
+| Level | `level` |
+| Function | `function` |
+| Status | `status` |
+| Trigger | `trigger` |
+| Behavior | `behavior` |
+| Outcome | `outcome` |
+| Friction/Surprise | `friction_surprise` |
+| Artifacts | `artifact_candidate` |
+| Main Objection | `main_objection` |
+| Post Text | `post_text` |
+
+Any column in the sheet not in this list is left blank. Adding or reordering columns in the sheet requires no code changes.
 
 ---
 
-## Step 4 — Move originals to done
+## Step 4 — Move, rename, and update the index
+
+For each processed image, rename it to its `original_filename` (the friendly Drive name) when moving to done, and update `url_index.json` so the mapping stays accurate.
 
 ```bash
-python3 -c "
+python3 << 'EOF'
 import os, shutil, json
+
 cfg = json.load(open(os.path.expanduser('~/.config/skool-automations/proof-log.json')))
-originals = <list of original file absolute paths>
-for p in originals:
-    shutil.move(p, cfg['doneDir'])
-    print('Moved:', os.path.basename(p))
-"
+inbox   = cfg['inboxDir']
+done    = cfg['doneDir']
+idx_path = os.path.join(inbox, 'url_index.json')
+
+# results = list of dicts from subagent outputs, each with:
+#   source_filename, original_filename
+results = <list of subagent result dicts>
+
+# Load index (may not exist if inbox had no url_index.json)
+if os.path.exists(idx_path):
+    idx = json.load(open(idx_path))
+    screenshots = idx.get('screenshots', [])
+else:
+    idx = {'screenshots': []}
+    screenshots = []
+
+for r in results:
+    src  = os.path.join(inbox, r['source_filename'])
+    dest = os.path.join(done,  r['original_filename'])
+    if os.path.exists(src):
+        shutil.move(src, dest)
+        print(f"Moved: {r['source_filename']} → {r['original_filename']}")
+    else:
+        print(f"WARN: source not found: {src}")
+
+    # Update the index entry
+    for entry in screenshots:
+        if entry.get('filename') == r['source_filename']:
+            entry['filename'] = r['original_filename']
+            break
+
+# Write updated index back to inbox
+with open(idx_path, 'w') as f:
+    json.dump(idx, f, indent=2)
+print("url_index.json updated")
+EOF
 ```
 
 ---
@@ -341,5 +394,6 @@ If everything is clean, just say so. Keep it tight — one line per issue.
 | `verify_redactions.py` | Coverage and overcoverage checks |
 | `find_blue_pixels.py` | Finds @mention blue-pixel bounding boxes anywhere in the image |
 | `extract_latest_screenshot.py` | Extracts inline-pasted screenshots from session transcript |
+| `extract_proof_data.py` | Calls Claude Haiku with the proof log template; returns structured JSON from post text |
 | `upload_to_drive.py` | Uploads one file to Drive; returns webViewLink |
-| `append_sheet_row.py` | Appends one proof log row (with HYPERLINK formulas) to Overview sheet |
+| `append_sheet_row.py` | Reads header row, matches columns by name, appends proof log row with HYPERLINK formulas |
