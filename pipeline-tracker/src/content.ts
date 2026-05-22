@@ -2,8 +2,14 @@ import { STORAGE_KEYS, type DebugPayload, type PipelineEvent } from './types.ts'
 import { ConnectionSearchCard } from '../../linkedin-tracker/src/connection-search-card.ts';
 import { ProfilePageCard } from '../../linkedin-tracker/src/profile-page-card.ts';
 import { AcceptInvitationCard } from './accept-invitation-card.ts';
+import { ProfilePageAcceptCard } from './profile-page-accept-card.ts';
+import { ChatOverlayCard } from './chat-overlay-card.ts';
+import { MessengerPageCard } from './messenger-page-card.ts';
 
 export { AcceptInvitationCard };
+export { ProfilePageAcceptCard };
+export { ChatOverlayCard };
+export { MessengerPageCard };
 
 // --- LinkedIn URL normalization ---
 function normalizeLinkedInUrl(url: string): string {
@@ -35,6 +41,26 @@ function recordSent(name: string): void {
 }
 
 // --- Debug helpers ---
+// Cached debug flag for sync code paths (click handler runs synchronously and
+// can't await storage). Initialised from storage on script load and refreshed
+// whenever the popup toggles the setting.
+let _debugModeCached = false;
+function isDebugModeSync(): boolean {
+  return _debugModeCached;
+}
+try {
+  chrome.storage.sync.get(STORAGE_KEYS.DEBUG_MODE, (result) => {
+    _debugModeCached = !!(result as Record<string, unknown>)[STORAGE_KEYS.DEBUG_MODE];
+  });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'sync' && changes[STORAGE_KEYS.DEBUG_MODE]) {
+      _debugModeCached = !!changes[STORAGE_KEYS.DEBUG_MODE].newValue;
+    }
+  });
+} catch {
+  // chrome.storage unavailable (e.g. in tests) — leave _debugModeCached as false
+}
+
 async function getDebugMode(): Promise<boolean> {
   try {
     const result = await chrome.storage.sync.get(STORAGE_KEYS.DEBUG_MODE);
@@ -268,16 +294,18 @@ function logCardPreview(card: HTMLElement): void {
  */
 function findAcceptButtonAtPoint(x: number, y: number): HTMLElement | null {
   const elements = document.elementsFromPoint(x, y) as HTMLElement[];
-  console.log(
-    '[Pipeline Tracker] elementsFromPoint:',
-    elements
-      .slice(0, 8)
-      .map((el) => {
-        const label = el.getAttribute('aria-label');
-        return `${el.tagName}${label ? '[aria=' + label.slice(0, 40) + ']' : ''}`;
-      })
-      .join(' → '),
-  );
+  if (isDebugModeSync()) {
+    console.log(
+      '[Pipeline Tracker] elementsFromPoint:',
+      elements
+        .slice(0, 8)
+        .map((el) => {
+          const label = el.getAttribute('aria-label');
+          return `${el.tagName}${label ? '[aria=' + label.slice(0, 40) + ']' : ''}`;
+        })
+        .join(' → '),
+    );
+  }
 
   for (const el of elements) {
     // Direct hit: this element IS the accept button
@@ -408,12 +436,20 @@ export async function handleConnectionRequest(
 // =============================================================================
 
 async function handleAcceptConnection(button: HTMLElement): Promise<void> {
-  const inviteCard = AcceptInvitationCard.fromAcceptButton(button);
+  // My Network / invitation-manager page: button lives inside [role="listitem"]/li.
+  // Profile page (where Connect normally sits): no listitem ancestor — use the
+  // profile header section, anchored on /in/{vanity}/ from the URL.
+  const inviteCard =
+    AcceptInvitationCard.fromAcceptButton(button) ?? ProfilePageAcceptCard.fromAcceptButton(button);
   console.log(
     '[Pipeline Tracker] accept: ariaLabel=',
     JSON.stringify(button.getAttribute('aria-label') ?? ''),
-    'card found=',
-    !!inviteCard,
+    'card type=',
+    inviteCard instanceof ProfilePageAcceptCard
+      ? 'profile-page'
+      : inviteCard
+        ? 'my-network'
+        : 'none',
   );
 
   const name = inviteCard?.name ?? '';
@@ -479,20 +515,52 @@ export async function handleDirectMessage(button: HTMLElement | null): Promise<v
   let linkedin_url = '';
   let title = '';
 
+  // Strategy 0: scope to the chat overlay bubble around the composer.
+  // This is the only path that guarantees title is never sourced from a message
+  // body — which would let a URL the recipient sent leak into the title field.
+  if (composer) {
+    const chatCard = ChatOverlayCard.fromComposer(composer);
+    if (chatCard) {
+      name = chatCard.name;
+      title = chatCard.title;
+      linkedin_url = chatCard.profileUrl;
+      console.log('[Pipeline Tracker] DM: extracted via ChatOverlayCard');
+    }
+  }
+
+  // Strategy 0.5: full messenger page (/messaging/thread/...). The title bar
+  // header is always present even when the .msg-s-profile-card has scrolled
+  // out of view, so this works even on long active threads.
+  if (!name) {
+    const pageCard = MessengerPageCard.fromDocument();
+    if (pageCard) {
+      name = pageCard.name;
+      title = pageCard.title;
+      linkedin_url = pageCard.profileUrl;
+      console.log('[Pipeline Tracker] DM: extracted via MessengerPageCard');
+    }
+  }
+
   // Strategy 1: profile card anywhere on the page — try multiple selector forms
-  // (class names change; [data-testid] is more stable)
+  // (class names change; [data-testid] is more stable). Only run if Strategy 0
+  // didn't already find a chat-overlay-scoped card; otherwise an unrelated
+  // profile card elsewhere in the document could overwrite the correct values.
   const cardSelectors = [
     '[data-testid*="profile-card"]',
     '[data-testid*="convo-header"]',
     '.msg-s-profile-card', // class fallback (may break)
     '.msg-entity-lockup',
+    // DM thread: profile header is the first artdeco-entity-lockup in the message list
+    '.msg-s-message-list-content .artdeco-entity-lockup',
   ];
   let profileCard: HTMLElement | null = null;
-  for (const sel of cardSelectors) {
-    profileCard = document.querySelector(sel) as HTMLElement | null;
-    if (profileCard) {
-      console.log('[Pipeline Tracker] DM: profile card via selector:', sel);
-      break;
+  if (!name) {
+    for (const sel of cardSelectors) {
+      profileCard = document.querySelector(sel) as HTMLElement | null;
+      if (profileCard) {
+        console.log('[Pipeline Tracker] DM: profile card via selector:', sel);
+        break;
+      }
     }
   }
 
@@ -500,13 +568,16 @@ export async function handleDirectMessage(button: HTMLElement | null): Promise<v
     const links = Array.from(
       profileCard.querySelectorAll('a[href*="/in/"]'),
     ) as HTMLAnchorElement[];
-    const nameLink = links.find((a) => !a.querySelector('img, svg')) ?? null;
+    // Use 'img' only (not 'img, svg') — name links legitimately contain badge SVGs
+    const nameLink = links.find((a) => !a.querySelector('img')) ?? null;
     if (nameLink) {
       name = nameLink.textContent?.trim() ?? '';
       linkedin_url = normalizeLinkedInUrl(nameLink.href);
     }
-    // [title] attribute is more stable than text content or class names
+    // [title] attribute is more stable than text content or class names;
+    // skip elements inside anchors to avoid picking up link tooltip text
     for (const el of Array.from(profileCard.querySelectorAll('[title]')) as HTMLElement[]) {
+      if (el.closest('a')) continue;
       const t = el.getAttribute('title') ?? '';
       if (t.length >= 5 && !t.startsWith('·') && !/^\d/.test(t) && !TITLE_NOISE.test(t)) {
         title = t;
@@ -520,13 +591,18 @@ export async function handleDirectMessage(button: HTMLElement | null): Promise<v
   if (!name) {
     let n: HTMLElement | null = composerContainer?.parentElement ?? null;
     while (n && n !== document.body && n !== document.documentElement) {
-      // img-free profile link = recipient name
+      // img-free profile link = recipient name; allow badge SVGs
       const links = Array.from(n.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[];
-      const nameLink = links.find((a) => !a.querySelector('img, svg'));
+      const nameLink = links.find((a) => !a.querySelector('img'));
       if (nameLink) {
         name = nameLink.textContent?.trim() ?? '';
         linkedin_url = normalizeLinkedInUrl(nameLink.href);
-        if (!title) title = extractTitleFromCard(n);
+        if (!title) {
+          // Narrow to the profile card within n to avoid picking up message body text
+          const pcEl = (n.querySelector('.msg-s-profile-card') ??
+            n.querySelector('.msg-s-message-list-content .artdeco-entity-lockup')) as HTMLElement | null;
+          title = extractTitleFromCard(pcEl ?? n);
+        }
         console.log('[Pipeline Tracker] DM: name found walking up from composer');
         break;
       }
@@ -602,39 +678,64 @@ document.body.addEventListener(
   'click',
   (e: MouseEvent) => {
     const path = e.composedPath() as HTMLElement[];
+    const debug = isDebugModeSync();
 
-    // Log every click with composed path info + elementsFromPoint snapshot
-    const anyEl = path.find((el) => el.getAttribute?.('aria-label')) ?? null;
-    const anyBtn = (path.find((el) => el.tagName === 'BUTTON') as HTMLElement | null) ?? null;
-    const anyA =
-      (path.find(
-        (el) => el.tagName === 'A' && el.getAttribute?.('aria-label'),
-      ) as HTMLElement | null) ?? null;
-    const atPoint = (document.elementsFromPoint(e.clientX, e.clientY) as HTMLElement[])
-      .slice(0, 5)
-      .map((el) => {
-        const a = el.getAttribute('aria-label');
-        return `${el.tagName}${a ? '[' + a.slice(0, 30) + ']' : ''}`;
-      })
-      .join(' → ');
-    console.log(
-      '[Pipeline Tracker] click target:',
-      (e.target as HTMLElement).tagName,
-      '\n  path [aria-label]:',
-      anyEl?.tagName,
-      anyEl?.getAttribute('aria-label'),
-      '\n  path button:',
-      anyBtn?.getAttribute('aria-label') ?? anyBtn?.textContent?.trim().slice(0, 40),
-      '\n  path a:',
-      anyA?.getAttribute('aria-label'),
-      '\n  at point:',
-      atPoint,
-    );
+    // Per-click composedPath + elementsFromPoint snapshot. Only emit when debug
+    // mode is on — these fire on every click and dominate the console.
+    if (debug) {
+      const anyEl = path.find((el) => el.getAttribute?.('aria-label')) ?? null;
+      const anyBtn = (path.find((el) => el.tagName === 'BUTTON') as HTMLElement | null) ?? null;
+      const anyA =
+        (path.find(
+          (el) => el.tagName === 'A' && el.getAttribute?.('aria-label'),
+        ) as HTMLElement | null) ?? null;
+      const atPoint = (document.elementsFromPoint(e.clientX, e.clientY) as HTMLElement[])
+        .slice(0, 5)
+        .map((el) => {
+          const a = el.getAttribute('aria-label');
+          return `${el.tagName}${a ? '[' + a.slice(0, 30) + ']' : ''}`;
+        })
+        .join(' → ');
+      console.log(
+        '[Pipeline Tracker] click target:',
+        (e.target as HTMLElement).tagName,
+        '\n  path [aria-label]:',
+        anyEl?.tagName,
+        anyEl?.getAttribute('aria-label'),
+        '\n  path button:',
+        anyBtn?.getAttribute('aria-label') ?? anyBtn?.textContent?.trim().slice(0, 40),
+        '\n  path a:',
+        anyA?.getAttribute('aria-label'),
+        '\n  at point:',
+        atPoint,
+      );
+    }
 
     // Card preview: log full extraction for any click within an invitation card
     // (fires without committing to Accept, so you can verify before clicking the button)
     const nearestCard = findNearestInvitationCard(e.target as HTMLElement);
     if (nearestCard) logCardPreview(nearestCard);
+
+    // Messaging preview: when the click lands inside the message composer,
+    // log what would be captured if the user pressed Send right now. Debug-only
+    // — fires on every text-box click, which is too noisy for production use.
+    if (debug) {
+      const ce = path.find(
+        (n) => (n as HTMLElement).getAttribute?.('contenteditable') === 'true',
+      ) as HTMLElement | null;
+      if (ce && ce.closest('form, [class*="msg-form"]')) {
+        const chat = ChatOverlayCard.fromComposer(ce);
+        const page = chat ? null : MessengerPageCard.fromDocument();
+        const src = chat ? 'ChatOverlayCard' : page ? 'MessengerPageCard' : 'none';
+        console.log('[Pipeline Tracker] messaging composer focus — preview:', {
+          source: src,
+          name: chat?.name ?? page?.name ?? '(not found)',
+          title: chat?.title ?? page?.title ?? '(not found)',
+          linkedin_url: chat?.profileUrl ?? page?.profileUrl ?? '(not found)',
+          message_text: ce.textContent?.trim() || '(empty)',
+        });
+      }
+    }
 
     // Find most-specific button or role=button or aria-labelled anchor in the composed path
     const el =
@@ -668,8 +769,10 @@ document.body.addEventListener(
 
     // Fallback: click landed on a wrapper div (LinkedIn's display:contents wrappers mean the
     // button never appears in composedPath). Use elementsFromPoint to find what's actually
-    // stacked under the cursor regardless of DOM position.
-    {
+    // stacked under the cursor regardless of DOM position. Scoped to clicks near an actual
+    // invitation card — running this on every page click (e.g. inside the messenger) is
+    // wasted work since elementsFromPoint will never find an Accept button there.
+    if (nearestCard) {
       const hitAccept = findAcceptButtonAtPoint(e.clientX, e.clientY);
       if (hitAccept) {
         handleAcceptConnection(hitAccept).catch((err) =>
@@ -751,10 +854,31 @@ document.body.addEventListener(
 document.body.addEventListener(
   'keydown',
   (e: KeyboardEvent) => {
-    if (e.key !== 'Enter' || e.shiftKey) return;
-    const active = document.activeElement as HTMLElement | null;
-    if (active?.getAttribute('contenteditable') !== 'true') return;
-    if (!active.closest('form, [class*="msg-form"], [role="textbox"]')) return;
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+
+    // Prefer e.target (set by browser, survives focus jitter during the event);
+    // fall back to document.activeElement when target is empty (synthetic events).
+    const target =
+      (e.target as HTMLElement | null) ?? (document.activeElement as HTMLElement | null);
+    if (!target) return;
+
+    // The composer may be the target itself or a contenteditable ancestor.
+    const composer =
+      target.getAttribute?.('contenteditable') === 'true'
+        ? target
+        : (target.closest('[contenteditable="true"]') as HTMLElement | null);
+    if (!composer) return;
+
+    // Must be inside a messaging form — guards against contenteditables on
+    // other LinkedIn surfaces (e.g. post composer).
+    if (!composer.closest('form, [class*="msg-form"]')) return;
+
+    if (isDebugModeSync()) {
+      console.log('[Pipeline Tracker] keydown Enter → triggering DM send', {
+        target_tag: target.tagName,
+        composer_role: composer.getAttribute('role'),
+      });
+    }
     handleDirectMessage(null).catch((err) =>
       console.warn('[Pipeline Tracker] handleDirectMessage error:', err),
     );

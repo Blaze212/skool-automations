@@ -60,9 +60,7 @@ export class AcceptInvitationCard {
     }
 
     // Fallback: /in/ link text — skip avatar links (have <img>), name links don't
-    const links = Array.from(
-      this.card.querySelectorAll('a[href*="/in/"]'),
-    ) as HTMLAnchorElement[];
+    const links = Array.from(this.card.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[];
     for (const link of links) {
       if (link.querySelector('img')) continue;
       const text = link.textContent?.trim() ?? '';
@@ -141,9 +139,7 @@ export class AcceptInvitationCard {
   /** Invitation note text, if any was included. */
   get messageText(): string {
     return (
-      this.card
-        .querySelector('[data-testid="expandable-text-box"]')
-        ?.textContent?.trim() ?? ''
+      this.card.querySelector('[data-testid="expandable-text-box"]')?.textContent?.trim() ?? ''
     );
   }
 }
