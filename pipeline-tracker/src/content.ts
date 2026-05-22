@@ -1,4 +1,9 @@
 import { STORAGE_KEYS, type DebugPayload, type PipelineEvent } from './types.ts';
+import { ConnectionSearchCard } from '../../linkedin-tracker/src/connection-search-card.ts';
+import { ProfilePageCard } from '../../linkedin-tracker/src/profile-page-card.ts';
+import { AcceptInvitationCard } from './accept-invitation-card.ts';
+
+export { AcceptInvitationCard };
 
 // --- LinkedIn URL normalization ---
 function normalizeLinkedInUrl(url: string): string {
@@ -52,47 +57,6 @@ function buildDebugPayload(button: HTMLElement, container: HTMLElement | null): 
 // Robust DOM helpers — no CSS class selectors; only structural/semantic queries
 // =============================================================================
 
-/**
- * Walk up from `el` to find the nearest card container.
- * Accepts [role="listitem"], <li>, or any element that contains both
- * an /in/ profile link and a button (generic invitation card shape).
- * Capped at 15 levels so we never walk the whole document.
- */
-function findCardContainer(el: HTMLElement): HTMLElement | null {
-  let node: HTMLElement | null = el.parentElement;
-  let depth = 0;
-  while (node && node !== document.body && depth < 15) {
-    const role = node.getAttribute('role');
-    if (role === 'listitem' || node.tagName === 'LI') return node;
-    if (node.querySelector('a[href*="/in/"]') && node.querySelector('button')) return node;
-    node = node.parentElement;
-    depth++;
-  }
-  return null;
-}
-
-/**
- * Extract the person's name from an aria-label string.
- * Tries multiple patterns (all case-insensitive, both apostrophe styles) so
- * label wording changes don't break extraction.
- */
-function extractNameFromAriaLabel(label: string): string {
-  const patterns = [
-    /^accept\s+(.+?)[''’]s\s+invitation/i,
-    /^accept\s+(.+?)[''’]s\s+request/i,
-    /^accept\s+(.+?)[''’]s\s+connection/i,
-    /^accept\s+invitation\s+from\s+(.+)$/i,
-    /^accept\s+request\s+from\s+(.+)$/i,
-    // broad fallback — strip trailing noise words
-    /^accept\s+(.+?)(?:\s+(?:invitation|request|connection|to\s+connect).*)?$/i,
-  ];
-  for (const p of patterns) {
-    const m = label.match(p);
-    if (m) return m[1].trim();
-  }
-  return '';
-}
-
 // Text patterns that look like a headline but are actually noise
 const TITLE_NOISE = /mutual connection|connection(s)?|follower(s)?|premium|open to work/i;
 
@@ -113,7 +77,10 @@ function extractNameFromCard(card: HTMLElement): string {
   for (const link of links) {
     if (link.querySelector('img')) continue; // avatar link has <img>; name link has only <svg> badge
     const text = link.textContent?.trim() ?? '';
-    if (text.length > 1) { found.push({ value: text, strategy: 'profile-link-text' }); break; }
+    if (text.length > 1) {
+      found.push({ value: text, strategy: 'profile-link-text' });
+      break;
+    }
   }
 
   // S2: direct text nodes inside <strong>/<b> — strips badge spans and icons cleanly
@@ -123,17 +90,26 @@ function extractNameFromCard(card: HTMLElement): string {
       .map((n) => (n.textContent ?? '').trim())
       .filter((t) => t.length > 0)
       .join(' ');
-    if (directText.length > 1) { found.push({ value: directText, strategy: 'bold-direct-text' }); break; }
+    if (directText.length > 1) {
+      found.push({ value: directText, strategy: 'bold-direct-text' });
+      break;
+    }
   }
 
   // S3: heading elements not inside anchors
   for (const h of Array.from(card.querySelectorAll('h1,h2,h3,h4')) as HTMLElement[]) {
     if (h.closest('a')) continue;
     const text = h.textContent?.trim() ?? '';
-    if (text.length > 1) { found.push({ value: text, strategy: 'heading' }); break; }
+    if (text.length > 1) {
+      found.push({ value: text, strategy: 'heading' });
+      break;
+    }
   }
 
-  console.log('[Pipeline Tracker] name candidates:', found.map((c) => `[${c.strategy}] "${c.value.slice(0, 60)}"`));
+  console.log(
+    '[Pipeline Tracker] name candidates:',
+    found.map((c) => `[${c.strategy}] "${c.value.slice(0, 60)}"`),
+  );
   return found[0]?.value ?? '';
 }
 
@@ -159,7 +135,8 @@ function extractTitleFromCard(card: HTMLElement): string {
     if (p.closest('a')) continue;
     const t = p.textContent?.trim() ?? '';
     if (t.length >= 15 && !/^\d/.test(t) && !TITLE_NOISE.test(t)) {
-      found.push({ value: t, strategy: 'para' }); break;
+      found.push({ value: t, strategy: 'para' });
+      break;
     }
   }
 
@@ -168,7 +145,8 @@ function extractTitleFromCard(card: HTMLElement): string {
     if (el.closest('a')) continue;
     const t = el.getAttribute('title') ?? '';
     if (t.length >= 15 && !/^\d/.test(t) && !TITLE_NOISE.test(t)) {
-      found.push({ value: t, strategy: 'title-attr' }); break;
+      found.push({ value: t, strategy: 'title-attr' });
+      break;
     }
   }
 
@@ -184,7 +162,8 @@ function extractTitleFromCard(card: HTMLElement): string {
       if (!sib.querySelector('button, a[aria-label]')) {
         const t = sib.textContent?.trim() ?? '';
         if (t.length >= 5 && !/^\d/.test(t) && !TITLE_NOISE.test(t)) {
-          found.push({ value: t, strategy: 'name-para-sibling' }); break;
+          found.push({ value: t, strategy: 'name-para-sibling' });
+          break;
         }
       }
       sib = sib.nextElementSibling as HTMLElement | null;
@@ -202,7 +181,8 @@ function extractTitleFromCard(card: HTMLElement): string {
         if (sib.tagName === 'P') {
           const t = sib.textContent?.trim() ?? '';
           if (t.length >= 5 && !t.startsWith('·') && !/^\d/.test(t) && !TITLE_NOISE.test(t)) {
-            found.push({ value: t, strategy: 'heading-sibling-p' }); break outer;
+            found.push({ value: t, strategy: 'heading-sibling-p' });
+            break outer;
           }
         }
         sib = sib.nextElementSibling as HTMLElement | null;
@@ -211,73 +191,12 @@ function extractTitleFromCard(card: HTMLElement): string {
     }
   }
 
-  console.log('[Pipeline Tracker] title candidates:', found.map((c) => `[${c.strategy}] "${c.value.slice(0, 80)}"`));
+  console.log(
+    '[Pipeline Tracker] title candidates:',
+    found.map((c) => `[${c.strategy}] "${c.value.slice(0, 80)}"`),
+  );
   // Best = longest (longer headline = more specific = less likely to be noise)
   return found.sort((a, b) => b.value.length - a.value.length)[0]?.value ?? '';
-}
-
-/**
- * Extract title when the "Invite to connect" link is available.
- * Ports ConnectionSearchCard.title + ProfilePageCard.title from linkedin-tracker exactly.
- * Falls back to extractTitleFromCard if no vanityName or nothing found.
- */
-function extractTitleFromConnectLink(connectLink: HTMLElement, card: HTMLElement): string {
-  const href = connectLink.getAttribute('href') ?? '';
-  const m = href.match(/vanityName=([^&]+)/);
-  if (m) {
-    const vn = m[1];
-
-    // ConnectionSearchCard S1: name is inside a <p>; walk that <p>'s siblings
-    const nameLink = card.querySelector(`p a[href*="/in/${vn}"]`) as HTMLElement | null;
-    const namePara = nameLink?.closest('p') as HTMLElement | null;
-    if (namePara) {
-      let sib = namePara.nextElementSibling as HTMLElement | null;
-      while (sib) {
-        if (!sib.querySelector('button, a[aria-label]')) {
-          const t = sib.textContent?.trim() ?? '';
-          if (t.length >= 5) {
-            console.log('[Pipeline Tracker] title (name-para-sibling):', t.slice(0, 80));
-            return t;
-          }
-        }
-        sib = sib.nextElementSibling as HTMLElement | null;
-      }
-    }
-
-    // ConnectionSearchCard S2: "Current: <title>" span LinkedIn injects on some cards
-    for (const span of Array.from(card.querySelectorAll('span')) as HTMLElement[]) {
-      const t = span.textContent?.trim() ?? '';
-      if (t.startsWith('Current: ') && t.length > 9) {
-        const title = t.replace(/^Current:\s*/, '');
-        console.log('[Pipeline Tracker] title (current-span):', title.slice(0, 80));
-        return title;
-      }
-    }
-
-    // ProfilePageCard: find heading anchor, walk ancestor siblings for first <p>
-    const heading = card.querySelector(
-      `a[href*="/in/${vn}/"] h2, a[href*="/in/${vn}"] h2`,
-    ) as HTMLElement | null;
-    if (heading) {
-      let node: HTMLElement | null = heading.parentElement;
-      while (node && node !== card) {
-        let sib = node.nextElementSibling as HTMLElement | null;
-        while (sib) {
-          if (sib.tagName === 'P') {
-            const t = sib.textContent?.trim() ?? '';
-            if (t.length >= 5 && !t.startsWith('·') && !/^\d/.test(t)) {
-              console.log('[Pipeline Tracker] title (heading-sibling-p):', t.slice(0, 80));
-              return t;
-            }
-          }
-          sib = sib.nextElementSibling as HTMLElement | null;
-        }
-        node = node.parentElement;
-      }
-    }
-  }
-
-  return extractTitleFromCard(card);
 }
 
 /**
@@ -366,10 +285,13 @@ function findAcceptButtonAtPoint(x: number, y: number): HTMLElement | null {
     const text = el.textContent?.trim().toLowerCase() ?? '';
     if (
       (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') &&
-      (label.includes('accept') &&
-        (label.includes('invit') || label.includes('connect') || label.includes('request')))
+      label.includes('accept') &&
+      (label.includes('invit') || label.includes('connect') || label.includes('request'))
     ) {
-      console.log('[Pipeline Tracker] accept: direct hit via elementsFromPoint, label=', el.getAttribute('aria-label'));
+      console.log(
+        '[Pipeline Tracker] accept: direct hit via elementsFromPoint, label=',
+        el.getAttribute('aria-label'),
+      );
       return el;
     }
     // Span/div inside the button — walk up to the button
@@ -380,9 +302,14 @@ function findAcceptButtonAtPoint(x: number, y: number): HTMLElement | null {
         if (
           (node.tagName === 'BUTTON' || node.getAttribute('role') === 'button') &&
           nodeLabel.includes('accept') &&
-          (nodeLabel.includes('invit') || nodeLabel.includes('connect') || nodeLabel.includes('request'))
+          (nodeLabel.includes('invit') ||
+            nodeLabel.includes('connect') ||
+            nodeLabel.includes('request'))
         ) {
-          console.log('[Pipeline Tracker] accept: ancestor hit via elementsFromPoint, label=', node.getAttribute('aria-label'));
+          console.log(
+            '[Pipeline Tracker] accept: ancestor hit via elementsFromPoint, label=',
+            node.getAttribute('aria-label'),
+          );
           return node;
         }
         node = node.parentElement;
@@ -481,51 +408,28 @@ export async function handleConnectionRequest(
 // =============================================================================
 
 async function handleAcceptConnection(button: HTMLElement): Promise<void> {
-  const ariaLabel = button.getAttribute('aria-label') ?? '';
-
-  // Name: aria-label first (fast path), then card DOM (fallback)
-  let name = extractNameFromAriaLabel(ariaLabel);
+  const inviteCard = AcceptInvitationCard.fromAcceptButton(button);
   console.log(
     '[Pipeline Tracker] accept: ariaLabel=',
-    JSON.stringify(ariaLabel),
-    'name from label=',
-    name || '(not found)',
+    JSON.stringify(button.getAttribute('aria-label') ?? ''),
+    'card found=',
+    !!inviteCard,
   );
 
-  const container = findCardContainer(button);
-  console.log(
-    '[Pipeline Tracker] accept: container=',
-    container ? `${container.tagName}[role=${container.getAttribute('role') ?? 'none'}]` : 'null',
-  );
-  // Always log card HTML so selector failures are diagnosable without burning a test accept
-  if (container) {
-    console.log(
-      '[Pipeline Tracker] accept: card HTML (3000 chars):\n',
-      container.outerHTML.slice(0, 3000),
-    );
-  }
+  const name = inviteCard?.name ?? '';
+  const title = inviteCard?.title ?? '';
+  const linkedin_url = inviteCard?.profileUrl ?? '';
+  const messageText = inviteCard?.messageText ?? '';
 
-  if (!name && container) {
-    name = extractNameFromCard(container);
-    console.log('[Pipeline Tracker] accept: name from card DOM=', name || '(not found)');
-  }
   if (!name) console.warn('[Pipeline Tracker] accept: could not find name');
-
-  const linkedin_url = container ? extractProfileUrlFromCard(container) : '';
-  console.log('[Pipeline Tracker] accept: linkedin_url=', linkedin_url || '(not found)');
-
-  const title = container ? extractTitleFromCard(container) : '';
-  console.log('[Pipeline Tracker] accept: title=', title || '(not found)');
-
-  const messageText =
-    (container
-      ?.querySelector('[data-testid="expandable-text-box"]')
-      ?.textContent?.trim()) ?? '';
-  if (messageText) console.log('[Pipeline Tracker] accept: message_text=', messageText);
+  if (!title) console.warn('[Pipeline Tracker] accept: could not find title');
 
   const scrapeFailed = !name || !title;
   const debugMode = await getDebugMode();
-  const debug = debugMode && scrapeFailed ? buildDebugPayload(button, container) : undefined;
+  const debug =
+    debugMode && scrapeFailed
+      ? buildDebugPayload(button, inviteCard?.container ?? null)
+      : undefined;
 
   if (isDuplicate(name)) return;
   recordSent(name);
@@ -580,7 +484,7 @@ export async function handleDirectMessage(button: HTMLElement | null): Promise<v
   const cardSelectors = [
     '[data-testid*="profile-card"]',
     '[data-testid*="convo-header"]',
-    '.msg-s-profile-card',           // class fallback (may break)
+    '.msg-s-profile-card', // class fallback (may break)
     '.msg-entity-lockup',
   ];
   let profileCard: HTMLElement | null = null;
@@ -593,7 +497,9 @@ export async function handleDirectMessage(button: HTMLElement | null): Promise<v
   }
 
   if (profileCard) {
-    const links = Array.from(profileCard.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[];
+    const links = Array.from(
+      profileCard.querySelectorAll('a[href*="/in/"]'),
+    ) as HTMLAnchorElement[];
     const nameLink = links.find((a) => !a.querySelector('img, svg')) ?? null;
     if (nameLink) {
       name = nameLink.textContent?.trim() ?? '';
@@ -779,24 +685,16 @@ document.body.addEventListener(
     const elText = el.textContent?.trim() ?? '';
 
     // Flow 1 staging: "Invite [Name] to connect" link
+    // Mirrors linkedin-tracker exactly: try ConnectionSearchCard (search page) then
+    // ProfilePageCard (profile page sidebar), fall back to empty strings.
     const inviteMatch = ariaLabel.match(/^Invite (.+) to connect$/i);
     if (inviteMatch) {
       _pendingConnectionName = inviteMatch[1].trim();
-      _pendingConnectionTitle = '';
-      _pendingConnectionProfileUrl = '';
-      // Use closest() first (mirrors ConnectionSearchCard); fall back to walk-up
-      let card: HTMLElement | null =
-        (el.closest('li, [data-view-name], [role="listitem"]') as HTMLElement | null) ??
-        el.parentElement;
-      while (card && card !== document.body) {
-        const profileLink = card.querySelector('a[href*="/in/"]') as HTMLAnchorElement | null;
-        if (profileLink) {
-          _pendingConnectionProfileUrl = normalizeLinkedInUrl(profileLink.href);
-          _pendingConnectionTitle = extractTitleFromConnectLink(el, card);
-          break;
-        }
-        card = card.parentElement;
-      }
+      const searchCard = ConnectionSearchCard.fromConnectLink(el);
+      const profileCard = searchCard === null ? ProfilePageCard.fromConnectLink(el) : null;
+      const linkedCard = searchCard ?? profileCard;
+      _pendingConnectionTitle = linkedCard?.title ?? '';
+      _pendingConnectionProfileUrl = linkedCard?.profileUrl ?? '';
       console.log('[Pipeline Tracker] captured (connect click):', {
         name: _pendingConnectionName,
         title: _pendingConnectionTitle,
@@ -836,7 +734,9 @@ document.body.addEventListener(
     const sendForm = el.closest('form') ?? el.closest('[class*="msg-form"]');
     const isDmSend =
       /^send\s+message$/i.test(ariaLabel) ||
-      (el.tagName === 'BUTTON' && elText === 'Send' && !!sendForm?.querySelector('[contenteditable]'));
+      (el.tagName === 'BUTTON' &&
+        elText === 'Send' &&
+        !!sendForm?.querySelector('[contenteditable]'));
 
     if (isDmSend) {
       handleDirectMessage(el).catch((err) =>
