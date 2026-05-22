@@ -125,18 +125,28 @@ export async function handleConnectionRequest(
 // --- Flow 2: Incoming acceptance — My Network page ---
 async function handleAcceptFromNetwork(button: HTMLElement): Promise<void> {
   const ariaLabel = button.getAttribute('aria-label') ?? '';
-  const m = ariaLabel.match(/^Accept (.+)'s invitation$/);
-  if (!m) return;
+  // Handle both straight (U+0027) and curly (U+2019) apostrophes
+  const m = ariaLabel.match(/^Accept (.+)['’]s invitation$/);
+  if (!m) {
+    console.warn('[Pipeline Tracker] Flow 2: aria-label did not match pattern:', JSON.stringify(ariaLabel));
+    return;
+  }
   const name = m[1].trim();
+  console.log('[Pipeline Tracker] Flow 2: matched name=', name);
 
   // Walk up to [role="listitem"] ancestor
   let listitem: HTMLElement | null = button.parentElement;
+  let depth = 0;
   while (listitem && listitem.getAttribute('role') !== 'listitem') {
     listitem = listitem.parentElement;
+    depth++;
   }
+  console.log('[Pipeline Tracker] Flow 2: listitem found=', !!listitem, 'depth=', depth, 'tag=', listitem?.tagName);
 
   const profileAnchor = listitem?.querySelector('a[href*="/in/"]') as HTMLAnchorElement | null;
-  const linkedin_url = normalizeLinkedInUrl(profileAnchor?.href ?? '');
+  const rawUrl = profileAnchor?.href ?? '';
+  const linkedin_url = normalizeLinkedInUrl(rawUrl);
+  console.log('[Pipeline Tracker] Flow 2: profile anchor found=', !!profileAnchor, 'rawUrl=', rawUrl, 'normalized=', linkedin_url);
 
   // Title: longest span ≥ 20 chars, no <a> ancestor, not starting with digit
   let title = '';
@@ -147,18 +157,24 @@ async function handleAcceptFromNetwork(button: HTMLElement): Promise<void> {
       const t = s.textContent?.trim() ?? '';
       return t.length >= 20 && !/^\d/.test(t);
     });
+    console.log(
+      '[Pipeline Tracker] Flow 2: title candidates=',
+      candidates.map((s) => s.textContent?.trim().slice(0, 80)),
+    );
     title = candidates.reduce((best, s) => {
       const t = s.textContent?.trim() ?? '';
       return t.length > best.length ? t : best;
     }, '');
   }
 
+  console.log('[Pipeline Tracker] Flow 2: extracted title=', title);
   if (!title) console.warn('[Pipeline Tracker] Flow 2: could not find title');
 
   const messageText =
     (listitem
       ?.querySelector('[data-testid="expandable-text-box"]')
       ?.textContent?.trim()) ?? '';
+  console.log('[Pipeline Tracker] Flow 2: message_text=', messageText || '(empty)');
 
   const scrapeFailed = !title;
   const debugMode = await getDebugMode();
@@ -167,7 +183,7 @@ async function handleAcceptFromNetwork(button: HTMLElement): Promise<void> {
   if (isDuplicate(name)) return;
   recordSent(name);
 
-  console.log('[Pipeline Tracker] captured (accept click):', { name, title, linkedin_url });
+  console.log('[Pipeline Tracker] captured (accept click):', { name, title, linkedin_url, message_text: messageText });
 
   const event: PipelineEvent = {
     api_key: '',
@@ -187,31 +203,46 @@ async function handleAcceptFromNetwork(button: HTMLElement): Promise<void> {
 // --- Flow 3: Incoming acceptance — Profile page ---
 async function handleAcceptFromProfile(button: HTMLElement): Promise<void> {
   const ariaLabel = button.getAttribute('aria-label') ?? '';
-  const m = ariaLabel.match(/^Accept (.+)'s request to connect$/);
-  if (!m) return;
+  // Handle both straight (U+0027) and curly (U+2019) apostrophes
+  const m = ariaLabel.match(/^Accept (.+)['']s request to connect$/);
+  if (!m) {
+    console.warn('[Pipeline Tracker] Flow 3: aria-label did not match pattern:', JSON.stringify(ariaLabel));
+    return;
+  }
   const name = m[1].trim();
+  console.log('[Pipeline Tracker] Flow 3: matched name=', name);
 
   // Walk up to find ancestor containing both <h2> and a[href*="/in/"]
   let topcard: HTMLElement | null = button.parentElement;
+  let depth = 0;
   while (topcard && topcard !== document.body) {
     if (topcard.querySelector('h2') && topcard.querySelector('a[href*="/in/"]')) break;
     topcard = topcard.parentElement;
+    depth++;
   }
+  console.log('[Pipeline Tracker] Flow 3: topcard found=', !!topcard, 'depth=', depth, 'tag=', topcard?.tagName);
 
   const profileAnchor = topcard?.querySelector('a[href*="/in/"]') as HTMLAnchorElement | null;
-  const linkedin_url = normalizeLinkedInUrl(profileAnchor?.href ?? '');
+  const rawUrl = profileAnchor?.href ?? '';
+  const linkedin_url = normalizeLinkedInUrl(rawUrl);
+  console.log('[Pipeline Tracker] Flow 3: profile anchor found=', !!profileAnchor, 'rawUrl=', rawUrl, 'normalized=', linkedin_url);
 
   // Title: first <p> in topcard not inside an <a>, text ≥ 20 chars
   let title = '';
   if (topcard) {
     const paras = Array.from(topcard.querySelectorAll('p')) as HTMLParagraphElement[];
-    const candidate = paras.find((p) => {
+    const candidates = paras.filter((p) => {
       if (p.closest('a')) return false;
       return (p.textContent?.trim() ?? '').length >= 20;
     });
-    title = candidate?.textContent?.trim() ?? '';
+    console.log(
+      '[Pipeline Tracker] Flow 3: title candidates=',
+      candidates.map((p) => p.textContent?.trim().slice(0, 80)),
+    );
+    title = candidates[0]?.textContent?.trim() ?? '';
   }
 
+  console.log('[Pipeline Tracker] Flow 3: extracted title=', title);
   if (!title) console.warn('[Pipeline Tracker] Flow 3: could not find title');
 
   const scrapeFailed = !title;
@@ -413,7 +444,7 @@ document.body.addEventListener(
     const ariaLabel = el.getAttribute('aria-label') ?? '';
 
     // Flow 2: Accept from My Network page
-    if (/^Accept .+'s invitation$/.test(ariaLabel)) {
+    if (/^Accept .+['']s invitation$/.test(ariaLabel)) {
       handleAcceptFromNetwork(el).catch((err) =>
         console.warn('[Pipeline Tracker] handleAcceptFromNetwork error:', err),
       );
@@ -421,7 +452,7 @@ document.body.addEventListener(
     }
 
     // Flow 3: Accept from profile page
-    if (/^Accept .+'s request to connect$/.test(ariaLabel)) {
+    if (/^Accept .+['']s request to connect$/.test(ariaLabel)) {
       handleAcceptFromProfile(el).catch((err) =>
         console.warn('[Pipeline Tracker] handleAcceptFromProfile error:', err),
       );
