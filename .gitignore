@@ -1,6 +1,7 @@
 node_modules/
 dist/
 linkedin-tracker/dist/
+pipeline-tracker/dist/
 .env
 *.local
 .pnpm-store/

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pipeline Tracker</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        min-width: 300px;
+        padding: 12px;
+      }
+      .configured {
+        color: green;
+        font-size: 12px;
+        margin-bottom: 8px;
+      }
+      .not-configured {
+        color: #888;
+        font-size: 12px;
+        margin-bottom: 8px;
+      }
+      input[type='text'] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px;
+        margin-bottom: 4px;
+      }
+      .error-msg {
+        color: red;
+        font-size: 11px;
+        margin-bottom: 4px;
+      }
+      button {
+        padding: 6px 12px;
+        cursor: pointer;
+        margin-right: 6px;
+      }
+      .confirm {
+        color: green;
+        font-size: 12px;
+      }
+      .timestamp {
+        font-size: 11px;
+        color: #555;
+        margin-top: 8px;
+      }
+      .last-error {
+        font-size: 11px;
+        color: red;
+        margin-top: 4px;
+      }
+      label {
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Setup mode: shown when no api_key is stored -->
+    <div id="setup-mode">
+      <p style="font-size: 13px; margin-bottom: 10px">Enter your Pipeline Tracker API key.</p>
+      <input type="text" id="api-key-input" placeholder="Enter API key" />
+      <div id="api-key-error" class="error-msg" style="display: none">API key cannot be empty</div>
+      <div>
+        <button id="save-btn">Save</button>
+        <span id="save-confirm" class="confirm" style="display: none">Saved ✓</span>
+      </div>
+    </div>
+
+    <!-- Configured mode: shown when api_key is stored -->
+    <div id="configured-mode" style="display: none">
+      <div id="status" class="configured">Configured</div>
+      <div id="timestamp" class="timestamp" style="display: none"></div>
+      <div id="last-error" class="last-error" style="display: none"></div>
+      <div style="margin-top: 8px">
+        <button id="test-btn">Test connection</button>
+        <button id="reset-btn">Reset</button>
+      </div>
+      <div id="test-result" style="display: none; margin-top: 6px; font-size: 12px"></div>
+      <label>
+        <input type="checkbox" id="debug-toggle" />
+        Debug mode (sends selector diagnostics on failure)
+      </label>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
