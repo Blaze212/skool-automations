@@ -1,13 +1,9 @@
 import * as esbuild from 'esbuild';
 import { copyFileSync, mkdirSync, readdirSync } from 'fs';
 
-const WEBHOOK_URL = process.env.PIPELINE_TRACKER_WEBHOOK_URL ?? '';
-if (!WEBHOOK_URL) {
-  console.warn(
-    '[build] WARNING: PIPELINE_TRACKER_WEBHOOK_URL is not set — background.js will not POST events.\n' +
-      '  Set it before building: PIPELINE_TRACKER_WEBHOOK_URL=https://... pnpm build:pipeline-tracker',
-  );
-}
+const WEBHOOK_URL =
+  process.env.PIPELINE_TRACKER_WEBHOOK_URL ??
+  'https://ktazhzplyhpqayjaghur.supabase.co/functions/v1/pipeline-tracker-webhook';
 
 mkdirSync('pipeline-tracker/dist/popup', { recursive: true });
 mkdirSync('pipeline-tracker/dist/icons', { recursive: true });
