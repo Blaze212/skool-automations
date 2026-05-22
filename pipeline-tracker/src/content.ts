@@ -172,6 +172,45 @@ function extractTitleFromCard(card: HTMLElement): string {
     }
   }
 
+  // S4: name-<p> sibling walk — search-results page structure.
+  // LinkedIn puts the name link inside a <p>; the title is the next sibling element
+  // that isn't an action (button / aria-labelled link). Mirrors ConnectionSearchCard.title.
+  const namePara = Array.from(card.querySelectorAll('p')).find((p) =>
+    p.querySelector('a[href*="/in/"]'),
+  ) as HTMLElement | undefined;
+  if (namePara) {
+    let sib = namePara.nextElementSibling as HTMLElement | null;
+    while (sib) {
+      if (!sib.querySelector('button, a[aria-label]')) {
+        const t = sib.textContent?.trim() ?? '';
+        if (t.length >= 5 && !/^\d/.test(t) && !TITLE_NOISE.test(t)) {
+          found.push({ value: t, strategy: 'name-para-sibling' }); break;
+        }
+      }
+      sib = sib.nextElementSibling as HTMLElement | null;
+    }
+  }
+
+  // S5: heading ancestor sibling-<p> — profile-page sidebar card structure.
+  // Mirrors ProfilePageCard.title: walk up from the heading, check sibling <p> elements.
+  const heading = card.querySelector('h1,h2,h3') as HTMLElement | null;
+  if (heading) {
+    let node: HTMLElement | null = heading.parentElement;
+    outer: while (node && node !== card) {
+      let sib = node.nextElementSibling as HTMLElement | null;
+      while (sib) {
+        if (sib.tagName === 'P') {
+          const t = sib.textContent?.trim() ?? '';
+          if (t.length >= 5 && !t.startsWith('·') && !/^\d/.test(t) && !TITLE_NOISE.test(t)) {
+            found.push({ value: t, strategy: 'heading-sibling-p' }); break outer;
+          }
+        }
+        sib = sib.nextElementSibling as HTMLElement | null;
+      }
+      node = node.parentElement;
+    }
+  }
+
   console.log('[Pipeline Tracker] title candidates:', found.map((c) => `[${c.strategy}] "${c.value.slice(0, 80)}"`));
   // Best = longest (longer headline = more specific = less likely to be noise)
   return found.sort((a, b) => b.value.length - a.value.length)[0]?.value ?? '';
@@ -681,7 +720,10 @@ document.body.addEventListener(
       _pendingConnectionName = inviteMatch[1].trim();
       _pendingConnectionTitle = '';
       _pendingConnectionProfileUrl = '';
-      let card: HTMLElement | null = el.parentElement;
+      // Use closest() first (mirrors ConnectionSearchCard); fall back to walk-up
+      let card: HTMLElement | null =
+        (el.closest('li, [data-view-name], [role="listitem"]') as HTMLElement | null) ??
+        el.parentElement;
       while (card && card !== document.body) {
         const profileLink = card.querySelector('a[href*="/in/"]') as HTMLAnchorElement | null;
         if (profileLink) {
