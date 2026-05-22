@@ -168,45 +168,57 @@ function extractProfileUrlFromCard(card: HTMLElement): string {
 }
 
 /**
- * Fallback accept-button detection for when the click lands on a wrapper div
- * rather than the button itself (common with LinkedIn's display:contents wrappers).
+ * Fallback accept-button detection using document.elementsFromPoint.
  *
- * Walks UP from the click target, at each ancestor queries every button / role=button
- * descendant, and returns the first whose bounding rect contains (clientX, clientY).
- * This is the same "walk up until you find the context" pattern used throughout.
+ * composedPath() only contains ancestors of the click target — it misses the Accept
+ * button when LinkedIn's display:contents wrapper divs cause the click to land on
+ * a sibling/cousin element rather than the button itself.
+ *
+ * elementsFromPoint returns ALL elements stacked at (x, y) regardless of DOM position,
+ * z-index, or pointer-events. We scan that list for a button with an accept aria-label,
+ * then walk each hit element up a few levels in case the click landed on a child span.
  */
-function findAcceptButtonAtPoint(
-  target: HTMLElement,
-  x: number,
-  y: number,
-): HTMLElement | null {
-  let node: HTMLElement | null = target;
-  for (let depth = 0; depth < 10 && node && node !== document.body; depth++) {
-    const btns = Array.from(
-      node.querySelectorAll('button, [role="button"]'),
-    ) as HTMLElement[];
-    for (const btn of btns) {
-      const label = (btn.getAttribute('aria-label') ?? '').toLowerCase();
-      const text = btn.textContent?.trim().toLowerCase() ?? '';
-      const isAccept =
-        (label.includes('accept') &&
-          (label.includes('invit') ||
-            label.includes('request') ||
-            label.includes('connect'))) ||
-        (text === 'accept' && !!btn.closest('[role="listitem"], li'));
-      if (!isAccept) continue;
-      const rect = btn.getBoundingClientRect();
-      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
-        console.log(
-          '[Pipeline Tracker] accept: hit-test match at walk depth',
-          depth,
-          'label=',
-          btn.getAttribute('aria-label') ?? btn.textContent?.trim().slice(0, 40),
-        );
-        return btn;
+function findAcceptButtonAtPoint(x: number, y: number): HTMLElement | null {
+  const elements = document.elementsFromPoint(x, y) as HTMLElement[];
+  console.log(
+    '[Pipeline Tracker] elementsFromPoint:',
+    elements
+      .slice(0, 8)
+      .map((el) => {
+        const label = el.getAttribute('aria-label');
+        return `${el.tagName}${label ? '[aria=' + label.slice(0, 40) + ']' : ''}`;
+      })
+      .join(' → '),
+  );
+
+  for (const el of elements) {
+    // Direct hit: this element IS the accept button
+    const label = (el.getAttribute('aria-label') ?? '').toLowerCase();
+    const text = el.textContent?.trim().toLowerCase() ?? '';
+    if (
+      (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') &&
+      (label.includes('accept') &&
+        (label.includes('invit') || label.includes('connect') || label.includes('request')))
+    ) {
+      console.log('[Pipeline Tracker] accept: direct hit via elementsFromPoint, label=', el.getAttribute('aria-label'));
+      return el;
+    }
+    // Span/div inside the button — walk up to the button
+    if (text === 'accept' || label.includes('accept')) {
+      let node: HTMLElement | null = el.parentElement;
+      for (let i = 0; i < 4 && node && node !== document.body; i++) {
+        const nodeLabel = (node.getAttribute('aria-label') ?? '').toLowerCase();
+        if (
+          (node.tagName === 'BUTTON' || node.getAttribute('role') === 'button') &&
+          nodeLabel.includes('accept') &&
+          (nodeLabel.includes('invit') || nodeLabel.includes('connect') || nodeLabel.includes('request'))
+        ) {
+          console.log('[Pipeline Tracker] accept: ancestor hit via elementsFromPoint, label=', node.getAttribute('aria-label'));
+          return node;
+        }
+        node = node.parentElement;
       }
     }
-    node = node.parentElement;
   }
   return null;
 }
@@ -516,13 +528,20 @@ document.body.addEventListener(
   (e: MouseEvent) => {
     const path = e.composedPath() as HTMLElement[];
 
-    // Log every click with composed path info
+    // Log every click with composed path info + elementsFromPoint snapshot
     const anyEl = path.find((el) => el.getAttribute?.('aria-label')) ?? null;
     const anyBtn = (path.find((el) => el.tagName === 'BUTTON') as HTMLElement | null) ?? null;
     const anyA =
       (path.find(
         (el) => el.tagName === 'A' && el.getAttribute?.('aria-label'),
       ) as HTMLElement | null) ?? null;
+    const atPoint = (document.elementsFromPoint(e.clientX, e.clientY) as HTMLElement[])
+      .slice(0, 5)
+      .map((el) => {
+        const a = el.getAttribute('aria-label');
+        return `${el.tagName}${a ? '[' + a.slice(0, 30) + ']' : ''}`;
+      })
+      .join(' → ');
     console.log(
       '[Pipeline Tracker] click target:',
       (e.target as HTMLElement).tagName,
@@ -533,6 +552,8 @@ document.body.addEventListener(
       anyBtn?.getAttribute('aria-label') ?? anyBtn?.textContent?.trim().slice(0, 40),
       '\n  path a:',
       anyA?.getAttribute('aria-label'),
+      '\n  at point:',
+      atPoint,
     );
 
     // Find most-specific button or role=button or aria-labelled anchor in the composed path
@@ -566,13 +587,10 @@ document.body.addEventListener(
     }
 
     // Fallback: click landed on a wrapper div (LinkedIn's display:contents wrappers mean the
-    // button never appears in composedPath). Walk up from the target and hit-test button rects.
+    // button never appears in composedPath). Use elementsFromPoint to find what's actually
+    // stacked under the cursor regardless of DOM position.
     {
-      const hitAccept = findAcceptButtonAtPoint(
-        e.target as HTMLElement,
-        e.clientX,
-        e.clientY,
-      );
+      const hitAccept = findAcceptButtonAtPoint(e.clientX, e.clientY);
       if (hitAccept) {
         handleAcceptConnection(hitAccept).catch((err) =>
           console.warn('[Pipeline Tracker] handleAcceptConnection error:', err),
