@@ -217,6 +217,70 @@ function extractTitleFromCard(card: HTMLElement): string {
 }
 
 /**
+ * Extract title when the "Invite to connect" link is available.
+ * Ports ConnectionSearchCard.title + ProfilePageCard.title from linkedin-tracker exactly.
+ * Falls back to extractTitleFromCard if no vanityName or nothing found.
+ */
+function extractTitleFromConnectLink(connectLink: HTMLElement, card: HTMLElement): string {
+  const href = connectLink.getAttribute('href') ?? '';
+  const m = href.match(/vanityName=([^&]+)/);
+  if (m) {
+    const vn = m[1];
+
+    // ConnectionSearchCard S1: name is inside a <p>; walk that <p>'s siblings
+    const nameLink = card.querySelector(`p a[href*="/in/${vn}"]`) as HTMLElement | null;
+    const namePara = nameLink?.closest('p') as HTMLElement | null;
+    if (namePara) {
+      let sib = namePara.nextElementSibling as HTMLElement | null;
+      while (sib) {
+        if (!sib.querySelector('button, a[aria-label]')) {
+          const t = sib.textContent?.trim() ?? '';
+          if (t.length >= 5) {
+            console.log('[Pipeline Tracker] title (name-para-sibling):', t.slice(0, 80));
+            return t;
+          }
+        }
+        sib = sib.nextElementSibling as HTMLElement | null;
+      }
+    }
+
+    // ConnectionSearchCard S2: "Current: <title>" span LinkedIn injects on some cards
+    for (const span of Array.from(card.querySelectorAll('span')) as HTMLElement[]) {
+      const t = span.textContent?.trim() ?? '';
+      if (t.startsWith('Current: ') && t.length > 9) {
+        const title = t.replace(/^Current:\s*/, '');
+        console.log('[Pipeline Tracker] title (current-span):', title.slice(0, 80));
+        return title;
+      }
+    }
+
+    // ProfilePageCard: find heading anchor, walk ancestor siblings for first <p>
+    const heading = card.querySelector(
+      `a[href*="/in/${vn}/"] h2, a[href*="/in/${vn}"] h2`,
+    ) as HTMLElement | null;
+    if (heading) {
+      let node: HTMLElement | null = heading.parentElement;
+      while (node && node !== card) {
+        let sib = node.nextElementSibling as HTMLElement | null;
+        while (sib) {
+          if (sib.tagName === 'P') {
+            const t = sib.textContent?.trim() ?? '';
+            if (t.length >= 5 && !t.startsWith('·') && !/^\d/.test(t)) {
+              console.log('[Pipeline Tracker] title (heading-sibling-p):', t.slice(0, 80));
+              return t;
+            }
+          }
+          sib = sib.nextElementSibling as HTMLElement | null;
+        }
+        node = node.parentElement;
+      }
+    }
+  }
+
+  return extractTitleFromCard(card);
+}
+
+/**
  * Extract and normalize the profile URL from a card container.
  * a[href*="/in/"] is the most stable LinkedIn selector.
  */
@@ -728,7 +792,7 @@ document.body.addEventListener(
         const profileLink = card.querySelector('a[href*="/in/"]') as HTMLAnchorElement | null;
         if (profileLink) {
           _pendingConnectionProfileUrl = normalizeLinkedInUrl(profileLink.href);
-          _pendingConnectionTitle = extractTitleFromCard(card);
+          _pendingConnectionTitle = extractTitleFromConnectLink(el, card);
           break;
         }
         card = card.parentElement;
