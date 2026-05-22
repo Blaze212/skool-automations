@@ -93,69 +93,88 @@ function extractNameFromAriaLabel(label: string): string {
   return '';
 }
 
-/**
- * Extract the person's name from a card container element.
- * - First: profile link text that doesn't contain an img/svg (not the avatar link).
- * - Then: <strong> or <b> (name is typically bolded).
- */
-function extractNameFromCard(card: HTMLElement): string {
-  const links = Array.from(card.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[];
-  for (const link of links) {
-    if (link.querySelector('img, svg')) continue;
-    const text = link.textContent?.trim() ?? '';
-    if (text.length > 1) {
-      console.log('[Pipeline Tracker] name from card link:', text);
-      return text;
-    }
-  }
-  const bold = card.querySelector('strong, b') as HTMLElement | null;
-  const boldText = bold?.textContent?.trim() ?? '';
-  if (boldText.length > 1) {
-    console.log('[Pipeline Tracker] name from card bold:', boldText);
-    return boldText;
-  }
-  return '';
-}
-
 // Text patterns that look like a headline but are actually noise
 const TITLE_NOISE = /mutual connection|connection(s)?|follower(s)?|premium|open to work/i;
 
+type Candidate = { value: string; strategy: string };
+
 /**
- * Extract the person's LinkedIn headline from a card container.
- * Strategy 1: longest non-anchor <span> ≥ 15 chars, not noise, not starting with digit.
- * Strategy 2: first non-anchor <p> meeting the same criteria.
- * Logs all candidates so scrape failures are diagnosable.
+ * Extract the person's name from a card container.
+ * Runs ALL strategies, logs every candidate, returns the first non-empty result.
+ *
+ * Bug note: filter only <img> (not <svg>) — the name link legitimately contains
+ * a badge <svg> (Verified, Premium, etc.) but no <img>. The avatar link has <img>.
  */
-function extractTitleFromCard(card: HTMLElement): string {
-  const spans = Array.from(card.querySelectorAll('span')) as HTMLSpanElement[];
-  const spanCandidates = spans.filter((s) => {
-    if (s.closest('a')) return false;
-    const t = s.textContent?.trim() ?? '';
-    return t.length >= 15 && !/^\d/.test(t) && !TITLE_NOISE.test(t);
-  });
-  console.log(
-    '[Pipeline Tracker] title span candidates:',
-    spanCandidates.map((s) => s.textContent?.trim().slice(0, 80)),
-  );
-  if (spanCandidates.length > 0) {
-    const best = spanCandidates.reduce((a, b) =>
-      (b.textContent?.trim() ?? '').length > (a.textContent?.trim() ?? '').length ? b : a,
-    );
-    const t = best.textContent?.trim() ?? '';
-    if (t) return t;
+function extractNameFromCard(card: HTMLElement): string {
+  const found: Candidate[] = [];
+
+  // S1: /in/ link whose text has content — skip avatar links (they have <img>)
+  const links = Array.from(card.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[];
+  for (const link of links) {
+    if (link.querySelector('img')) continue; // avatar link has <img>; name link has only <svg> badge
+    const text = link.textContent?.trim() ?? '';
+    if (text.length > 1) { found.push({ value: text, strategy: 'profile-link-text' }); break; }
   }
 
-  const paras = Array.from(card.querySelectorAll('p')) as HTMLParagraphElement[];
-  const paraCandidates = paras.filter((p) => {
-    if (p.closest('a')) return false;
+  // S2: direct text nodes inside <strong>/<b> — strips badge spans and icons cleanly
+  for (const el of Array.from(card.querySelectorAll('strong, b')) as HTMLElement[]) {
+    const directText = Array.from(el.childNodes)
+      .filter((n) => n.nodeType === Node.TEXT_NODE)
+      .map((n) => (n.textContent ?? '').trim())
+      .filter((t) => t.length > 0)
+      .join(' ');
+    if (directText.length > 1) { found.push({ value: directText, strategy: 'bold-direct-text' }); break; }
+  }
+
+  // S3: heading elements not inside anchors
+  for (const h of Array.from(card.querySelectorAll('h1,h2,h3,h4')) as HTMLElement[]) {
+    if (h.closest('a')) continue;
+    const text = h.textContent?.trim() ?? '';
+    if (text.length > 1) { found.push({ value: text, strategy: 'heading' }); break; }
+  }
+
+  console.log('[Pipeline Tracker] name candidates:', found.map((c) => `[${c.strategy}] "${c.value.slice(0, 60)}"`));
+  return found[0]?.value ?? '';
+}
+
+/**
+ * Extract the person's LinkedIn headline from a card container.
+ * Runs ALL strategies, logs every candidate, returns the longest non-empty result.
+ */
+function extractTitleFromCard(card: HTMLElement): string {
+  const found: Candidate[] = [];
+
+  // S1: longest non-anchor <span> ≥ 15 chars, not noise, not starting with digit
+  const spans = (Array.from(card.querySelectorAll('span')) as HTMLElement[])
+    .filter((s) => {
+      if (s.closest('a')) return false;
+      const t = s.textContent?.trim() ?? '';
+      return t.length >= 15 && !/^\d/.test(t) && !TITLE_NOISE.test(t);
+    })
+    .sort((a, b) => (b.textContent?.trim() ?? '').length - (a.textContent?.trim() ?? '').length);
+  if (spans[0]) found.push({ value: spans[0].textContent!.trim(), strategy: 'span-longest' });
+
+  // S2: first non-anchor <p> ≥ 15 chars, not noise
+  for (const p of Array.from(card.querySelectorAll('p')) as HTMLElement[]) {
+    if (p.closest('a')) continue;
     const t = p.textContent?.trim() ?? '';
-    return t.length >= 15 && !/^\d/.test(t) && !TITLE_NOISE.test(t);
-  });
-  console.log(
-    '[Pipeline Tracker] title para candidates:',
-    paraCandidates.map((p) => p.textContent?.trim().slice(0, 80)),
-  );
-  return paraCandidates[0]?.textContent?.trim() ?? '';
+    if (t.length >= 15 && !/^\d/.test(t) && !TITLE_NOISE.test(t)) {
+      found.push({ value: t, strategy: 'para' }); break;
+    }
+  }
+
+  // S3: [title] attribute on any non-anchor element
+  for (const el of Array.from(card.querySelectorAll('[title]')) as HTMLElement[]) {
+    if (el.closest('a')) continue;
+    const t = el.getAttribute('title') ?? '';
+    if (t.length >= 15 && !/^\d/.test(t) && !TITLE_NOISE.test(t)) {
+      found.push({ value: t, strategy: 'title-attr' }); break;
+    }
+  }
+
+  console.log('[Pipeline Tracker] title candidates:', found.map((c) => `[${c.strategy}] "${c.value.slice(0, 80)}"`));
+  // Best = longest (longer headline = more specific = less likely to be noise)
+  return found.sort((a, b) => b.value.length - a.value.length)[0]?.value ?? '';
 }
 
 /**
@@ -163,8 +182,55 @@ function extractTitleFromCard(card: HTMLElement): string {
  * a[href*="/in/"] is the most stable LinkedIn selector.
  */
 function extractProfileUrlFromCard(card: HTMLElement): string {
-  const anchor = card.querySelector('a[href*="/in/"]') as HTMLAnchorElement | null;
-  return normalizeLinkedInUrl(anchor?.href ?? '');
+  const anchors = Array.from(card.querySelectorAll('a[href*="/in/"]')) as HTMLAnchorElement[];
+  // Prefer the text link (no img) over the avatar link; fall back to any /in/ link
+  const preferred = anchors.find((a) => !a.querySelector('img')) ?? anchors[0] ?? null;
+  return normalizeLinkedInUrl(preferred?.href ?? '');
+}
+
+/**
+ * Walk up from a click target to find the nearest invitation card
+ * (a [role="listitem"] or <li> that contains an Accept or Ignore button).
+ * Used to log extraction previews on any click near the card.
+ */
+function findNearestInvitationCard(target: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = target;
+  while (node && node !== document.body) {
+    const role = node.getAttribute('role');
+    if (role === 'listitem' || node.tagName === 'LI') {
+      // Primary: explicit Accept/Ignore aria-label
+      if (node.querySelector('button[aria-label*="Accept" i], button[aria-label*="Ignore" i]')) {
+        return node;
+      }
+      // Fallback: any listitem with a profile link + button (generic invitation card shape)
+      if (node.querySelector('a[href*="/in/"]') && node.querySelector('button')) {
+        return node;
+      }
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
+
+/**
+ * Log a full extraction preview for an invitation card.
+ * Fires on ANY click within the card so you can verify data capture
+ * before committing to the Accept action.
+ */
+function logCardPreview(card: HTMLElement): void {
+  console.log('[Pipeline Tracker] ── CARD PREVIEW ──────────────────────────');
+  const name = extractNameFromCard(card);
+  const title = extractTitleFromCard(card);
+  const linkedin_url = extractProfileUrlFromCard(card);
+  const messageText =
+    card.querySelector('[data-testid="expandable-text-box"]')?.textContent?.trim() ?? '';
+  console.log('[Pipeline Tracker] PREVIEW result:', {
+    name: name || '(not found)',
+    title: title || '(not found)',
+    linkedin_url: linkedin_url || '(not found)',
+    message_text: messageText || '(empty)',
+  });
+  console.log('[Pipeline Tracker] ─────────────────────────────────────────');
 }
 
 /**
@@ -555,6 +621,11 @@ document.body.addEventListener(
       '\n  at point:',
       atPoint,
     );
+
+    // Card preview: log full extraction for any click within an invitation card
+    // (fires without committing to Accept, so you can verify before clicking the button)
+    const nearestCard = findNearestInvitationCard(e.target as HTMLElement);
+    if (nearestCard) logCardPreview(nearestCard);
 
     // Find most-specific button or role=button or aria-labelled anchor in the composed path
     const el =
