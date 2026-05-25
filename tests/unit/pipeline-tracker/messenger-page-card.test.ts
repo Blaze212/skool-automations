@@ -79,9 +79,7 @@ describe('MessengerPageCard', () => {
     it('extracts the headline from the profile card subtitle', () => {
       loadFixture('messenger-page-3.txt');
       const card = MessengerPageCard.fromDocument()!;
-      expect(card.title).toBe(
-        'Technology Leader | Fractional CTO | SaaS Business Owner | Advisor',
-      );
+      expect(card.title).toBe('Technology Leader | Fractional CTO | SaaS Business Owner | Advisor');
     });
 
     it('returns the canonical profile URL', () => {
