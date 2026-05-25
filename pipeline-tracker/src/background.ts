@@ -1,15 +1,107 @@
 declare const PIPELINE_TRACKER_WEBHOOK_URL: string;
 
-import { STORAGE_KEYS, type PipelineEvent } from './types.ts';
+import {
+  BADGE_COLOR_ERROR,
+  BADGE_COLOR_PARTIAL,
+  BADGE_TEXT_COLOR,
+  HISTORY_CAP,
+  STORAGE_KEYS,
+  type HistoryEntry,
+  type PipelineEvent,
+  type Severity,
+} from './types.ts';
 
 console.log(
   '[Pipeline Tracker BG] service worker started, webhook URL configured:',
   !!PIPELINE_TRACKER_WEBHOOK_URL,
 );
 
-export async function handleMessage(
-  event: PipelineEvent,
-): Promise<{ ok: boolean; message?: string }> {
+interface BackgroundResult {
+  ok: boolean;
+  message?: string;
+}
+
+interface Classified {
+  status: Severity;
+  message: string;
+  code?: string;
+  http_status?: number;
+}
+
+function severityRank(s: Severity): number {
+  return s === 'error' ? 2 : s === 'partial' ? 1 : 0;
+}
+
+function pickHigherSeverity(a: Severity, b: Severity): Severity {
+  return severityRank(a) >= severityRank(b) ? a : b;
+}
+
+async function recordResult(event: PipelineEvent, classified: Classified): Promise<void> {
+  const local = (await chrome.storage.local.get([
+    STORAGE_KEYS.HISTORY,
+    STORAGE_KEYS.UNREAD_COUNT,
+    STORAGE_KEYS.HIGHEST_SEVERITY,
+  ])) as Record<string, unknown>;
+
+  const prevHistory = (local[STORAGE_KEYS.HISTORY] as HistoryEntry[] | undefined) ?? [];
+  const prevUnread = (local[STORAGE_KEYS.UNREAD_COUNT] as number | undefined) ?? 0;
+  const prevSeverity = (local[STORAGE_KEYS.HIGHEST_SEVERITY] as Severity | undefined) ?? 'ok';
+
+  const entry: HistoryEntry = {
+    ts: new Date().toISOString(),
+    status: classified.status,
+    event_type: event.event_type,
+    name: event.name,
+    page_url: event.page_url,
+    message: classified.message,
+    warnings: [],
+    code: classified.code,
+    http_status: classified.http_status,
+  };
+
+  const history = [entry, ...prevHistory].slice(0, HISTORY_CAP);
+
+  const isNoisy = classified.status !== 'ok';
+  const unreadCount = isNoisy ? prevUnread + 1 : prevUnread;
+  const highestSeverity = isNoisy
+    ? pickHigherSeverity(prevSeverity, classified.status)
+    : prevSeverity;
+
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.HISTORY]: history,
+    [STORAGE_KEYS.UNREAD_COUNT]: unreadCount,
+    [STORAGE_KEYS.HIGHEST_SEVERITY]: highestSeverity,
+  });
+
+  await applyBadge(unreadCount, highestSeverity);
+}
+
+async function applyBadge(count: number, severity: Severity): Promise<void> {
+  if (count <= 0 || severity === 'ok') {
+    await chrome.action.setBadgeText({ text: '' });
+    return;
+  }
+  await chrome.action.setBadgeText({ text: String(count) });
+  await chrome.action.setBadgeBackgroundColor({
+    color: severity === 'error' ? BADGE_COLOR_ERROR : BADGE_COLOR_PARTIAL,
+  });
+  // setBadgeTextColor isn't on every Chrome build; guard it.
+  if (typeof chrome.action.setBadgeTextColor === 'function') {
+    await chrome.action.setBadgeTextColor({ color: BADGE_TEXT_COLOR });
+  }
+}
+
+export async function restoreBadgeOnStartup(): Promise<void> {
+  const local = (await chrome.storage.local.get([
+    STORAGE_KEYS.UNREAD_COUNT,
+    STORAGE_KEYS.HIGHEST_SEVERITY,
+  ])) as Record<string, unknown>;
+  const count = (local[STORAGE_KEYS.UNREAD_COUNT] as number | undefined) ?? 0;
+  const severity = (local[STORAGE_KEYS.HIGHEST_SEVERITY] as Severity | undefined) ?? 'ok';
+  await applyBadge(count, severity);
+}
+
+export async function handleMessage(event: PipelineEvent): Promise<BackgroundResult> {
   console.log(
     '[Pipeline Tracker BG] onMessage received, type:',
     event.event_type,
@@ -21,7 +113,9 @@ export async function handleMessage(
     console.error(
       '[Pipeline Tracker BG] PIPELINE_TRACKER_WEBHOOK_URL is not set — rebuild with env var',
     );
-    return { ok: false, message: 'Webhook URL not configured' };
+    const message = 'Webhook URL not configured';
+    await recordResult(event, { status: 'error', message });
+    return { ok: false, message };
   }
 
   const syncData = await chrome.storage.sync.get(STORAGE_KEYS.API_KEY);
@@ -29,7 +123,9 @@ export async function handleMessage(
 
   if (!apiKey) {
     console.warn('[Pipeline Tracker BG] No api_key configured; skipping POST');
-    return { ok: false, message: 'No api_key configured' };
+    const message = 'No api_key configured';
+    await recordResult(event, { status: 'error', message });
+    return { ok: false, message };
   }
 
   const payload: PipelineEvent = { ...event, api_key: apiKey };
@@ -49,13 +145,34 @@ export async function handleMessage(
     clearTimeout(timeout);
 
     if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      console.error(`[Pipeline Tracker BG] POST failed ${res.status}:`, body);
-      await chrome.storage.local.set({ [STORAGE_KEYS.LAST_ERROR]: now });
-      if (res.status === 403) {
-        return { ok: false, message: 'Sheet not shared or invalid API key' };
+      const bodyText = await res.text().catch(() => '');
+      let code: string | undefined;
+      let serverMessage: string | undefined;
+      try {
+        const parsed = JSON.parse(bodyText) as { error?: string; code?: string };
+        code = parsed.code;
+        serverMessage = parsed.error;
+      } catch {
+        // non-JSON body; ignore
       }
-      return { ok: false, message: 'Connection failed. Check your key.' };
+      console.error(`[Pipeline Tracker BG] POST failed ${res.status}:`, bodyText);
+      await chrome.storage.local.set({ [STORAGE_KEYS.LAST_ERROR]: now });
+
+      let message: string;
+      if (res.status === 403) {
+        message = 'Sheet not shared or invalid API key';
+      } else if (serverMessage) {
+        message = serverMessage;
+      } else {
+        message = 'Connection failed. Check your key.';
+      }
+      await recordResult(event, {
+        status: 'error',
+        message,
+        code,
+        http_status: res.status,
+      });
+      return { ok: false, message };
     }
 
     console.log('[Pipeline Tracker BG] POST succeeded');
@@ -63,17 +180,22 @@ export async function handleMessage(
       [STORAGE_KEYS.LAST_LOGGED_AT]: now,
       [STORAGE_KEYS.LAST_ERROR]: null,
     });
+    await recordResult(event, { status: 'ok', message: 'Logged', http_status: res.status });
     return { ok: true };
   } catch (err) {
     clearTimeout(timeout);
     if (err instanceof Error && err.name === 'AbortError') {
       console.warn('[Pipeline Tracker BG] POST timed out');
       await chrome.storage.local.set({ [STORAGE_KEYS.LAST_ERROR]: now });
-      return { ok: false, message: 'Connection timed out' };
+      const message = 'Connection timed out';
+      await recordResult(event, { status: 'error', message });
+      return { ok: false, message };
     }
     console.error('[Pipeline Tracker BG] POST threw:', err);
     await chrome.storage.local.set({ [STORAGE_KEYS.LAST_ERROR]: now });
-    return { ok: false, message: 'Connection failed' };
+    const message = 'Connection failed';
+    await recordResult(event, { status: 'error', message });
+    return { ok: false, message };
   }
 }
 
@@ -82,3 +204,5 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   void handleMessage(msg as PipelineEvent).then(sendResponse);
   return true;
 });
+
+void restoreBadgeOnStartup();

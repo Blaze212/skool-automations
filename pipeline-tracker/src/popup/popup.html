@@ -7,7 +7,7 @@
     <style>
       body {
         font-family: sans-serif;
-        min-width: 300px;
+        min-width: 320px;
         padding: 12px;
       }
       .configured {
@@ -57,6 +57,79 @@
         gap: 6px;
         margin-top: 8px;
       }
+      #history {
+        margin-top: 12px;
+        border-top: 1px solid #e5e5e5;
+        padding-top: 8px;
+      }
+      .history-heading {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #666;
+        margin-bottom: 6px;
+      }
+      .history-entry {
+        font-size: 12px;
+        padding: 6px 4px;
+        border-bottom: 1px solid #f0f0f0;
+      }
+      .history-entry:last-of-type {
+        border-bottom: none;
+      }
+      .history-head {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        cursor: pointer;
+        list-style: none;
+      }
+      .history-head::-webkit-details-marker {
+        display: none;
+      }
+      .history-icon {
+        font-size: 13px;
+      }
+      .history-icon.ok {
+        color: #16a34a;
+      }
+      .history-icon.partial {
+        color: #d97706;
+      }
+      .history-icon.error {
+        color: #dc2626;
+      }
+      .history-time {
+        color: #888;
+        font-size: 11px;
+      }
+      .history-title {
+        font-weight: 600;
+      }
+      .history-message {
+        margin-top: 2px;
+        margin-left: 22px;
+        color: #555;
+        font-style: italic;
+      }
+      .history-detail {
+        margin: 4px 0 0 22px;
+        font-family: monospace;
+        font-size: 10px;
+        white-space: pre-wrap;
+        background: #f8f8f8;
+        padding: 4px 6px;
+        border-radius: 3px;
+        color: #333;
+      }
+      .clear-history {
+        margin-top: 8px;
+        font-size: 11px;
+        background: none;
+        border: 1px solid #ccc;
+        color: #555;
+        padding: 3px 8px;
+      }
     </style>
   </head>
   <body>
@@ -76,6 +149,13 @@
       <div id="status" class="configured">Configured</div>
       <div id="timestamp" class="timestamp" style="display: none"></div>
       <div id="last-error" class="last-error" style="display: none"></div>
+
+      <section id="history" style="display: none">
+        <div class="history-heading">Recent activity</div>
+        <div id="history-list"></div>
+        <button id="clear-history-btn" class="clear-history">Clear history</button>
+      </section>
+
       <div style="margin-top: 8px">
         <button id="test-btn">Test connection</button>
         <button id="reset-btn">Reset</button>

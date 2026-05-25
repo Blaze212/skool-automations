@@ -600,7 +600,9 @@ export async function handleDirectMessage(button: HTMLElement | null): Promise<v
         if (!title) {
           // Narrow to the profile card within n to avoid picking up message body text
           const pcEl = (n.querySelector('.msg-s-profile-card') ??
-            n.querySelector('.msg-s-message-list-content .artdeco-entity-lockup')) as HTMLElement | null;
+            n.querySelector(
+              '.msg-s-message-list-content .artdeco-entity-lockup',
+            )) as HTMLElement | null;
           title = extractTitleFromCard(pcEl ?? n);
         }
         console.log('[Pipeline Tracker] DM: name found walking up from composer');

@@ -59,9 +59,7 @@ export class ChatOverlayCard {
     const card = this.profileCard;
     if (card) {
       const titleEl = card.querySelector('.artdeco-entity-lockup__title') as HTMLElement | null;
-      const link = (titleEl ?? card).querySelector(
-        'a[href*="/in/"]',
-      ) as HTMLAnchorElement | null;
+      const link = (titleEl ?? card).querySelector('a[href*="/in/"]') as HTMLAnchorElement | null;
       if (link) {
         // The name link wraps a <span> with the clean name and may include a
         // badge <svg>. Take the inner span text — fall back to link text.
@@ -89,9 +87,7 @@ export class ChatOverlayCard {
   get title(): string {
     const card = this.profileCard;
     if (!card) return '';
-    const subtitle = card.querySelector(
-      '.artdeco-entity-lockup__subtitle',
-    ) as HTMLElement | null;
+    const subtitle = card.querySelector('.artdeco-entity-lockup__subtitle') as HTMLElement | null;
     if (!subtitle) return '';
     // [title] attribute holds the untruncated string when LinkedIn renders a
     // tooltip-on-hover variant; prefer it when present.
