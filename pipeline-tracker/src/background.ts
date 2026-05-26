@@ -2,8 +2,12 @@ declare const PIPELINE_TRACKER_WEBHOOK_URL: string;
 
 import {
   BADGE_COLOR_ERROR,
+  BADGE_COLOR_OK,
   BADGE_COLOR_PARTIAL,
   BADGE_TEXT_COLOR,
+  BADGE_TEXT_ERROR,
+  BADGE_TEXT_OK,
+  BADGE_TEXT_PARTIAL,
   HISTORY_CAP,
   STORAGE_KEYS,
   type HistoryEntry,
@@ -26,6 +30,7 @@ interface Classified {
   message: string;
   code?: string;
   http_status?: number;
+  warnings?: string[];
 }
 
 function severityRank(s: Severity): number {
@@ -34,6 +39,15 @@ function severityRank(s: Severity): number {
 
 function pickHigherSeverity(a: Severity, b: Severity): Severity {
   return severityRank(a) >= severityRank(b) ? a : b;
+}
+
+function effectiveSeverity(event: PipelineEvent, classified: Classified): Severity {
+  // Red bubble when the plugin captured an event with no identifying fields,
+  // even if the backend accepted it. Hides silent capture failures.
+  if (!event.name?.trim() && !event.linkedin_url?.trim()) {
+    return 'error';
+  }
+  return classified.status;
 }
 
 async function recordResult(event: PipelineEvent, classified: Classified): Promise<void> {
@@ -47,44 +61,52 @@ async function recordResult(event: PipelineEvent, classified: Classified): Promi
   const prevUnread = (local[STORAGE_KEYS.UNREAD_COUNT] as number | undefined) ?? 0;
   const prevSeverity = (local[STORAGE_KEYS.HIGHEST_SEVERITY] as Severity | undefined) ?? 'ok';
 
+  const lastStatus = effectiveSeverity(event, classified);
+
   const entry: HistoryEntry = {
     ts: new Date().toISOString(),
-    status: classified.status,
+    status: lastStatus,
     event_type: event.event_type,
     name: event.name,
     page_url: event.page_url,
     message: classified.message,
-    warnings: [],
+    warnings: classified.warnings ?? [],
     code: classified.code,
     http_status: classified.http_status,
   };
 
   const history = [entry, ...prevHistory].slice(0, HISTORY_CAP);
 
-  const isNoisy = classified.status !== 'ok';
+  const isNoisy = lastStatus !== 'ok';
   const unreadCount = isNoisy ? prevUnread + 1 : prevUnread;
-  const highestSeverity = isNoisy
-    ? pickHigherSeverity(prevSeverity, classified.status)
-    : prevSeverity;
+  const highestSeverity = isNoisy ? pickHigherSeverity(prevSeverity, lastStatus) : prevSeverity;
 
   await chrome.storage.local.set({
     [STORAGE_KEYS.HISTORY]: history,
     [STORAGE_KEYS.UNREAD_COUNT]: unreadCount,
     [STORAGE_KEYS.HIGHEST_SEVERITY]: highestSeverity,
+    [STORAGE_KEYS.LAST_STATUS]: lastStatus,
   });
 
-  await applyBadge(unreadCount, highestSeverity);
+  await applyBadge(lastStatus);
 }
 
-async function applyBadge(count: number, severity: Severity): Promise<void> {
-  if (count <= 0 || severity === 'ok') {
-    await chrome.action.setBadgeText({ text: '' });
-    return;
-  }
-  await chrome.action.setBadgeText({ text: String(count) });
-  await chrome.action.setBadgeBackgroundColor({
-    color: severity === 'error' ? BADGE_COLOR_ERROR : BADGE_COLOR_PARTIAL,
-  });
+async function applyBadge(severity: Severity): Promise<void> {
+  const text =
+    severity === 'error'
+      ? BADGE_TEXT_ERROR
+      : severity === 'partial'
+        ? BADGE_TEXT_PARTIAL
+        : BADGE_TEXT_OK;
+  const color =
+    severity === 'error'
+      ? BADGE_COLOR_ERROR
+      : severity === 'partial'
+        ? BADGE_COLOR_PARTIAL
+        : BADGE_COLOR_OK;
+
+  await chrome.action.setBadgeText({ text });
+  await chrome.action.setBadgeBackgroundColor({ color });
   // setBadgeTextColor isn't on every Chrome build; guard it.
   if (typeof chrome.action.setBadgeTextColor === 'function') {
     await chrome.action.setBadgeTextColor({ color: BADGE_TEXT_COLOR });
@@ -92,13 +114,17 @@ async function applyBadge(count: number, severity: Severity): Promise<void> {
 }
 
 export async function restoreBadgeOnStartup(): Promise<void> {
-  const local = (await chrome.storage.local.get([
-    STORAGE_KEYS.UNREAD_COUNT,
-    STORAGE_KEYS.HIGHEST_SEVERITY,
-  ])) as Record<string, unknown>;
-  const count = (local[STORAGE_KEYS.UNREAD_COUNT] as number | undefined) ?? 0;
-  const severity = (local[STORAGE_KEYS.HIGHEST_SEVERITY] as Severity | undefined) ?? 'ok';
-  await applyBadge(count, severity);
+  const local = (await chrome.storage.local.get([STORAGE_KEYS.LAST_STATUS])) as Record<
+    string,
+    unknown
+  >;
+  const lastStatus = local[STORAGE_KEYS.LAST_STATUS] as Severity | undefined;
+  // No prior event yet → no badge. Once an event lands the bubble appears.
+  if (!lastStatus) {
+    await chrome.action.setBadgeText({ text: '' });
+    return;
+  }
+  await applyBadge(lastStatus);
 }
 
 export async function handleMessage(event: PipelineEvent): Promise<BackgroundResult> {
@@ -180,7 +206,21 @@ export async function handleMessage(event: PipelineEvent): Promise<BackgroundRes
       [STORAGE_KEYS.LAST_LOGGED_AT]: now,
       [STORAGE_KEYS.LAST_ERROR]: null,
     });
-    await recordResult(event, { status: 'ok', message: 'Logged', http_status: res.status });
+
+    const bodyText = await res.text().catch(() => '');
+    let warnings: string[] = [];
+    try {
+      const parsed = JSON.parse(bodyText) as { warnings?: unknown };
+      if (Array.isArray(parsed.warnings)) {
+        warnings = parsed.warnings.filter((w): w is string => typeof w === 'string');
+      }
+    } catch {
+      // non-JSON body; ignore
+    }
+
+    const status: Severity = warnings.length > 0 ? 'partial' : 'ok';
+    const message = warnings.length > 0 ? `Logged with warnings: ${warnings.join(', ')}` : 'Logged';
+    await recordResult(event, { status, message, http_status: res.status, warnings });
     return { ok: true };
   } catch (err) {
     clearTimeout(timeout);

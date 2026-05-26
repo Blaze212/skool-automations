@@ -96,14 +96,13 @@ export function renderHistory(entries: HistoryEntry[]): void {
   }
 }
 
-async function clearUnreadAndBadge(): Promise<void> {
+async function clearUnreadCounter(): Promise<void> {
+  // The toolbar bubble reflects the *last update* (set in background.ts) and is
+  // intentionally NOT cleared here — it should persist until the next event.
   await chrome.storage.local.set({
     [STORAGE_KEYS.UNREAD_COUNT]: 0,
     [STORAGE_KEYS.HIGHEST_SEVERITY]: 'ok',
   });
-  if (chrome.action && typeof chrome.action.setBadgeText === 'function') {
-    await chrome.action.setBadgeText({ text: '' });
-  }
 }
 
 export async function initPopup(): Promise<void> {
@@ -161,7 +160,7 @@ export async function initPopup(): Promise<void> {
   renderHistory(history);
 
   // Opening the popup acknowledges unread notifications.
-  await clearUnreadAndBadge();
+  await clearUnreadCounter();
 
   saveBtn.addEventListener('click', async () => {
     const value = keyInput.value.trim();
@@ -224,7 +223,7 @@ export async function initPopup(): Promise<void> {
       unknown
     >;
     renderHistory((refreshed[STORAGE_KEYS.HISTORY] as HistoryEntry[] | undefined) ?? []);
-    await clearUnreadAndBadge();
+    await clearUnreadCounter();
   });
 
   resetBtn.addEventListener('click', async () => {
@@ -245,6 +244,7 @@ export async function initPopup(): Promise<void> {
       [STORAGE_KEYS.HISTORY]: [],
       [STORAGE_KEYS.UNREAD_COUNT]: 0,
       [STORAGE_KEYS.HIGHEST_SEVERITY]: 'ok',
+      [STORAGE_KEYS.LAST_STATUS]: null,
     });
     renderHistory([]);
     if (chrome.action && typeof chrome.action.setBadgeText === 'function') {

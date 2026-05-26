@@ -230,4 +230,70 @@ describe('ProfilePageAcceptCard', () => {
       expect(acceptCard?.messageText).toBe('');
     });
   });
+
+  describe('detached-button fallback', () => {
+    it('extracts data from the document when the button has no parentElement', () => {
+      setProfilePath('vinaybali12123');
+      const { card } = makeProfilePage({
+        vanity: 'vinaybali12123',
+        name: 'Vinay Bali',
+        pronouns: 'He/Him',
+        headline: 'Project Manager | Agile, Scrum, SDLC | Data-Driven Transformation',
+        location: 'Bayonne, New Jersey, United States',
+      });
+      document.body.appendChild(card);
+
+      // Simulate LinkedIn detaching the Accept button before our handler reads
+      // its ancestors (parentElement is null on a detached node).
+      const detached = document.createElement('button');
+      detached.setAttribute('aria-label', 'Accept Vinay’s request to connect');
+      expect(detached.parentElement).toBeNull();
+
+      const acceptCard = ProfilePageAcceptCard.fromAcceptButton(detached);
+      expect(acceptCard).not.toBeNull();
+      expect(acceptCard?.name).toBe('Vinay Bali');
+      expect(acceptCard?.profileUrl).toBe('https://www.linkedin.com/in/vinaybali12123');
+      expect(acceptCard?.title).toBe(
+        'Project Manager | Agile, Scrum, SDLC | Data-Driven Transformation',
+      );
+    });
+
+    it('returns null when the document has no heading link for the URL vanity', () => {
+      setProfilePath('ghost-user');
+      const detached = document.createElement('button');
+      detached.setAttribute('aria-label', 'Accept Ghost’s request to connect');
+      expect(ProfilePageAcceptCard.fromAcceptButton(detached)).toBeNull();
+    });
+
+    it('does not pick unrelated long text from elsewhere on the profile page', () => {
+      setProfilePath('arie-rodriguez');
+      const { card } = makeProfilePage({
+        vanity: 'arie-rodriguez',
+        name: 'Arié Rodríguez',
+        headline: 'Operations Team Lead & Process Improvement Specialist | Power BI',
+        location: 'Vázquez de Coronado, San Jose, Costa Rica',
+      });
+      document.body.appendChild(card);
+
+      // Simulate a long body paragraph elsewhere on the page (e.g. About section).
+      // The fallback card scope is broad (document.body in jsdom), so the title
+      // walk must stop near the heading rather than scanning the whole page.
+      const about = document.createElement('section');
+      const aboutP = document.createElement('p');
+      aboutP.textContent =
+        'I am a deeply passionate operations leader with extensive experience in ' +
+        'leading cross-functional teams across multiple geographies, delivering ' +
+        'measurable process improvements through Six Sigma and ISO 13485 methodologies, ' +
+        'and consistently exceeding service-level expectations year over year.';
+      about.appendChild(aboutP);
+      document.body.appendChild(about);
+
+      const detached = document.createElement('button');
+      detached.setAttribute('aria-label', 'Accept Arié’s request to connect');
+      const acceptCard = ProfilePageAcceptCard.fromAcceptButton(detached);
+      expect(acceptCard?.title).toBe(
+        'Operations Team Lead & Process Improvement Specialist | Power BI',
+      );
+    });
+  });
 });

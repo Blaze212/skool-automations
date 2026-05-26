@@ -35,9 +35,16 @@ export class ProfilePageAcceptCard {
    * URL, then walking up from the Accept button until an ancestor containing
    * the profile owner's heading link is found.
    *
+   * Fallback: LinkedIn often detaches the Accept button from the DOM mid-click
+   * (React swaps it out for "Message" before our async handler reads ancestors).
+   * Walking up from a detached button yields nothing. Since the URL pins the
+   * owner's vanity on a profile page, search the document directly for the
+   * heading anchor and use its nearest section/main as the card scope.
+   *
    * Returns null when:
    *   - the current page is not /in/{vanity}/
-   *   - no ancestor of the button contains a[href*="/in/{vanity}/"] h2
+   *   - no ancestor of the button contains a[href*="/in/{vanity}/"] h2 AND
+   *     no such heading exists anywhere in the document
    */
   static fromAcceptButton(button: HTMLElement): ProfilePageAcceptCard | null {
     const m = window.location.pathname.match(ProfilePageAcceptCard.PAGE_PATH_PATTERN);
@@ -51,7 +58,14 @@ export class ProfilePageAcceptCard {
       }
       card = card.parentElement;
     }
-    return null;
+
+    const headingAnchor = document
+      .querySelector(`a[href*="/in/${vanityName}/"] h2`)
+      ?.closest('a') as HTMLElement | null;
+    if (!headingAnchor) return null;
+    const fallbackCard = (headingAnchor.closest('section, main, [role="main"]') ??
+      document.body) as HTMLElement;
+    return new ProfilePageAcceptCard(fallbackCard, button, vanityName);
   }
 
   /** Profile owner's name — text of the <h2> inside the heading anchor. */
@@ -96,12 +110,17 @@ export class ProfilePageAcceptCard {
 
     let el: HTMLElement | null = heading.parentElement;
     while (el && el !== this.card) {
+      const before = candidates.length;
       let sib = el.nextElementSibling as HTMLElement | null;
       while (sib) {
         if (sib.tagName === 'P') consider(sib);
         for (const p of Array.from(sib.querySelectorAll('p')) as HTMLElement[]) consider(p);
         sib = sib.nextElementSibling as HTMLElement | null;
       }
+      // Stop once any level yields a candidate. Prevents a broad fallback scope
+      // (e.g. <main>) from picking up unrelated long text from elsewhere on the
+      // profile page (About, Experience descriptions, etc.).
+      if (candidates.length > before) break;
       el = el.parentElement;
     }
 

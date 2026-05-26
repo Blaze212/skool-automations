@@ -2,6 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { handleMessage } from '../../../pipeline-tracker/src/background.ts';
 import {
+  BADGE_COLOR_ERROR,
+  BADGE_COLOR_OK,
+  BADGE_COLOR_PARTIAL,
+  BADGE_TEXT_ERROR,
+  BADGE_TEXT_OK,
+  BADGE_TEXT_PARTIAL,
   HISTORY_CAP,
   STORAGE_KEYS,
   type HistoryEntry,
@@ -85,7 +91,7 @@ describe('pipeline-tracker background.handleMessage', () => {
     vi.restoreAllMocks();
   });
 
-  it('on 200 success: records ok entry, does not increment unread, clears badge', async () => {
+  it('on 200 success: records ok entry, does not increment unread, shows green bubble', async () => {
     mockFetchOnce({ status: 200, body: { success: true } });
 
     const result = await handleMessage(makeEvent());
@@ -100,11 +106,53 @@ describe('pipeline-tracker background.handleMessage', () => {
 
     expect(stores.local[STORAGE_KEYS.UNREAD_COUNT]).toBe(0);
     expect(stores.local[STORAGE_KEYS.HIGHEST_SEVERITY]).toBe('ok');
+    expect(stores.local[STORAGE_KEYS.LAST_STATUS]).toBe('ok');
 
-    expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: '' });
+    expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: BADGE_TEXT_OK });
+    expect(chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({
+      color: BADGE_COLOR_OK,
+    });
   });
 
-  it('on 403: records error entry, increments unread, sets red badge', async () => {
+  it('on 200 with warnings: classifies as partial and shows yellow bubble', async () => {
+    mockFetchOnce({
+      status: 200,
+      body: { success: true, warnings: ['title missing'] },
+    });
+
+    const result = await handleMessage(makeEvent());
+
+    expect(result.ok).toBe(true);
+
+    const history = stores.local[STORAGE_KEYS.HISTORY] as HistoryEntry[];
+    expect(history[0].status).toBe('partial');
+    expect(history[0].warnings).toEqual(['title missing']);
+
+    expect(stores.local[STORAGE_KEYS.LAST_STATUS]).toBe('partial');
+    expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: BADGE_TEXT_PARTIAL });
+    expect(chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({
+      color: BADGE_COLOR_PARTIAL,
+    });
+  });
+
+  it('on 200 success but name AND linkedin_url both empty: shows red bubble', async () => {
+    mockFetchOnce({ status: 200, body: { success: true } });
+
+    const result = await handleMessage(makeEvent({ name: '', linkedin_url: '' }));
+
+    expect(result.ok).toBe(true);
+
+    const history = stores.local[STORAGE_KEYS.HISTORY] as HistoryEntry[];
+    expect(history[0].status).toBe('error');
+
+    expect(stores.local[STORAGE_KEYS.LAST_STATUS]).toBe('error');
+    expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: BADGE_TEXT_ERROR });
+    expect(chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({
+      color: BADGE_COLOR_ERROR,
+    });
+  });
+
+  it('on 403: records error entry, increments unread, sets red bubble', async () => {
     mockFetchOnce({
       status: 403,
       body: { success: false, error: 'Unknown api_key', code: 'ACCESS_DENIED' },
@@ -122,10 +170,11 @@ describe('pipeline-tracker background.handleMessage', () => {
 
     expect(stores.local[STORAGE_KEYS.UNREAD_COUNT]).toBe(1);
     expect(stores.local[STORAGE_KEYS.HIGHEST_SEVERITY]).toBe('error');
+    expect(stores.local[STORAGE_KEYS.LAST_STATUS]).toBe('error');
 
-    expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: '1' });
+    expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: BADGE_TEXT_ERROR });
     expect(chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({
-      color: '#dc2626',
+      color: BADGE_COLOR_ERROR,
     });
   });
 
@@ -145,7 +194,7 @@ describe('pipeline-tracker background.handleMessage', () => {
     expect(history[0].code).toBe('VALIDATION_ERROR');
   });
 
-  it('two failures in a row → badge shows "2"', async () => {
+  it('two failures in a row → unread counts 2, bubble stays red', async () => {
     mockFetchOnce({ status: 403, body: { success: false, error: 'x' } });
     await handleMessage(makeEvent());
 
@@ -153,7 +202,11 @@ describe('pipeline-tracker background.handleMessage', () => {
     await handleMessage(makeEvent());
 
     expect(stores.local[STORAGE_KEYS.UNREAD_COUNT]).toBe(2);
-    expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: '2' });
+    expect(stores.local[STORAGE_KEYS.LAST_STATUS]).toBe('error');
+    expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: BADGE_TEXT_ERROR });
+    expect(chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({
+      color: BADGE_COLOR_ERROR,
+    });
   });
 
   it('history is capped at HISTORY_CAP entries, newest first', async () => {
@@ -199,19 +252,22 @@ describe('pipeline-tracker background.handleMessage', () => {
     expect(history[0].message).toBe('Connection timed out');
   });
 
-  it('error followed by ok keeps highest_severity=error until acknowledged', async () => {
+  it('error followed by ok: bubble flips to green; highest_severity tracks worst-wins', async () => {
     mockFetchOnce({ status: 500, body: { success: false, error: 'boom' } });
     await handleMessage(makeEvent());
 
     mockFetchOnce({ status: 200, body: { success: true } });
     await handleMessage(makeEvent());
 
-    // unread count only counts the error; severity stays at error (worst-wins)
+    // unread/highest_severity reflect cumulative errors (popup display)…
     expect(stores.local[STORAGE_KEYS.UNREAD_COUNT]).toBe(1);
     expect(stores.local[STORAGE_KEYS.HIGHEST_SEVERITY]).toBe('error');
-    expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: '1' });
+
+    // …but the toolbar bubble reflects the LAST update.
+    expect(stores.local[STORAGE_KEYS.LAST_STATUS]).toBe('ok');
+    expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: BADGE_TEXT_OK });
     expect(chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({
-      color: '#dc2626',
+      color: BADGE_COLOR_OK,
     });
   });
 });

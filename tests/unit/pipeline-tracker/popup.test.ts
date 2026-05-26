@@ -133,7 +133,7 @@ describe('popup initPopup', () => {
     vi.restoreAllMocks();
   });
 
-  it('clears badge and unread counter on open when api_key is set', async () => {
+  it('resets unread counter on open without touching the toolbar bubble', async () => {
     installStorage({
       sync: { [STORAGE_KEYS.API_KEY]: 'pk_test' },
       local: {
@@ -145,7 +145,8 @@ describe('popup initPopup', () => {
 
     await initPopup();
 
-    expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ text: '' });
+    // Bubble reflects the *last update*, so opening the popup must NOT clear it.
+    expect(chrome.action.setBadgeText).not.toHaveBeenCalled();
     expect(chrome.storage.local.set).toHaveBeenCalledWith(
       expect.objectContaining({
         [STORAGE_KEYS.UNREAD_COUNT]: 0,

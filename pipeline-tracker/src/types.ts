@@ -5,6 +5,7 @@ export const STORAGE_KEYS = {
   LAST_ERROR: 'last_error',
   UNREAD_COUNT: 'unread_count',
   HIGHEST_SEVERITY: 'highest_severity',
+  LAST_STATUS: 'last_status',
   HISTORY: 'history',
 } as const;
 
@@ -45,6 +46,11 @@ export interface HistoryEntry {
 
 export const HISTORY_CAP = 10;
 
+export const BADGE_COLOR_OK = '#16a34a';
 export const BADGE_COLOR_ERROR = '#dc2626';
 export const BADGE_COLOR_PARTIAL = '#d97706';
 export const BADGE_TEXT_COLOR = '#ffffff';
+
+export const BADGE_TEXT_OK = '✓';
+export const BADGE_TEXT_PARTIAL = '!';
+export const BADGE_TEXT_ERROR = '✕';

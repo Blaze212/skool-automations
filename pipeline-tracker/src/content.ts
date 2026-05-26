@@ -1,6 +1,7 @@
 import { STORAGE_KEYS, type DebugPayload, type PipelineEvent } from './types.ts';
 import { ConnectionSearchCard } from '../../linkedin-tracker/src/connection-search-card.ts';
 import { ProfilePageCard } from '../../linkedin-tracker/src/profile-page-card.ts';
+import { ProfilePageOwnerCard } from '../../linkedin-tracker/src/profile-page-owner-card.ts';
 import { AcceptInvitationCard } from './accept-invitation-card.ts';
 import { ProfilePageAcceptCard } from './profile-page-accept-card.ts';
 import { ChatOverlayCard } from './chat-overlay-card.ts';
@@ -395,21 +396,45 @@ export async function handleConnectionRequest(
       name = profileLink.textContent?.trim() ?? '';
     }
   }
-  // Heading inside the modal
+
+  let title = pendingTitle ?? '';
+  let profileUrl = normalizeLinkedInUrl(pendingProfileUrl ?? '');
+
+  // Profile-page fallback: on /in/{vanity}/ pages, the Connect button may have
+  // been missed at click time (LinkedIn's display:contents wrappers can drop
+  // the button from composedPath), leaving us with no pending data. Prefer the
+  // profile page itself over the modal — on the "Add a note" variant the
+  // modal h2 reads "Add a note to your invitation" (UI title, not the
+  // recipient) and the body paragraph is generic invitation copy. The URL
+  // pins the vanity so we can read the page directly.
+  if (!name || !title || !profileUrl) {
+    const ownerCard = ProfilePageOwnerCard.fromCurrentUrl();
+    if (ownerCard) {
+      if (!name) name = ownerCard.name;
+      if (!title) title = ownerCard.title;
+      if (!profileUrl) profileUrl = ownerCard.profileUrl;
+    }
+  }
+
+  // Last resort: modal heading. Used only when the pending data and the
+  // profile-page scrape both failed (e.g., flows not anchored to /in/).
   if (!name && modal) {
     const heading = modal.querySelector('h2, h3, h4') as HTMLElement | null;
     name = heading?.textContent?.trim() ?? '';
   }
-
-  let title = pendingTitle ?? '';
-  if (!title && modal) title = extractTitleFromCard(modal);
 
   console.log('[Pipeline Tracker] Flow 1: name=', name, 'title=', title);
   if (!name) console.warn('[Pipeline Tracker] Flow 1: could not find name in modal');
 
   const scrapeFailed = !name || !title;
   const debugMode = await getDebugMode();
-  const debug = debugMode && scrapeFailed ? buildDebugPayload(el, modal) : undefined;
+  // Capture the profile-page DOM (where name/title/profileUrl are sourced)
+  // rather than the modal, which on the "Add a note" flow contains only UI
+  // copy. Fall back to <body> when no <main> exists (off-profile flows).
+  // const debug = debugMode && scrapeFailed ? buildDebugPayload(el, modal) : undefined;
+  const debugContainer = (document.querySelector('main, [role="main"]') ??
+    document.body) as HTMLElement;
+  const debug = debugMode && scrapeFailed ? buildDebugPayload(el, debugContainer) : undefined;
 
   if (isDuplicate(name)) return;
   recordSent(name);
@@ -420,7 +445,7 @@ export async function handleConnectionRequest(
     date: new Date().toISOString().slice(0, 10),
     name,
     title,
-    linkedin_url: normalizeLinkedInUrl(pendingProfileUrl ?? ''),
+    linkedin_url: profileUrl,
     page_url: window.location.href,
     message_text: '',
     ...(debug ? { debug } : {}),
