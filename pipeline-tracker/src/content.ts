@@ -1,4 +1,12 @@
-import { STORAGE_KEYS, type DebugPayload, type PipelineEvent } from './types.ts';
+import {
+  HISTORY_CAP,
+  OUTBOX_CAP,
+  STORAGE_KEYS,
+  type DebugPayload,
+  type HistoryEntry,
+  type OutboxEntry,
+  type PipelineEvent,
+} from './types.ts';
 import { ConnectionSearchCard } from '../../linkedin-tracker/src/connection-search-card.ts';
 import { ProfilePageCard } from '../../linkedin-tracker/src/profile-page-card.ts';
 import { ProfilePageOwnerCard } from '../../linkedin-tracker/src/profile-page-owner-card.ts';
@@ -71,13 +79,34 @@ async function getDebugMode(): Promise<boolean> {
   }
 }
 
+const DEBUG_HTML_CAP = 50000;
+
 function buildDebugPayload(button: HTMLElement, container: HTMLElement | null): DebugPayload {
   return {
     button_aria_label: button.getAttribute('aria-label') ?? '',
     button_text: button.textContent?.trim() ?? '',
-    container_html: (container?.outerHTML ?? '').substring(0, 10000),
+    container_html: (container?.outerHTML ?? '').substring(0, DEBUG_HTML_CAP),
     page_url: window.location.href,
   };
+}
+
+// Walk up from `anchor` until the ancestor's outerHTML is large enough to
+// include useful surrounding context (recipient header, message bubbles, etc.).
+// Stops at body. For the LinkedIn overlay chat bubble the composer form alone
+// is only ~5-10k chars and excludes the title bar; the bubble root (which
+// contains both header and thread) lands in the 20-40k range, so the threshold
+// has to be comfortably past that. The cap in buildDebugPayload bounds the
+// actual payload regardless.
+function findDebugContainer(anchor: HTMLElement, minChars = DEBUG_HTML_CAP): HTMLElement {
+  let node: HTMLElement = anchor;
+  while (
+    node.parentElement &&
+    node.parentElement !== document.body &&
+    node.outerHTML.length < minChars
+  ) {
+    node = node.parentElement;
+  }
+  return node;
 }
 
 // =============================================================================
@@ -349,12 +378,113 @@ function findAcceptButtonAtPoint(x: number, y: number): HTMLElement | null {
 }
 
 // --- Send helper ---
-function sendEvent(event: PipelineEvent): void {
+
+function isContextInvalidated(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return /Extension context invalidated/i.test(err.message);
+}
+
+let _bannerShown = false;
+
+function showContextInvalidatedBanner(): void {
+  if (_bannerShown) return;
+  _bannerShown = true;
   try {
-    chrome.runtime.sendMessage(event);
-    console.log('[Pipeline Tracker] sendMessage called successfully');
+    const host = document.createElement('div');
+    host.id = 'pipeline-tracker-reload-banner';
+    host.style.position = 'fixed';
+    host.style.bottom = '16px';
+    host.style.right = '16px';
+    host.style.zIndex = '2147483647';
+    const shadow = host.attachShadow({ mode: 'closed' });
+    const banner = document.createElement('div');
+    banner.textContent =
+      'Pipeline Tracker needs a tab reload to keep capturing events. Click to reload.';
+    banner.style.cssText = [
+      'font-family: -apple-system, BlinkMacSystemFont, sans-serif',
+      'font-size: 13px',
+      'background: #0d9488',
+      'color: #fff',
+      'padding: 10px 14px',
+      'border-radius: 6px',
+      'box-shadow: 0 2px 8px rgba(0,0,0,0.2)',
+      'cursor: pointer',
+      'max-width: 320px',
+    ].join(';');
+    banner.addEventListener('click', () => {
+      window.location.reload();
+    });
+    shadow.appendChild(banner);
+    document.body.appendChild(host);
   } catch (err) {
-    console.warn('[Pipeline Tracker] sendMessage failed:', err);
+    console.warn('[Pipeline Tracker] failed to inject reload banner:', err);
+  }
+}
+
+async function enqueuePendingEvent(
+  outboxEntry: OutboxEntry,
+  pendingHistoryEntry: HistoryEntry,
+): Promise<void> {
+  const local = (await chrome.storage.local.get([
+    STORAGE_KEYS.OUTBOX,
+    STORAGE_KEYS.HISTORY,
+  ])) as Record<string, unknown>;
+
+  const prevOutbox = (local[STORAGE_KEYS.OUTBOX] as OutboxEntry[] | undefined) ?? [];
+  const prevHistory = (local[STORAGE_KEYS.HISTORY] as HistoryEntry[] | undefined) ?? [];
+
+  // Outbox is FIFO with cap; drop oldest if at cap.
+  const outbox = [...prevOutbox, outboxEntry].slice(-OUTBOX_CAP);
+  const history = [pendingHistoryEntry, ...prevHistory].slice(0, HISTORY_CAP);
+
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.OUTBOX]: outbox,
+    [STORAGE_KEYS.HISTORY]: history,
+  });
+}
+
+async function sendEvent(event: PipelineEvent): Promise<void> {
+  const historyId =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const now = new Date().toISOString();
+
+  const outboxEntry: OutboxEntry = {
+    history_id: historyId,
+    event,
+    enqueued_at: now,
+    attempts: 0,
+  };
+
+  const pendingHistoryEntry: HistoryEntry = {
+    id: historyId,
+    ts: now,
+    status: 'pending',
+    event_type: event.event_type,
+    name: event.name,
+    page_url: event.page_url,
+    message: 'Queued — waiting to send',
+    warnings: [],
+  };
+
+  try {
+    await enqueuePendingEvent(outboxEntry, pendingHistoryEntry);
+  } catch (err) {
+    console.warn('[Pipeline Tracker] failed to enqueue event:', err);
+    return;
+  }
+
+  try {
+    await chrome.runtime.sendMessage({ kind: 'drain_outbox' });
+    console.log('[Pipeline Tracker] drain requested');
+  } catch (err) {
+    if (isContextInvalidated(err)) {
+      console.warn('[Pipeline Tracker] extension context invalidated — showing reload banner');
+      showContextInvalidatedBanner();
+    } else {
+      console.warn('[Pipeline Tracker] drain request failed (will retry on next event):', err);
+    }
   }
 }
 
@@ -426,15 +556,13 @@ export async function handleConnectionRequest(
   console.log('[Pipeline Tracker] Flow 1: name=', name, 'title=', title);
   if (!name) console.warn('[Pipeline Tracker] Flow 1: could not find name in modal');
 
-  const scrapeFailed = !name || !title;
   const debugMode = await getDebugMode();
   // Capture the profile-page DOM (where name/title/profileUrl are sourced)
   // rather than the modal, which on the "Add a note" flow contains only UI
   // copy. Fall back to <body> when no <main> exists (off-profile flows).
-  // const debug = debugMode && scrapeFailed ? buildDebugPayload(el, modal) : undefined;
   const debugContainer = (document.querySelector('main, [role="main"]') ??
     document.body) as HTMLElement;
-  const debug = debugMode && scrapeFailed ? buildDebugPayload(el, debugContainer) : undefined;
+  const debug = debugMode ? buildDebugPayload(el, debugContainer) : undefined;
 
   if (isDuplicate(name)) return;
   recordSent(name);
@@ -452,7 +580,7 @@ export async function handleConnectionRequest(
   };
 
   console.log('[Pipeline Tracker] sending event:', JSON.stringify(event));
-  sendEvent(event);
+  await sendEvent(event);
 }
 
 // =============================================================================
@@ -485,12 +613,10 @@ async function handleAcceptConnection(button: HTMLElement): Promise<void> {
   if (!name) console.warn('[Pipeline Tracker] accept: could not find name');
   if (!title) console.warn('[Pipeline Tracker] accept: could not find title');
 
-  const scrapeFailed = !name || !title;
   const debugMode = await getDebugMode();
-  const debug =
-    debugMode && scrapeFailed
-      ? buildDebugPayload(button, inviteCard?.container ?? null)
-      : undefined;
+  const debug = debugMode
+    ? buildDebugPayload(button, inviteCard?.container ?? findDebugContainer(button))
+    : undefined;
 
   if (isDuplicate(name)) return;
   recordSent(name);
@@ -509,7 +635,7 @@ async function handleAcceptConnection(button: HTMLElement): Promise<void> {
     ...(debug ? { debug } : {}),
   };
 
-  sendEvent(event);
+  await sendEvent(event);
 }
 
 // =============================================================================
@@ -668,16 +794,11 @@ export async function handleDirectMessage(button: HTMLElement | null): Promise<v
   });
   if (!name) console.warn('[Pipeline Tracker] Direct message: could not find recipient name');
 
-  const scrapeFailed = !name;
   const debugMode = await getDebugMode();
-  const debug =
-    debugMode && scrapeFailed
-      ? buildDebugPayload(
-          button ?? (document.body as HTMLElement),
-          (button?.closest('[role="main"]') ??
-            document.querySelector('[role="main"]')) as HTMLElement | null,
-        )
-      : undefined;
+  const debugAnchor = button ?? composer ?? (document.body as HTMLElement);
+  const debug = debugMode
+    ? buildDebugPayload(debugAnchor, findDebugContainer(debugAnchor))
+    : undefined;
 
   if (isDuplicate(name)) return;
   recordSent(name);
@@ -694,7 +815,7 @@ export async function handleDirectMessage(button: HTMLElement | null): Promise<v
     ...(debug ? { debug } : {}),
   };
 
-  sendEvent(event);
+  await sendEvent(event);
 }
 
 // =============================================================================

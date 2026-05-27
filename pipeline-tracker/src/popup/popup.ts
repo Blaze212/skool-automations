@@ -31,7 +31,9 @@ function prettyEventType(t: HistoryEntry['event_type']): string {
 }
 
 function iconChar(status: HistoryEntry['status']): string {
-  return status === 'ok' ? '✓' : '⚠';
+  if (status === 'ok') return '✓';
+  if (status === 'pending') return '⏱';
+  return '⚠';
 }
 
 function showSetupMode(): void {

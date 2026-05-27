@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { handleMessage } from '../../../pipeline-tracker/src/background.ts';
+import { drainOutbox, handleMessage } from '../../../pipeline-tracker/src/background.ts';
 import {
   BADGE_COLOR_ERROR,
   BADGE_COLOR_OK,
@@ -9,8 +9,11 @@ import {
   BADGE_TEXT_OK,
   BADGE_TEXT_PARTIAL,
   HISTORY_CAP,
+  OUTBOX_MAX_ATTEMPTS,
+  OUTBOX_STALE_AFTER_MS,
   STORAGE_KEYS,
   type HistoryEntry,
+  type OutboxEntry,
   type PipelineEvent,
 } from '../../../pipeline-tracker/src/types.ts';
 
@@ -250,6 +253,192 @@ describe('pipeline-tracker background.handleMessage', () => {
     const history = stores.local[STORAGE_KEYS.HISTORY] as HistoryEntry[];
     expect(history[0].status).toBe('error');
     expect(history[0].message).toBe('Connection timed out');
+  });
+});
+
+function makeOutboxEntry(
+  overrides: Partial<OutboxEntry> = {},
+  eventOverrides: Partial<PipelineEvent> = {},
+): OutboxEntry {
+  return {
+    history_id: overrides.history_id ?? `hid-${Math.random().toString(36).slice(2)}`,
+    enqueued_at: overrides.enqueued_at ?? new Date().toISOString(),
+    attempts: overrides.attempts ?? 0,
+    event: {
+      api_key: 'pk_test',
+      event_type: 'connection_request',
+      date: '2026-05-22',
+      name: 'Jane Doe',
+      title: 'CEO',
+      linkedin_url: 'https://www.linkedin.com/in/jane',
+      page_url: 'https://www.linkedin.com/in/jane/',
+      message_text: '',
+      ...eventOverrides,
+    },
+    ...overrides,
+  };
+}
+
+function makePendingHistoryEntry(id: string): HistoryEntry {
+  return {
+    id,
+    ts: new Date().toISOString(),
+    status: 'pending',
+    event_type: 'connection_request',
+    name: 'Jane Doe',
+    page_url: 'https://www.linkedin.com/in/jane/',
+    message: 'Queued — waiting to send',
+    warnings: [],
+  };
+}
+
+describe('pipeline-tracker drainOutbox', () => {
+  let stores: ReturnType<typeof installStatefulStorage>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stores = installStatefulStorage();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('resolves pending row in place on 200 success (no duplicate row)', async () => {
+    const hid = 'hid-1';
+    stores.local[STORAGE_KEYS.OUTBOX] = [makeOutboxEntry({ history_id: hid })];
+    stores.local[STORAGE_KEYS.HISTORY] = [makePendingHistoryEntry(hid)];
+
+    mockFetchOnce({ status: 200, body: { success: true } });
+    await drainOutbox();
+
+    const history = stores.local[STORAGE_KEYS.HISTORY] as HistoryEntry[];
+    expect(history).toHaveLength(1);
+    expect(history[0].id).toBe(hid);
+    expect(history[0].status).toBe('ok');
+    expect(history[0].message).toBe('Logged');
+
+    expect(stores.local[STORAGE_KEYS.OUTBOX]).toEqual([]);
+  });
+
+  it('drains FIFO — oldest event delivered first', async () => {
+    stores.local[STORAGE_KEYS.OUTBOX] = [
+      makeOutboxEntry({ history_id: 'a' }, { name: 'Alice' }),
+      makeOutboxEntry({ history_id: 'b' }, { name: 'Bob' }),
+    ];
+    stores.local[STORAGE_KEYS.HISTORY] = [
+      makePendingHistoryEntry('b'),
+      makePendingHistoryEntry('a'),
+    ];
+
+    const calls: string[] = [];
+    globalThis.fetch = vi.fn().mockImplementation(async (_url, init) => {
+      const body = JSON.parse((init as RequestInit).body as string) as PipelineEvent;
+      calls.push(body.name);
+      return new Response('{"success":true}', { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await drainOutbox();
+
+    expect(calls).toEqual(['Alice', 'Bob']);
+    expect(stores.local[STORAGE_KEYS.OUTBOX]).toEqual([]);
+  });
+
+  it('transient failure increments attempts but keeps row pending', async () => {
+    const hid = 'hid-retry';
+    stores.local[STORAGE_KEYS.OUTBOX] = [makeOutboxEntry({ history_id: hid, attempts: 0 })];
+    stores.local[STORAGE_KEYS.HISTORY] = [makePendingHistoryEntry(hid)];
+
+    const abortErr = new Error('aborted');
+    abortErr.name = 'AbortError';
+    globalThis.fetch = vi.fn().mockRejectedValueOnce(abortErr) as unknown as typeof fetch;
+
+    await drainOutbox();
+
+    const outbox = stores.local[STORAGE_KEYS.OUTBOX] as OutboxEntry[];
+    expect(outbox).toHaveLength(1);
+    expect(outbox[0].attempts).toBe(1);
+
+    const history = stores.local[STORAGE_KEYS.HISTORY] as HistoryEntry[];
+    expect(history[0].status).toBe('pending');
+  });
+
+  it('drops entry as error after max attempts on transient failure', async () => {
+    const hid = 'hid-dropped';
+    stores.local[STORAGE_KEYS.OUTBOX] = [
+      makeOutboxEntry({ history_id: hid, attempts: OUTBOX_MAX_ATTEMPTS }),
+    ];
+    stores.local[STORAGE_KEYS.HISTORY] = [makePendingHistoryEntry(hid)];
+
+    const abortErr = new Error('aborted');
+    abortErr.name = 'AbortError';
+    globalThis.fetch = vi.fn().mockRejectedValueOnce(abortErr) as unknown as typeof fetch;
+
+    await drainOutbox();
+
+    expect(stores.local[STORAGE_KEYS.OUTBOX]).toEqual([]);
+    const history = stores.local[STORAGE_KEYS.HISTORY] as HistoryEntry[];
+    expect(history[0].id).toBe(hid);
+    expect(history[0].status).toBe('error');
+    expect(history[0].message).toContain('Dropped after');
+  });
+
+  it('drops stale entries (> 7 days old) without fetching', async () => {
+    const hid = 'hid-stale';
+    const stale = new Date(Date.now() - OUTBOX_STALE_AFTER_MS - 1000).toISOString();
+    stores.local[STORAGE_KEYS.OUTBOX] = [makeOutboxEntry({ history_id: hid, enqueued_at: stale })];
+    stores.local[STORAGE_KEYS.HISTORY] = [makePendingHistoryEntry(hid)];
+
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    await drainOutbox();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(stores.local[STORAGE_KEYS.OUTBOX]).toEqual([]);
+    const history = stores.local[STORAGE_KEYS.HISTORY] as HistoryEntry[];
+    expect(history[0].status).toBe('error');
+    expect(history[0].message).toContain('7 days');
+  });
+
+  it('hard failure (4xx) resolves pending row to error and removes from outbox', async () => {
+    const hid = 'hid-403';
+    stores.local[STORAGE_KEYS.OUTBOX] = [makeOutboxEntry({ history_id: hid })];
+    stores.local[STORAGE_KEYS.HISTORY] = [makePendingHistoryEntry(hid)];
+
+    mockFetchOnce({
+      status: 403,
+      body: { success: false, error: 'Unknown api_key', code: 'ACCESS_DENIED' },
+    });
+
+    await drainOutbox();
+
+    expect(stores.local[STORAGE_KEYS.OUTBOX]).toEqual([]);
+    const history = stores.local[STORAGE_KEYS.HISTORY] as HistoryEntry[];
+    expect(history[0].id).toBe(hid);
+    expect(history[0].status).toBe('error');
+    expect(history[0].code).toBe('ACCESS_DENIED');
+  });
+
+  it('drain_outbox message triggers a drain', async () => {
+    const hid = 'hid-msg';
+    stores.local[STORAGE_KEYS.OUTBOX] = [makeOutboxEntry({ history_id: hid })];
+    stores.local[STORAGE_KEYS.HISTORY] = [makePendingHistoryEntry(hid)];
+
+    mockFetchOnce({ status: 200, body: { success: true } });
+
+    const result = await handleMessage({ kind: 'drain_outbox' });
+    expect(result.ok).toBe(true);
+    expect(stores.local[STORAGE_KEYS.OUTBOX]).toEqual([]);
+  });
+});
+
+describe('pipeline-tracker background.handleMessage — last-update flip', () => {
+  let stores: ReturnType<typeof installStatefulStorage>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stores = installStatefulStorage();
   });
 
   it('error followed by ok: bubble flips to green; highest_severity tracks worst-wins', async () => {

@@ -7,11 +7,12 @@ export const STORAGE_KEYS = {
   HIGHEST_SEVERITY: 'highest_severity',
   LAST_STATUS: 'last_status',
   HISTORY: 'history',
+  OUTBOX: 'outbox',
 } as const;
 
 export type EventType = 'connection_request' | 'accepted_connection' | 'direct_message';
 
-export type Severity = 'ok' | 'partial' | 'error';
+export type Severity = 'ok' | 'partial' | 'error' | 'pending';
 
 export interface PipelineEvent {
   api_key: string;
@@ -33,6 +34,7 @@ export interface DebugPayload {
 }
 
 export interface HistoryEntry {
+  id: string;
   ts: string;
   status: Severity;
   event_type: EventType;
@@ -44,11 +46,22 @@ export interface HistoryEntry {
   http_status?: number;
 }
 
+export interface OutboxEntry {
+  history_id: string;
+  event: PipelineEvent;
+  enqueued_at: string;
+  attempts: number;
+}
+
 export const HISTORY_CAP = 10;
+export const OUTBOX_CAP = 50;
+export const OUTBOX_MAX_ATTEMPTS = 3;
+export const OUTBOX_STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const BADGE_COLOR_OK = '#16a34a';
 export const BADGE_COLOR_ERROR = '#dc2626';
 export const BADGE_COLOR_PARTIAL = '#d97706';
+export const BADGE_COLOR_PENDING = '#9333ea';
 export const BADGE_TEXT_COLOR = '#ffffff';
 
 export const BADGE_TEXT_OK = '✓';

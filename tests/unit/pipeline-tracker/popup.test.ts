@@ -58,8 +58,10 @@ function loadPopupDom(): void {
   document.body.innerHTML = bodyMatch ? bodyMatch[1] : '';
 }
 
+let _idCounter = 0;
 function makeEntry(over: Partial<HistoryEntry> = {}): HistoryEntry {
   return {
+    id: `entry-${++_idCounter}`,
     ts: '2026-05-22T14:03:11Z',
     status: 'ok',
     event_type: 'connection_request',
@@ -120,6 +122,17 @@ describe('popup renderHistory', () => {
     renderHistory([makeEntry({ name: '' })]);
     const title = document.querySelector('.history-title') as HTMLElement;
     expect(title.textContent).toContain('(unknown)');
+  });
+
+  it('renders pending entries with the ⏱ icon and pending class', () => {
+    renderHistory([makeEntry({ status: 'pending', message: 'Queued — waiting to send' })]);
+
+    const icon = document.querySelector('.history-icon') as HTMLElement;
+    expect(icon.className).toContain('pending');
+    expect(icon.textContent).toBe('⏱');
+
+    const message = document.querySelector('.history-message') as HTMLElement;
+    expect(message.textContent).toContain('Queued');
   });
 });
 
