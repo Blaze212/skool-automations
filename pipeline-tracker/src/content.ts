@@ -380,11 +380,32 @@ function findAcceptButtonAtPoint(x: number, y: number): HTMLElement | null {
 // --- Send helper ---
 
 function isContextInvalidated(err: unknown): boolean {
+  // An orphaned content script (extension reloaded/updated, or the browser
+  // updated while the tab stayed open) has its chrome.* namespaces torn down.
+  // Two shapes show up in the wild:
+  //   1. chrome.runtime.sendMessage rejects with "Extension context invalidated".
+  //   2. chrome.storage is already undefined, so property access throws a plain
+  //      TypeError ("Cannot read properties of undefined") before any documented
+  //      message is produced.
+  // chrome.runtime.id goes undefined for both, so it's the reliable signal;
+  // check it first, then fall back to the message match for the case where the
+  // id is still present but sendMessage reports the classic error.
+  try {
+    const runtime = (chrome as { runtime?: { id?: string } } | undefined)?.runtime;
+    if (!runtime || !runtime.id) return true;
+  } catch {
+    return true;
+  }
   if (!(err instanceof Error)) return false;
   return /Extension context invalidated/i.test(err.message);
 }
 
 let _bannerShown = false;
+
+/** Test-only: reset the once-per-page banner guard between cases. */
+export function resetContextBanner(): void {
+  _bannerShown = false;
+}
 
 function showContextInvalidatedBanner(): void {
   if (_bannerShown) return;
@@ -471,7 +492,17 @@ async function sendEvent(event: PipelineEvent): Promise<void> {
   try {
     await enqueuePendingEvent(outboxEntry, pendingHistoryEntry);
   } catch (err) {
-    console.warn('[Pipeline Tracker] failed to enqueue event:', err);
+    // enqueue is the first chrome.* call on the capture path, so when the
+    // extension context is invalidated (orphaned content script after an
+    // extension/browser update) it throws here — before sendMessage. Detect it
+    // at this point too, otherwise the reload banner below is never reached and
+    // the event is dropped with only a swallowed warning.
+    if (isContextInvalidated(err)) {
+      console.warn('[Pipeline Tracker] extension context invalidated — showing reload banner');
+      showContextInvalidatedBanner();
+    } else {
+      console.warn('[Pipeline Tracker] failed to enqueue event:', err);
+    }
     return;
   }
 
