@@ -1,10 +1,12 @@
 import { STORAGE_KEYS, type DebugPayload, type TrackerEvent } from './types.ts';
 import { ConnectionSearchCard } from './connection-search-card.ts';
 import { ProfilePageCard } from './profile-page-card.ts';
+import { ProfilePageOwnerCard } from './profile-page-owner-card.ts';
 import { MessengerPageCard } from './messenger-page-card.ts';
 
 export { ConnectionSearchCard } from './connection-search-card.ts';
 export { ProfilePageCard } from './profile-page-card.ts';
+export { ProfilePageOwnerCard } from './profile-page-owner-card.ts';
 export { MessengerPageCard } from './messenger-page-card.ts';
 
 let _lastSent: { name: string; ts: number } | null = null;
@@ -69,18 +71,37 @@ export async function handleConnectionRequest(
     const m = btnLabel.match(/^Send invite to (.+)$/);
     if (m) name = m[1].trim();
   }
-  // Last resort: modal heading
-  if (!name) {
-    const heading = modal?.querySelector('h2, h3') as HTMLElement | null;
-    name = heading?.textContent?.trim() ?? '';
-  }
 
   let title = pendingTitle ?? '';
+  let profileUrl = pendingProfileUrl ?? '';
   if (!title) {
     const subtitleEl = modal?.querySelector(
       '.artdeco-entity-lockup__subtitle, .artdeco-entity-lockup__metadata',
     ) as HTMLElement | null;
     title = subtitleEl?.textContent?.trim() ?? '';
+  }
+
+  // Profile-page fallback: on /in/{vanity}/ pages, the Connect button may have
+  // been missed at click time (LinkedIn's display:contents wrappers can drop the
+  // button from composedPath), leaving us with no pending data. Prefer the
+  // profile page itself over the modal heading — on the "Add a note" variant
+  // the modal h2/h3 reads "Add a note to your invitation" (UI title, not the
+  // recipient) and there is no entity lockup.
+  if (!name || !title || !profileUrl) {
+    const ownerCard = ProfilePageOwnerCard.fromCurrentUrl();
+    if (ownerCard) {
+      if (!name) name = ownerCard.name;
+      if (!title) title = ownerCard.title;
+      if (!profileUrl) profileUrl = ownerCard.profileUrl;
+    }
+  }
+
+  // Last resort: modal heading. Real LinkedIn modals sometimes put the
+  // recipient's name in an entity-lockup <h2>; only used when neither the
+  // pending data nor a profile-page scrape produced a name.
+  if (!name) {
+    const heading = modal?.querySelector('h2, h3') as HTMLElement | null;
+    name = heading?.textContent?.trim() ?? '';
   }
 
   const scrapeFailed = !name || !title;
@@ -91,7 +112,13 @@ export async function handleConnectionRequest(
   const debugMode = await getDebugMode();
   let debug: DebugPayload | undefined;
   if (debugMode && scrapeFailed) {
-    debug = buildDebugPayload(el, modal);
+    // Capture the profile-page DOM (where name/title/profileUrl are sourced)
+    // rather than the modal, which on the "Add a note" flow contains only UI
+    // copy. Fall back to <body> when no <main> exists (off-profile flows).
+    // debug = buildDebugPayload(el, modal);
+    const debugContainer = (document.querySelector('main, [role="main"]') ??
+      document.body) as HTMLElement;
+    debug = buildDebugPayload(el, debugContainer);
   }
 
   if (isDuplicate(name)) return;
@@ -103,7 +130,7 @@ export async function handleConnectionRequest(
     name,
     title,
     company: '',
-    profile_url: pendingProfileUrl ?? '',
+    profile_url: profileUrl,
     page_url: window.location.href,
     message_type: 'Connection Request',
     // TODO: capture note text in V2 (separate <textarea> in note composer)

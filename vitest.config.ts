@@ -4,6 +4,7 @@ import { resolve } from 'path';
 export default defineConfig({
   define: {
     LINKEDIN_TRACKER_WEBHOOK_URL: JSON.stringify('http://localhost/test-webhook'),
+    PIPELINE_TRACKER_WEBHOOK_URL: JSON.stringify('http://localhost/test-pipeline-webhook'),
   },
   test: {
     globals: true,
