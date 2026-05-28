@@ -7,6 +7,7 @@ import {
   type OutboxEntry,
   type PipelineEvent,
 } from './types.ts';
+import { ts } from './logger.ts';
 import { ConnectionSearchCard } from '../../linkedin-tracker/src/connection-search-card.ts';
 import { ProfilePageCard } from '../../linkedin-tracker/src/profile-page-card.ts';
 import { ProfilePageOwnerCard } from '../../linkedin-tracker/src/profile-page-owner-card.ts';
@@ -19,6 +20,8 @@ export { AcceptInvitationCard };
 export { ProfilePageAcceptCard };
 export { ChatOverlayCard };
 export { MessengerPageCard };
+
+const tag = () => `[Pipeline Tracker - ${ts()}]`;
 
 // --- LinkedIn URL normalization ---
 // TODO: this function is duplicated in accept-invitation-card.ts, chat-overlay-card.ts,
@@ -170,7 +173,8 @@ function extractNameFromCard(card: HTMLElement): string {
   }
 
   console.log(
-    '[Pipeline Tracker] name candidates:',
+    tag(),
+    'name candidates:',
     found.map((c) => `[${c.strategy}] "${c.value.slice(0, 60)}"`),
   );
   return found[0]?.value ?? '';
@@ -255,7 +259,8 @@ function extractTitleFromCard(card: HTMLElement): string {
   }
 
   console.log(
-    '[Pipeline Tracker] title candidates:',
+    tag(),
+    'title candidates:',
     found.map((c) => `[${c.strategy}] "${c.value.slice(0, 80)}"`),
   );
   // Best = longest (longer headline = more specific = less likely to be noise)
@@ -303,19 +308,19 @@ function findNearestInvitationCard(target: HTMLElement): HTMLElement | null {
  * before committing to the Accept action.
  */
 function logCardPreview(card: HTMLElement): void {
-  console.log('[Pipeline Tracker] ── CARD PREVIEW ──────────────────────────');
+  console.log(tag(), '── CARD PREVIEW ──────────────────────────');
   const name = extractNameFromCard(card);
   const title = extractTitleFromCard(card);
   const linkedin_url = extractProfileUrlFromCard(card);
   const messageText =
     card.querySelector('[data-testid="expandable-text-box"]')?.textContent?.trim() ?? '';
-  console.log('[Pipeline Tracker] PREVIEW result:', {
+  console.log(tag(), 'PREVIEW result:', {
     name: name || '(not found)',
     title: title || '(not found)',
     linkedin_url: linkedin_url || '(not found)',
     message_text: messageText || '(empty)',
   });
-  console.log('[Pipeline Tracker] ─────────────────────────────────────────');
+  console.log(tag(), '─────────────────────────────────────────');
 }
 
 /**
@@ -333,7 +338,8 @@ function findAcceptButtonAtPoint(x: number, y: number): HTMLElement | null {
   const elements = document.elementsFromPoint(x, y) as HTMLElement[];
   if (isDebugModeSync()) {
     console.log(
-      '[Pipeline Tracker] elementsFromPoint:',
+      tag(),
+      'elementsFromPoint:',
       elements
         .slice(0, 8)
         .map((el) => {
@@ -354,7 +360,8 @@ function findAcceptButtonAtPoint(x: number, y: number): HTMLElement | null {
       (label.includes('invit') || label.includes('connect') || label.includes('request'))
     ) {
       console.log(
-        '[Pipeline Tracker] accept: direct hit via elementsFromPoint, label=',
+        tag(),
+        'accept: direct hit via elementsFromPoint, label=',
         el.getAttribute('aria-label'),
       );
       return el;
@@ -372,7 +379,8 @@ function findAcceptButtonAtPoint(x: number, y: number): HTMLElement | null {
             nodeLabel.includes('request'))
         ) {
           console.log(
-            '[Pipeline Tracker] accept: ancestor hit via elementsFromPoint, label=',
+            tag(),
+            'accept: ancestor hit via elementsFromPoint, label=',
             node.getAttribute('aria-label'),
           );
           return node;
@@ -464,7 +472,7 @@ function showReloadBanner(message: string): void {
     shadow.appendChild(banner);
     document.body.appendChild(host);
   } catch (err) {
-    console.warn('[Pipeline Tracker] failed to inject reload banner:', err);
+    console.warn(tag(), 'failed to inject reload banner:', err);
   }
 }
 
@@ -523,9 +531,9 @@ async function sendDrainRequestWithRetry(): Promise<void> {
     try {
       await chrome.runtime.sendMessage({ kind: 'drain_outbox' });
       if (attempt > 0) {
-        console.log(`[Pipeline Tracker] drain request succeeded on retry attempt ${attempt}`);
+        console.log(tag(), `drain request succeeded on retry attempt ${attempt}`);
       } else {
-        console.log('[Pipeline Tracker] drain requested');
+        console.log(tag(), 'drain requested');
       }
       return;
     } catch (err) {
@@ -541,9 +549,7 @@ async function sendDrainRequestWithRetry(): Promise<void> {
       }
       const delay = SW_WAKE_RETRY_DELAYS_MS[attempt];
       if (delay === undefined) break; // out of retries
-      console.warn(
-        `[Pipeline Tracker] SW unreachable on attempt ${attempt + 1}; retrying in ${delay}ms`,
-      );
+      console.warn(tag(), `SW unreachable on attempt ${attempt + 1}; retrying in ${delay}ms`);
       await new Promise<void>((resolve) => setTimeout(resolve, delay));
     }
   }
@@ -584,10 +590,10 @@ async function sendEvent(event: PipelineEvent): Promise<void> {
     // at this point too, otherwise the reload banner below is never reached and
     // the event is dropped with only a swallowed warning.
     if (isContextInvalidated(err)) {
-      console.warn('[Pipeline Tracker] extension context invalidated — showing reload banner');
+      console.warn(tag(), 'extension context invalidated — showing reload banner');
       showContextInvalidatedBanner();
     } else {
-      console.error('[Pipeline Tracker] failed to enqueue event:', err);
+      console.error(tag(), 'failed to enqueue event:', err);
       // We can't even write to chrome.storage — something is badly wrong.
       // Fail loudly so the user knows capture isn't working.
       showReloadBanner(
@@ -601,7 +607,7 @@ async function sendEvent(event: PipelineEvent): Promise<void> {
     await sendDrainRequestWithRetry();
   } catch (err) {
     if (isContextInvalidated(err)) {
-      console.warn('[Pipeline Tracker] extension context invalidated — showing reload banner');
+      console.warn(tag(), 'extension context invalidated — showing reload banner');
       showContextInvalidatedBanner();
       return;
     }
@@ -609,13 +615,13 @@ async function sendEvent(event: PipelineEvent): Promise<void> {
       // Event is safely in the outbox; the alarm-driven keep-alive drain in the
       // SW will pick it up if the SW eventually wakes. But from the user's POV
       // the plugin "just died" — fail loudly so they know to reload.
-      console.error('[Pipeline Tracker] background service worker unreachable after retries:', err);
+      console.error(tag(), 'background service worker unreachable after retries:', err);
       showServiceWorkerUnreachableBanner();
       return;
     }
     // Some other unexpected sendMessage failure — surface it loudly too. We'd
     // rather over-warn than silently swallow events on a "production" path.
-    console.error('[Pipeline Tracker] drain request failed unexpectedly:', err);
+    console.error(tag(), 'drain request failed unexpectedly:', err);
     showReloadBanner(
       'Pipeline Tracker hit an unexpected error sending an event. Click to reload this tab.',
     );
@@ -656,7 +662,7 @@ export async function handleConnectionRequest(
   pendingTitle?: string,
   pendingProfileUrl?: string,
 ): Promise<void> {
-  console.log('[Pipeline Tracker] handleConnectionRequest called, pendingName:', pendingName);
+  console.log(tag(), 'handleConnectionRequest called, pendingName:', pendingName);
   const modal = el.closest('[role="dialog"]') as HTMLElement | null;
 
   let name = pendingName ?? '';
@@ -707,8 +713,8 @@ export async function handleConnectionRequest(
     name = heading?.textContent?.trim() ?? '';
   }
 
-  console.log('[Pipeline Tracker] Flow 1: name=', name, 'title=', title);
-  if (!name) console.warn('[Pipeline Tracker] Flow 1: could not find name in modal');
+  console.log(tag(), 'Flow 1: name=', name, 'title=', title);
+  if (!name) console.warn(tag(), 'Flow 1: could not find name in modal');
 
   const debugMode = await getDebugMode();
   // Capture the profile-page DOM (where name/title/profileUrl are sourced)
@@ -733,7 +739,7 @@ export async function handleConnectionRequest(
     ...(debug ? { debug } : {}),
   };
 
-  console.log('[Pipeline Tracker] sending event:', JSON.stringify(event));
+  console.log(tag(), 'sending event:', JSON.stringify(event));
   await sendEvent(event);
 }
 
@@ -749,7 +755,8 @@ async function handleAcceptConnection(button: HTMLElement): Promise<void> {
   const inviteCard =
     AcceptInvitationCard.fromAcceptButton(button) ?? ProfilePageAcceptCard.fromAcceptButton(button);
   console.log(
-    '[Pipeline Tracker] accept: ariaLabel=',
+    tag(),
+    'accept: ariaLabel=',
     JSON.stringify(button.getAttribute('aria-label') ?? ''),
     'card type=',
     inviteCard instanceof ProfilePageAcceptCard
@@ -764,8 +771,8 @@ async function handleAcceptConnection(button: HTMLElement): Promise<void> {
   const linkedin_url = inviteCard?.profileUrl ?? '';
   const messageText = inviteCard?.messageText ?? '';
 
-  if (!name) console.warn('[Pipeline Tracker] accept: could not find name');
-  if (!title) console.warn('[Pipeline Tracker] accept: could not find title');
+  if (!name) console.warn(tag(), 'accept: could not find name');
+  if (!title) console.warn(tag(), 'accept: could not find title');
 
   const debugMode = await getDebugMode();
   const debug = debugMode
@@ -775,7 +782,7 @@ async function handleAcceptConnection(button: HTMLElement): Promise<void> {
   if (isDuplicate(name)) return;
   recordSent(name);
 
-  console.log('[Pipeline Tracker] captured (accept click):', { name, title, linkedin_url });
+  console.log(tag(), 'captured (accept click):', { name, title, linkedin_url });
 
   const event: PipelineEvent = {
     api_key: '',
@@ -829,7 +836,7 @@ export async function handleDirectMessage(button: HTMLElement | null): Promise<v
       name = chatCard.name;
       title = chatCard.title;
       linkedin_url = chatCard.profileUrl;
-      console.log('[Pipeline Tracker] DM: extracted via ChatOverlayCard');
+      console.log(tag(), 'DM: extracted via ChatOverlayCard');
     }
   }
 
@@ -842,7 +849,7 @@ export async function handleDirectMessage(button: HTMLElement | null): Promise<v
       name = pageCard.name;
       title = pageCard.title;
       linkedin_url = pageCard.profileUrl;
-      console.log('[Pipeline Tracker] DM: extracted via MessengerPageCard');
+      console.log(tag(), 'DM: extracted via MessengerPageCard');
     }
   }
 
@@ -863,7 +870,7 @@ export async function handleDirectMessage(button: HTMLElement | null): Promise<v
     for (const sel of cardSelectors) {
       profileCard = document.querySelector(sel) as HTMLElement | null;
       if (profileCard) {
-        console.log('[Pipeline Tracker] DM: profile card via selector:', sel);
+        console.log(tag(), 'DM: profile card via selector:', sel);
         break;
       }
     }
@@ -910,7 +917,7 @@ export async function handleDirectMessage(button: HTMLElement | null): Promise<v
             )) as HTMLElement | null;
           title = extractTitleFromCard(pcEl ?? n);
         }
-        console.log('[Pipeline Tracker] DM: name found walking up from composer');
+        console.log(tag(), 'DM: name found walking up from composer');
         break;
       }
       const headerLink = n.querySelector('header a[href*="/in/"]') as HTMLAnchorElement | null;
@@ -934,19 +941,19 @@ export async function handleDirectMessage(button: HTMLElement | null): Promise<v
       if (text.length > 1) {
         name = text;
         linkedin_url = normalizeLinkedInUrl(c.href);
-        console.log('[Pipeline Tracker] DM: name from loose selector');
+        console.log(tag(), 'DM: name from loose selector');
         break;
       }
     }
   }
 
-  console.log('[Pipeline Tracker] captured (direct message):', {
+  console.log(tag(), 'captured (direct message):', {
     name,
     title,
     linkedin_url,
     message_text: messageText,
   });
-  if (!name) console.warn('[Pipeline Tracker] Direct message: could not find recipient name');
+  if (!name) console.warn(tag(), 'Direct message: could not find recipient name');
 
   const debugMode = await getDebugMode();
   const debugAnchor = button ?? composer ?? (document.body as HTMLElement);
@@ -999,7 +1006,8 @@ document.body.addEventListener(
         })
         .join(' → ');
       console.log(
-        '[Pipeline Tracker] click target:',
+        tag(),
+        'click target:',
         (e.target as HTMLElement).tagName,
         '\n  path [aria-label]:',
         anyEl?.tagName,
@@ -1029,7 +1037,7 @@ document.body.addEventListener(
         const chat = ChatOverlayCard.fromComposer(ce);
         const page = chat ? null : MessengerPageCard.fromDocument();
         const src = chat ? 'ChatOverlayCard' : page ? 'MessengerPageCard' : 'none';
-        console.log('[Pipeline Tracker] messaging composer focus — preview:', {
+        console.log(tag(), 'messaging composer focus — preview:', {
           source: src,
           name: chat?.name ?? page?.name ?? '(not found)',
           title: chat?.title ?? page?.title ?? '(not found)',
@@ -1063,7 +1071,7 @@ document.body.addEventListener(
 
       if (isAcceptInvite) {
         handleAcceptConnection(el).catch((err) =>
-          console.warn('[Pipeline Tracker] handleAcceptConnection error:', err),
+          console.warn(tag(), 'handleAcceptConnection error:', err),
         );
         return;
       }
@@ -1078,7 +1086,7 @@ document.body.addEventListener(
       const hitAccept = findAcceptButtonAtPoint(e.clientX, e.clientY);
       if (hitAccept) {
         handleAcceptConnection(hitAccept).catch((err) =>
-          console.warn('[Pipeline Tracker] handleAcceptConnection error:', err),
+          console.warn(tag(), 'handleAcceptConnection error:', err),
         );
         return;
       }
@@ -1103,7 +1111,7 @@ document.body.addEventListener(
         profileUrl: linkedCard?.profileUrl ?? '',
         ts: Date.now(),
       };
-      console.log('[Pipeline Tracker] captured (connect click):', {
+      console.log(tag(), 'captured (connect click):', {
         name: _pendingConnection.name,
         title: _pendingConnection.title,
         profile_url: _pendingConnection.profileUrl,
@@ -1121,14 +1129,14 @@ document.body.addEventListener(
 
     if (isSendInvite) {
       const pending = readPendingConnection();
-      console.log('[Pipeline Tracker] sending (send button):', {
+      console.log(tag(), 'sending (send button):', {
         name: pending?.name,
         title: pending?.title,
         profile_url: pending?.profileUrl,
         button: ariaLabel,
       });
       handleConnectionRequest(el, pending?.name, pending?.title, pending?.profileUrl).catch((err) =>
-        console.warn('[Pipeline Tracker] handleConnectionRequest error:', err),
+        console.warn(tag(), 'handleConnectionRequest error:', err),
       );
       _pendingConnection = null;
       return;
@@ -1144,7 +1152,7 @@ document.body.addEventListener(
 
     if (isDmSend) {
       handleDirectMessage(el).catch((err) =>
-        console.warn('[Pipeline Tracker] handleDirectMessage error:', err),
+        console.warn(tag(), 'handleDirectMessage error:', err),
       );
       return;
     }
@@ -1175,16 +1183,16 @@ document.body.addEventListener(
     if (!composer.closest('form, [class*="msg-form"]')) return;
 
     if (isDebugModeSync()) {
-      console.log('[Pipeline Tracker] keydown Enter → triggering DM send', {
+      console.log(tag(), 'keydown Enter → triggering DM send', {
         target_tag: target.tagName,
         composer_role: composer.getAttribute('role'),
       });
     }
     handleDirectMessage(null).catch((err) =>
-      console.warn('[Pipeline Tracker] handleDirectMessage error:', err),
+      console.warn(tag(), 'handleDirectMessage error:', err),
     );
   },
   { capture: true },
 );
 
-console.log('[Pipeline Tracker] content script loaded');
+console.log(tag(), 'content script loaded');

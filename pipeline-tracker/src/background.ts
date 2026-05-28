@@ -17,9 +17,13 @@ import {
   type PipelineEvent,
   type Severity,
 } from './types.ts';
+import { ts } from './logger.ts';
+
+const tag = () => `[Pipeline Tracker BG - ${ts()}]`;
 
 console.log(
-  '[Pipeline Tracker BG] service worker started, webhook URL configured:',
+  tag(),
+  'service worker started, webhook URL configured:',
   !!PIPELINE_TRACKER_WEBHOOK_URL,
 );
 
@@ -100,7 +104,7 @@ export async function restoreBadgeOnStartup(): Promise<void> {
   // Fire-and-forget with explicit .catch — a bubbled rejection here would become
   // an unhandled rejection in the SW global, which can wedge the worker.
   drainOutbox().catch((err: unknown) => {
-    console.error('[Pipeline Tracker BG] drainOutbox (restoreBadgeOnStartup) threw:', err);
+    console.error(tag(), 'drainOutbox (restoreBadgeOnStartup) threw:', err);
   });
 }
 
@@ -182,7 +186,7 @@ async function deliverEvent(event: PipelineEvent): Promise<DeliveryOutcome> {
   const now = new Date().toISOString();
 
   if (!PIPELINE_TRACKER_WEBHOOK_URL) {
-    console.error('[Pipeline Tracker BG] PIPELINE_TRACKER_WEBHOOK_URL is not set');
+    console.error(tag(), 'PIPELINE_TRACKER_WEBHOOK_URL is not set');
     return {
       classified: { status: 'error', message: 'Webhook URL not configured' },
       transientFailure: false,
@@ -193,7 +197,7 @@ async function deliverEvent(event: PipelineEvent): Promise<DeliveryOutcome> {
   const apiKey = (syncData as Record<string, unknown>)[STORAGE_KEYS.API_KEY] as string | undefined;
 
   if (!apiKey) {
-    console.warn('[Pipeline Tracker BG] No api_key configured; skipping POST');
+    console.warn(tag(), 'No api_key configured; skipping POST');
     return {
       classified: { status: 'error', message: 'No api_key configured' },
       transientFailure: false,
@@ -201,7 +205,7 @@ async function deliverEvent(event: PipelineEvent): Promise<DeliveryOutcome> {
   }
 
   const payload: PipelineEvent = { ...event, api_key: apiKey };
-  console.log('[Pipeline Tracker BG] POSTing to webhook:', JSON.stringify(payload));
+  console.log(tag(), 'POSTing to webhook:', JSON.stringify(payload));
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
@@ -226,7 +230,7 @@ async function deliverEvent(event: PipelineEvent): Promise<DeliveryOutcome> {
       } catch {
         // non-JSON body; ignore
       }
-      console.error(`[Pipeline Tracker BG] POST failed ${res.status}:`, bodyText);
+      console.error(tag(), `POST failed ${res.status}:`, bodyText);
       await chrome.storage.local.set({ [STORAGE_KEYS.LAST_ERROR]: now });
 
       let message: string;
@@ -243,7 +247,7 @@ async function deliverEvent(event: PipelineEvent): Promise<DeliveryOutcome> {
       };
     }
 
-    console.log('[Pipeline Tracker BG] POST succeeded');
+    console.log(tag(), 'POST succeeded');
     await chrome.storage.local.set({
       [STORAGE_KEYS.LAST_LOGGED_AT]: now,
       [STORAGE_KEYS.LAST_ERROR]: null,
@@ -269,14 +273,14 @@ async function deliverEvent(event: PipelineEvent): Promise<DeliveryOutcome> {
   } catch (err) {
     clearTimeout(timeout);
     if (err instanceof Error && err.name === 'AbortError') {
-      console.warn('[Pipeline Tracker BG] POST timed out');
+      console.warn(tag(), 'POST timed out');
       await chrome.storage.local.set({ [STORAGE_KEYS.LAST_ERROR]: now });
       return {
         classified: { status: 'error', message: 'Connection timed out' },
         transientFailure: true,
       };
     }
-    console.error('[Pipeline Tracker BG] POST threw:', err);
+    console.error(tag(), 'POST threw:', err);
     await chrome.storage.local.set({ [STORAGE_KEYS.LAST_ERROR]: now });
     return {
       classified: { status: 'error', message: 'Connection failed' },
@@ -291,7 +295,7 @@ let _draining = false;
 
 export async function drainOutbox(): Promise<void> {
   if (_draining) {
-    console.log('[Pipeline Tracker BG] drain already in progress, skipping');
+    console.log(tag(), 'drain already in progress, skipping');
     return;
   }
   _draining = true;
@@ -370,7 +374,7 @@ async function bumpOutboxHeadAttempts(historyId: string, attempts: number): Prom
 
 export async function handleMessage(msg: BgMessage): Promise<BackgroundResult> {
   if ('kind' in msg && msg.kind === 'drain_outbox') {
-    console.log('[Pipeline Tracker BG] drain_outbox requested');
+    console.log(tag(), 'drain_outbox requested');
     await drainOutbox();
     return { ok: true };
   }
@@ -379,12 +383,7 @@ export async function handleMessage(msg: BgMessage): Promise<BackgroundResult> {
   // Don't enqueue — just deliver and record directly so the popup's Test button gets
   // the ok/message back inline.
   const event = msg as PipelineEvent;
-  console.log(
-    '[Pipeline Tracker BG] direct event received, type:',
-    event.event_type,
-    'name:',
-    event.name,
-  );
+  console.log(tag(), 'direct event received, type:', event.event_type, 'name:', event.name);
   const outcome = await deliverEvent(event);
   await recordResolved(event, outcome.classified, null);
   return outcome.classified.status === 'ok' || outcome.classified.status === 'partial'
@@ -407,48 +406,48 @@ export function onMessageHandler(
       try {
         sendResponse(result);
       } catch (err) {
-        console.error('[Pipeline Tracker BG] sendResponse threw on success path:', err);
+        console.error(tag(), 'sendResponse threw on success path:', err);
       }
     },
     (err) => {
-      console.error('[Pipeline Tracker BG] handleMessage rejected:', err);
+      console.error(tag(), 'handleMessage rejected:', err);
       const message =
         err instanceof Error ? err.message : 'Background handler failed with non-Error throw';
       try {
         sendResponse({ ok: false, message });
       } catch (sendErr) {
-        console.error('[Pipeline Tracker BG] sendResponse threw on error path:', sendErr);
+        console.error(tag(), 'sendResponse threw on error path:', sendErr);
       }
     },
   );
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  console.log('[Pipeline Tracker BG] onMessage listener fired');
+  console.log(tag(), 'onMessage listener fired');
   onMessageHandler(msg as BgMessage, sendResponse);
   return true;
 });
 
 if (chrome.runtime.onStartup && typeof chrome.runtime.onStartup.addListener === 'function') {
   chrome.runtime.onStartup.addListener(() => {
-    console.log('[Pipeline Tracker BG] onStartup — draining outbox');
+    console.log(tag(), 'onStartup — draining outbox');
     drainOutbox().catch((err: unknown) => {
-      console.error('[Pipeline Tracker BG] drainOutbox (onStartup) threw:', err);
+      console.error(tag(), 'drainOutbox (onStartup) threw:', err);
     });
   });
 }
 
 if (chrome.runtime.onInstalled && typeof chrome.runtime.onInstalled.addListener === 'function') {
   chrome.runtime.onInstalled.addListener(() => {
-    console.log('[Pipeline Tracker BG] onInstalled — draining outbox');
+    console.log(tag(), 'onInstalled — draining outbox');
     drainOutbox().catch((err: unknown) => {
-      console.error('[Pipeline Tracker BG] drainOutbox (onInstalled) threw:', err);
+      console.error(tag(), 'drainOutbox (onInstalled) threw:', err);
     });
   });
 }
 
 restoreBadgeOnStartup().catch((err: unknown) => {
-  console.error('[Pipeline Tracker BG] restoreBadgeOnStartup threw:', err);
+  console.error(tag(), 'restoreBadgeOnStartup threw:', err);
 });
 
 // --- Service worker keep-alive ---
@@ -484,7 +483,7 @@ if (chrome.alarms && typeof chrome.alarms.create === 'function') {
       periodInMinutes: 1,
     });
   } catch (err) {
-    console.error('[Pipeline Tracker BG] failed to register keep-alive alarm:', err);
+    console.error(tag(), 'failed to register keep-alive alarm:', err);
   }
 }
 
@@ -495,7 +494,7 @@ if (chrome.alarms?.onAlarm && typeof chrome.alarms.onAlarm.addListener === 'func
     // would be enough. We additionally drain the outbox so events that hit a
     // dead-SW window get flushed without waiting for the user.
     drainOutbox().catch((err: unknown) => {
-      console.error('[Pipeline Tracker BG] drainOutbox (keep-alive) threw:', err);
+      console.error(tag(), 'drainOutbox (keep-alive) threw:', err);
     });
   });
 }
