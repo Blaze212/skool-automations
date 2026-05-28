@@ -125,8 +125,8 @@ describe('ProfilePageAcceptCard', () => {
       setProfilePath('nishtalasn');
       const { card, acceptButton } = makeProfilePage({
         vanity: 'nishtalasn',
-        name: 'Nirupama Nishtala',
-        headline: 'Ph.D. | R&D Program Manager',
+        name: 'Casey Carter',
+        headline: 'Test long subtitle | short',
       });
       document.body.appendChild(card);
       expect(ProfilePageAcceptCard.fromAcceptButton(acceptButton)).not.toBeNull();
@@ -136,7 +136,7 @@ describe('ProfilePageAcceptCard', () => {
       window.history.pushState({}, '', '/feed/');
       const { card, acceptButton } = makeProfilePage({
         vanity: 'nishtalasn',
-        name: 'Nirupama Nishtala',
+        name: 'Casey Carter',
       });
       document.body.appendChild(card);
       expect(ProfilePageAcceptCard.fromAcceptButton(acceptButton)).toBeNull();
@@ -156,11 +156,11 @@ describe('ProfilePageAcceptCard', () => {
       setProfilePath('nishtalasn');
       const { card, acceptButton } = makeProfilePage({
         vanity: 'nishtalasn',
-        name: 'Nirupama Nishtala',
+        name: 'Casey Carter',
       });
       document.body.appendChild(card);
       const acceptCard = ProfilePageAcceptCard.fromAcceptButton(acceptButton);
-      expect(acceptCard?.name).toBe('Nirupama Nishtala');
+      expect(acceptCard?.name).toBe('Casey Carter');
     });
   });
 
@@ -180,11 +180,10 @@ describe('ProfilePageAcceptCard', () => {
   describe('.title', () => {
     it('returns the long headline <p> sibling of the name column', () => {
       setProfilePath('nishtalasn');
-      const headline =
-        'Ph.D. | R&D Program Manager & Scientific Writer | Pharma & Biotech | Managed 100+ partnerships';
+      const headline = 'Test long subtitle | with multiple pipe segments | for short fixture';
       const { card, acceptButton } = makeProfilePage({
         vanity: 'nishtalasn',
-        name: 'Nirupama Nishtala',
+        name: 'Casey Carter',
         pronouns: 'She/Her',
         headline,
         location: 'New York, New York, United States',

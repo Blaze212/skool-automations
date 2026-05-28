@@ -10,9 +10,7 @@ import {
 // of the background.ts import above. We capture it BEFORE any test runs so
 // vi.clearAllMocks() in beforeEach hooks can't wipe these records out — they
 // represent the one-time SW-startup behavior we want to assert against.
-const _initialAlarmCreateCalls = [
-  ...(chrome.alarms.create as ReturnType<typeof vi.fn>).mock.calls,
-];
+const _initialAlarmCreateCalls = [...(chrome.alarms.create as ReturnType<typeof vi.fn>).mock.calls];
 const _initialAlarmListenerCalls = [
   ...(chrome.alarms.onAlarm.addListener as ReturnType<typeof vi.fn>).mock.calls,
 ];

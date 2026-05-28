@@ -17,16 +17,16 @@ describe('MessengerPageCard', () => {
     document.body.innerHTML = '';
   });
 
-  describe('messenger-page.txt — Katie McIntyre (title bar only, no profile card)', () => {
+  describe('messenger-page.txt — Alice Anderson (title bar only, no profile card)', () => {
     // Regression: this is the fixture where Strategy 1 (profile-card lookup)
     // fails and the legacy fallback would walk up from the composer and
-    // concatenate "Katie McIntyre Status is offline I like helping people:)"
+    // concatenate "Alice Anderson Status is offline I like helping people:)"
     // into the name field.
     it('extracts name from the title bar entity-title h2', () => {
       loadFixture('messenger-page.txt');
       const card = MessengerPageCard.fromDocument()!;
       expect(card).not.toBeNull();
-      expect(card.name).toBe('Katie McIntyre');
+      expect(card.name).toBe('Alice Anderson');
     });
 
     it('extracts the headline from entity-info, stripping the presence indicator', () => {
@@ -40,23 +40,23 @@ describe('MessengerPageCard', () => {
       loadFixture('messenger-page.txt');
       const card = MessengerPageCard.fromDocument()!;
       expect(card.profileUrl).toBe(
-        'https://www.linkedin.com/in/ACoAABxaDfgB32shzB4DQpdhj9hCxFZvKUhDluQ',
+        'https://www.linkedin.com/in/ACoAATEST0000000000000000000000000000001',
       );
     });
   });
 
-  describe('messenger-page-2.txt — Nirupama Nishtala (title bar + profile card with full subtitle)', () => {
+  describe('messenger-page-2.txt — Casey Carter (title bar + profile card with full subtitle)', () => {
     it('prefers the profile card name over the title bar h2', () => {
       loadFixture('messenger-page-2.txt');
       const card = MessengerPageCard.fromDocument()!;
-      expect(card.name).toBe('Nirupama Nishtala');
+      expect(card.name).toBe('Casey Carter');
     });
 
     it('prefers the full untruncated subtitle from the profile card [title] attribute', () => {
       loadFixture('messenger-page-2.txt');
       const card = MessengerPageCard.fromDocument()!;
       expect(card.title).toBe(
-        'Ph.D. | R&D Program Manager & Scientific Writer| Pharma & Biotech| Managed 100+ external academic and industry partnerships across 50+ concurrent programs in oncology, immunology, and rare disease',
+        'Test long subtitle | with multiple pipe segments | including extra detail to verify full untruncated extraction across 50+ chars and beyond',
       );
     });
 
@@ -64,16 +64,16 @@ describe('MessengerPageCard', () => {
       loadFixture('messenger-page-2.txt');
       const card = MessengerPageCard.fromDocument()!;
       expect(card.profileUrl).toBe(
-        'https://www.linkedin.com/in/ACoAAATpAXIB0DSc4ndlXDxHBlP65n_V8vcMtpk',
+        'https://www.linkedin.com/in/ACoAATEST0000000000000000000000000000002',
       );
     });
   });
 
-  describe('messenger-page-3.txt — Jim Sidler (title bar + profile card)', () => {
+  describe('messenger-page-3.txt — Dan Davis (title bar + profile card)', () => {
     it('extracts name from the profile card', () => {
       loadFixture('messenger-page-3.txt');
       const card = MessengerPageCard.fromDocument()!;
-      expect(card.name).toBe('Jim Sidler');
+      expect(card.name).toBe('Dan Davis');
     });
 
     it('extracts the headline from the profile card subtitle', () => {
@@ -86,7 +86,7 @@ describe('MessengerPageCard', () => {
       loadFixture('messenger-page-3.txt');
       const card = MessengerPageCard.fromDocument()!;
       expect(card.profileUrl).toBe(
-        'https://www.linkedin.com/in/ACoAAAH8r4wBrXj5E3mkSQ-1eHEvxYz52lgscAk',
+        'https://www.linkedin.com/in/ACoAATEST0000000000000000000000000000004',
       );
     });
   });
