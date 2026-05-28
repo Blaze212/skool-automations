@@ -23,7 +23,7 @@ describe('ChatOverlayCard', () => {
     document.body.innerHTML = '';
   });
 
-  describe('small-chat.txt — Katie McIntyre (no profile card, header only)', () => {
+  describe('small-chat.txt — Alice Anderson (no profile card, header only)', () => {
     // Regression: previous extractor walked from the composer into the message
     // list and pulled a URL out of a <p class="msg-s-event-listitem__body">,
     // setting title to a long URL string. Title must never be a URL.
@@ -31,7 +31,7 @@ describe('ChatOverlayCard', () => {
       loadFixture('small-chat.txt');
       const card = ChatOverlayCard.fromComposer(getComposer());
       expect(card).not.toBeNull();
-      expect(card!.name).toBe('Katie McIntyre');
+      expect(card!.name).toBe('Alice Anderson');
     });
 
     it('returns empty title when no profile card is rendered (never a URL)', () => {
@@ -46,23 +46,23 @@ describe('ChatOverlayCard', () => {
       loadFixture('small-chat.txt');
       const card = ChatOverlayCard.fromComposer(getComposer())!;
       expect(card.profileUrl).toBe(
-        'https://www.linkedin.com/in/ACoAABxaDfgB32shzB4DQpdhj9hCxFZvKUhDluQ',
+        'https://www.linkedin.com/in/ACoAATEST0000000000000000000000000000001',
       );
     });
   });
 
-  describe('small-chat-2.txt — Nirupama Nishtala (header + profile card with subtitle)', () => {
+  describe('small-chat-2.txt — Casey Carter (header + profile card with subtitle)', () => {
     it('extracts name from the profile card title span', () => {
       loadFixture('small-chat-2.txt');
       const card = ChatOverlayCard.fromComposer(getComposer())!;
-      expect(card.name).toBe('Nirupama Nishtala');
+      expect(card.name).toBe('Casey Carter');
     });
 
     it('extracts the full untruncated headline from the subtitle [title] attribute', () => {
       loadFixture('small-chat-2.txt');
       const card = ChatOverlayCard.fromComposer(getComposer())!;
       expect(card.title).toBe(
-        'Ph.D. | R&D Program Manager & Scientific Writer| Pharma & Biotech| Managed 100+ external academic and industry partnerships across 50+ concurrent programs in oncology, immunology, and rare disease',
+        'Test long subtitle | with multiple pipe segments | including extra detail to verify full untruncated extraction across 50+ chars and beyond',
       );
       expect(card.title).not.toMatch(/^https?:\/\//);
     });
@@ -71,16 +71,16 @@ describe('ChatOverlayCard', () => {
       loadFixture('small-chat-2.txt');
       const card = ChatOverlayCard.fromComposer(getComposer())!;
       expect(card.profileUrl).toBe(
-        'https://www.linkedin.com/in/ACoAAATpAXIB0DSc4ndlXDxHBlP65n_V8vcMtpk',
+        'https://www.linkedin.com/in/ACoAATEST0000000000000000000000000000002',
       );
     });
   });
 
-  describe('small-chat-3.txt — Mark Binns (header + profile card, no premium badge)', () => {
+  describe('small-chat-3.txt — Bob Brown (header + profile card, no premium badge)', () => {
     it('extracts name from the profile card title span', () => {
       loadFixture('small-chat-3.txt');
       const card = ChatOverlayCard.fromComposer(getComposer())!;
-      expect(card.name).toBe('Mark Binns');
+      expect(card.name).toBe('Bob Brown');
     });
 
     it('extracts the short headline from the subtitle', () => {
@@ -94,7 +94,7 @@ describe('ChatOverlayCard', () => {
       loadFixture('small-chat-3.txt');
       const card = ChatOverlayCard.fromComposer(getComposer())!;
       expect(card.profileUrl).toBe(
-        'https://www.linkedin.com/in/ACoAAAOvPEsBTCwKeg3ZpxCWSywLPB6VnyGcBC4',
+        'https://www.linkedin.com/in/ACoAATEST0000000000000000000000000000003',
       );
     });
   });

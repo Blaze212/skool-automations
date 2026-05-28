@@ -12,7 +12,7 @@
 <!---->
 
       <!---->
-            <a class="GaIJMxxWxTRgXlEpFUnUYdCHfxUewQIFll  msg-thread__link-to-profile" title="Open Nirupama Nishtala’s profile" href="https://www.linkedin.com/in/ACoAAATpAXIB0DSc4ndlXDxHBlP65n_V8vcMtpk" data-test-app-aware-link="">
+            <a class="GaIJMxxWxTRgXlEpFUnUYdCHfxUewQIFll  msg-thread__link-to-profile" title="Open Casey Carter’s profile" href="https://www.linkedin.com/in/ACoAATEST0000000000000000000000000000002" data-test-app-aware-link="">
               
     <div class="msg-entity-lockup truncate
         EntityLockup-circle-2">
@@ -20,7 +20,7 @@
         <dt class="msg-entity-lockup__entity-title-wrapper display-flex justify-left align-items-center">
             <h2 tabindex="-1" class="msg-entity-lockup__entity-title truncate pr2
                  hoverable-link-text">
-              Nirupama Nishtala
+              Casey Carter
             </h2>
         </dt>
         <dd class="msg-entity-lockup__entity-info t-12 t-black--light t-normal truncate">
@@ -35,7 +35,7 @@
               </span>
     </div>
   
-                  Ph.D. | R&amp;D Program Manager &amp; Scientific Writer| Pharma &amp; Biotech| Managed 100+ external academic and industry partnerships across 50+ concurrent programs in oncology, immunology, and rare disease
+                  Test long subtitle | with multiple pipe segments | including extra detail to verify full untruncated extraction across 50+ chars and beyond
                             </div>
         </dd>
       </dl>
@@ -53,7 +53,7 @@
 </svg>
 
           <span class="visually-hidden">
-            Open the options list in your conversation with Nirupama Nishtala and Barton Holdridge
+            Open the options list in your conversation with Casey Carter and Test Viewer
           </span>
       
 <!----></button>
@@ -114,11 +114,11 @@
     <div class="msg-s-profile-card msg-s-profile-card-one-to-one ph3">
       <div id="ember956" class="break-words artdeco-entity-lockup artdeco-entity-lockup--stacked-left artdeco-entity-lockup--size-5 ember-view">
 
-          <a tabindex="0" href="https://www.linkedin.com/in/ACoAAATpAXIB0DSc4ndlXDxHBlP65n_V8vcMtpk" id="ember957" class="ember-view">
+          <a tabindex="0" href="https://www.linkedin.com/in/ACoAATEST0000000000000000000000000000002" id="ember957" class="ember-view">
             <div id="ember958" class="artdeco-entity-lockup__image artdeco-entity-lockup__image--type-circle ember-view" type="circle">
                 
     <div class="presence-entity presence-entity--size-5 msg-conversation-card__presence-entity">
-        <img src="https://media.licdn.com/dms/image/v2/D4E35AQHY5WWX-2HaBQ/profile-framedphoto-shrink_100_100/B4EZ1eEYykG8Ak-/0/1775399701840?e=1780066800&amp;v=beta&amp;t=OwslrLhcd_8Uh12ncUGjoGnTQjlkMxYd_pJKIstQ2qQ" loading="lazy" alt="Nirupama Nishtala Profile" id="ember960" class="presence-entity__image EntityPhoto-circle-5  evi-image lazy-image ember-view" aria-describedby="ember959">
+        <img src="https://media.licdn.com/dms/image/v2/D4E35AQHY5WWX-2HaBQ/profile-framedphoto-shrink_100_100/B4EZ1eEYykG8Ak-/0/1775399701840?e=1780066800&amp;v=beta&amp;t=OwslrLhcd_8Uh12ncUGjoGnTQjlkMxYd_pJKIstQ2qQ" loading="lazy" alt="Casey Carter Profile" id="ember960" class="presence-entity__image EntityPhoto-circle-5  evi-image lazy-image ember-view" aria-describedby="ember959">
         
 
     <div id="ember959" class="presence-entity__indicator presence-entity__indicator--size-5
@@ -139,9 +139,9 @@
           <div id="ember962" class="artdeco-entity-lockup__title ember-view display-flex truncate align-items-center">
 
               <span class="display-flex truncate align-items-center mr1">
-                <a class="GaIJMxxWxTRgXlEpFUnUYdCHfxUewQIFll  profile-card-one-to-one__profile-link inline-block v-align-middle truncate" href="https://www.linkedin.com/in/ACoAAATpAXIB0DSc4ndlXDxHBlP65n_V8vcMtpk" data-test-app-aware-link="">
+                <a class="GaIJMxxWxTRgXlEpFUnUYdCHfxUewQIFll  profile-card-one-to-one__profile-link inline-block v-align-middle truncate" href="https://www.linkedin.com/in/ACoAATEST0000000000000000000000000000002" data-test-app-aware-link="">
                   <span class="truncate">
-                    Nirupama Nishtala
+                    Casey Carter
                   </span>
                     
       <svg role="img" aria-hidden="false" aria-label="LinkedIn Premium" class="inline-block v-align-middle flex-shrink-zero ml1" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14" data-supported-dps="14x14" data-test-icon="linkedin-bug-premium-v2-xxsmall">
@@ -171,8 +171,8 @@
 </div>
 
           <div id="ember964" class="artdeco-entity-lockup__subtitle ember-view">
-            <div title="Ph.D. | R&amp;D Program Manager &amp; Scientific Writer| Pharma &amp; Biotech| Managed 100+ external academic and industry partnerships across 50+ concurrent programs in oncology, immunology, and rare disease">
-              Ph.D. | R&amp;D Program Manager &amp; Scientific Writer| Pharma &amp; Biotech| Managed 100+ external academic and industry partnerships across 50+ concurrent programs in oncology, immunology, and rare disease
+            <div title="Test long subtitle | with multiple pipe segments | including extra detail to verify full untruncated extraction across 50+ chars and beyond">
+              Test long subtitle | with multiple pipe segments | including extra detail to verify full untruncated extraction across 50+ chars and beyond
             </div>
           </div>
 
@@ -210,7 +210,7 @@
       </time>
 
       <span class="msg-s-event-listitem--group-a11y-heading visually-hidden">
-        Nirupama Nishtala sent the following message at 9:53 PM
+        Casey Carter sent the following message at 9:53 PM
       </span>
 
     <div class="msg-s-event-listitem
@@ -223,23 +223,23 @@
         
          msg-s-event-listitem--other
         
-        " data-event-urn="urn:li:msg_message:(urn:li:fsd_profile:ACoAABPgFYABKbKtR8OUL2cEpRe0vD8FPNssXl0,2-MTc3OTQxODM4MzY0MWI0Nzk0NC0xMDAmODQ4MmZjYWUtYWU4NS00YWU3LWJlZmUtOTU0ODdkNTI2OWI2XzEwMA==)" data-view-name="message-list-item">
+        " data-event-urn="urn:li:msg_message:(urn:li:fsd_profile:ACoAATEST0000000000000000000000000000005,2-MTc3OTQxODM4MzY0MWI0Nzk0NC0xMDAmODQ4MmZjYWUtYWU4NS00YWU3LWJlZmUtOTU0ODdkNTI2OWI2XzEwMA==)" data-view-name="message-list-item">
           
-          <a tabindex="0" href="https://www.linkedin.com/in/ACoAAATpAXIB0DSc4ndlXDxHBlP65n_V8vcMtpk" id="ember901" class="ember-view msg-s-event-listitem__link">
+          <a tabindex="0" href="https://www.linkedin.com/in/ACoAATEST0000000000000000000000000000002" id="ember901" class="ember-view msg-s-event-listitem__link">
             <span class="a11y-text">
-              View Nirupama’s profile
+              View Casey’s profile
             </span>
-              <img title="Nirupama Nishtala" src="https://media.licdn.com/dms/image/v2/D4E35AQHY5WWX-2HaBQ/profile-framedphoto-shrink_100_100/B4EZ1eEYykG8Ak-/0/1775399701840?e=1780066800&amp;v=beta&amp;t=OwslrLhcd_8Uh12ncUGjoGnTQjlkMxYd_pJKIstQ2qQ" loading="lazy" alt="Nirupama Nishtala, #OPEN_TO_WORK" id="ember902" class="msg-s-event-listitem__profile-picture EntityPhoto-circle-2 evi-image lazy-image ember-view">
+              <img title="Casey Carter" src="https://media.licdn.com/dms/image/v2/D4E35AQHY5WWX-2HaBQ/profile-framedphoto-shrink_100_100/B4EZ1eEYykG8Ak-/0/1775399701840?e=1780066800&amp;v=beta&amp;t=OwslrLhcd_8Uh12ncUGjoGnTQjlkMxYd_pJKIstQ2qQ" loading="lazy" alt="Casey Carter, #OPEN_TO_WORK" id="ember902" class="msg-s-event-listitem__profile-picture EntityPhoto-circle-2 evi-image lazy-image ember-view">
           </a>
   
         
         <div class="msg-s-message-group__meta">
 
                   <span>
-                    <a class="GaIJMxxWxTRgXlEpFUnUYdCHfxUewQIFll  inline-block v-align-middle" href="https://www.linkedin.com/in/ACoAAATpAXIB0DSc4ndlXDxHBlP65n_V8vcMtpk" data-test-app-aware-link="">
+                    <a class="GaIJMxxWxTRgXlEpFUnUYdCHfxUewQIFll  inline-block v-align-middle" href="https://www.linkedin.com/in/ACoAATEST0000000000000000000000000000002" data-test-app-aware-link="">
                         <span class="msg-s-message-group__profile-link msg-s-message-group__name t-14 t-black t-bold hoverable-link-text">
 
-                            Nirupama Nishtala
+                            Casey Carter
                         </span>
                     </a>
                       
@@ -324,9 +324,9 @@
     
 </span></button>
 
-            <div id="ember909" class="msg-s-event-listitem__reactions-options-ellipsis artdeco-dropdown artdeco-dropdown--placement-top artdeco-dropdown--justification-right ember-view" aria-label="Options for the message from Nirupama: Saw you in the Career System Community. Looking forward to connecting with you here!">
+            <div id="ember909" class="msg-s-event-listitem__reactions-options-ellipsis artdeco-dropdown artdeco-dropdown--placement-top artdeco-dropdown--justification-right ember-view" aria-label="Options for the message from Casey: Saw you in the Career System Community. Looking forward to connecting with you here!">
               <button aria-expanded="false" id="ember910" class="msg-s-event-listitem__options-trigger artdeco-dropdown__trigger artdeco-dropdown__trigger--placement-top ember-view" type="button" tabindex="0">
-                <svg role="img" aria-hidden="false" aria-label="Options for the message from Nirupama: Saw you in the Career System Community. Looking forward to connecting with you here!" class="msg-s-event-listitem__options-trigger-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" data-supported-dps="16x16" data-test-icon="overflow-web-ios-small">
+                <svg role="img" aria-hidden="false" aria-label="Options for the message from Casey: Saw you in the Career System Community. Looking forward to connecting with you here!" class="msg-s-event-listitem__options-trigger-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" data-supported-dps="16x16" data-test-icon="overflow-web-ios-small">
 <!---->    
     <use href="#overflow-web-ios-small" width="16" height="16"></use>
 </svg>
@@ -387,7 +387,7 @@
       </time>
 
       <span class="msg-s-event-listitem--group-a11y-heading visually-hidden">
-        Barton Holdridge sent the following messages at 7:52 AM
+        Test Viewer sent the following messages at 7:52 AM
       </span>
 
     <div class="msg-s-event-listitem
@@ -400,23 +400,23 @@
         
         
         
-        " data-event-urn="urn:li:msg_message:(urn:li:fsd_profile:ACoAABPgFYABKbKtR8OUL2cEpRe0vD8FPNssXl0,2-MTc3OTQ1NDM3MDY4OWI2NjMyNi0xMDAmODQ4MmZjYWUtYWU4NS00YWU3LWJlZmUtOTU0ODdkNTI2OWI2XzEwMA==)" data-view-name="message-list-item">
+        " data-event-urn="urn:li:msg_message:(urn:li:fsd_profile:ACoAATEST0000000000000000000000000000005,2-MTc3OTQ1NDM3MDY4OWI2NjMyNi0xMDAmODQ4MmZjYWUtYWU4NS00YWU3LWJlZmUtOTU0ODdkNTI2OWI2XzEwMA==)" data-view-name="message-list-item">
           
-          <a tabindex="0" href="https://www.linkedin.com/in/ACoAABPgFYABKbKtR8OUL2cEpRe0vD8FPNssXl0" id="ember912" class="ember-view msg-s-event-listitem__link">
+          <a tabindex="0" href="https://www.linkedin.com/in/ACoAATEST0000000000000000000000000000005" id="ember912" class="ember-view msg-s-event-listitem__link">
             <span class="a11y-text">
-              View Barton’s profile
+              View TestViewer’s profile
             </span>
-              <img title="Barton Holdridge" src="https://media.licdn.com/dms/image/v2/C4D03AQFaD6AFIgnCIQ/profile-displayphoto-shrink_100_100/profile-displayphoto-shrink_100_100/0/1654370512601?e=1781136000&amp;v=beta&amp;t=TisgIU6NTL4DvuYRCzMkaNL4dRsgcHQsFsIIIvUPhf4" loading="lazy" alt="Barton Holdridge" id="ember913" class="msg-s-event-listitem__profile-picture EntityPhoto-circle-2 evi-image lazy-image ember-view">
+              <img title="Test Viewer" src="https://media.licdn.com/dms/image/v2/C4D03AQFaD6AFIgnCIQ/profile-displayphoto-shrink_100_100/profile-displayphoto-shrink_100_100/0/1654370512601?e=1781136000&amp;v=beta&amp;t=TisgIU6NTL4DvuYRCzMkaNL4dRsgcHQsFsIIIvUPhf4" loading="lazy" alt="Test Viewer" id="ember913" class="msg-s-event-listitem__profile-picture EntityPhoto-circle-2 evi-image lazy-image ember-view">
           </a>
   
         
         <div class="msg-s-message-group__meta">
 
                   <span>
-                    <a class="GaIJMxxWxTRgXlEpFUnUYdCHfxUewQIFll  inline-block v-align-middle" href="https://www.linkedin.com/in/ACoAABPgFYABKbKtR8OUL2cEpRe0vD8FPNssXl0" data-test-app-aware-link="">
+                    <a class="GaIJMxxWxTRgXlEpFUnUYdCHfxUewQIFll  inline-block v-align-middle" href="https://www.linkedin.com/in/ACoAATEST0000000000000000000000000000005" data-test-app-aware-link="">
                         <span class="msg-s-message-group__profile-link msg-s-message-group__name t-14 t-black t-bold hoverable-link-text">
 
-                            Barton Holdridge
+                            Test Viewer
                         </span>
                     </a>
                       
@@ -497,9 +497,9 @@
     
 </span></button>
 
-            <div id="ember918" class="msg-s-event-listitem__reactions-options-ellipsis artdeco-dropdown artdeco-dropdown--placement-top artdeco-dropdown--justification-right ember-view" aria-label="Options for the message from Barton: Thanks Nirupama! Happy to connect with another Career Systems-er!">
+            <div id="ember918" class="msg-s-event-listitem__reactions-options-ellipsis artdeco-dropdown artdeco-dropdown--placement-top artdeco-dropdown--justification-right ember-view" aria-label="Options for the message from Test Viewer: Thanks Casey! Happy to connect with another Career Systems-er!">
               <button aria-expanded="false" id="ember919" class="msg-s-event-listitem__options-trigger artdeco-dropdown__trigger artdeco-dropdown__trigger--placement-top ember-view" type="button" tabindex="0">
-                <svg role="img" aria-hidden="false" aria-label="Options for the message from Barton: Thanks Nirupama! Happy to connect with another Career Systems-er!" class="msg-s-event-listitem__options-trigger-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" data-supported-dps="16x16" data-test-icon="overflow-web-ios-small">
+                <svg role="img" aria-hidden="false" aria-label="Options for the message from Test Viewer: Thanks Casey! Happy to connect with another Career Systems-er!" class="msg-s-event-listitem__options-trigger-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" data-supported-dps="16x16" data-test-icon="overflow-web-ios-small">
 <!---->    
     <use href="#overflow-web-ios-small" width="16" height="16"></use>
 </svg>
@@ -518,7 +518,7 @@
     <div class="msg-s-event__content" dir="ltr">
       
                 <p class="msg-s-event-listitem__body t-14 t-black--light t-normal
-                    "><!---->Thanks Nirupama! Happy to connect with another Career Systems-er!<!----><!----></p>
+                    "><!---->Thanks Casey! Happy to connect with another Career Systems-er!<!----><!----></p>
     </div>
       
   <span data-test-msg-cross-pillar-message-sending-indicator-presenter__container="" class="msg-s-event-with-indicator__sending-indicator align-self-flex-end
@@ -579,23 +579,23 @@
         
         
         
-        " data-event-urn="urn:li:msg_message:(urn:li:fsd_profile:ACoAABPgFYABKbKtR8OUL2cEpRe0vD8FPNssXl0,2-MTc3OTQ1NDU2MjAzMWI2MzM0Mi0xMDAmODQ4MmZjYWUtYWU4NS00YWU3LWJlZmUtOTU0ODdkNTI2OWI2XzEwMA==)" data-view-name="message-list-item">
+        " data-event-urn="urn:li:msg_message:(urn:li:fsd_profile:ACoAATEST0000000000000000000000000000005,2-MTc3OTQ1NDU2MjAzMWI2MzM0Mi0xMDAmODQ4MmZjYWUtYWU4NS00YWU3LWJlZmUtOTU0ODdkNTI2OWI2XzEwMA==)" data-view-name="message-list-item">
           
-          <a tabindex="0" href="https://www.linkedin.com/in/ACoAABPgFYABKbKtR8OUL2cEpRe0vD8FPNssXl0" id="ember921" class="ember-view msg-s-event-listitem__link">
+          <a tabindex="0" href="https://www.linkedin.com/in/ACoAATEST0000000000000000000000000000005" id="ember921" class="ember-view msg-s-event-listitem__link">
             <span class="a11y-text">
-              View Barton’s profile
+              View TestViewer’s profile
             </span>
-              <img title="Barton Holdridge" src="https://media.licdn.com/dms/image/v2/C4D03AQFaD6AFIgnCIQ/profile-displayphoto-shrink_100_100/profile-displayphoto-shrink_100_100/0/1654370512601?e=1781136000&amp;v=beta&amp;t=TisgIU6NTL4DvuYRCzMkaNL4dRsgcHQsFsIIIvUPhf4" loading="lazy" alt="Barton Holdridge" id="ember922" class="msg-s-event-listitem__profile-picture EntityPhoto-circle-2 evi-image lazy-image ember-view">
+              <img title="Test Viewer" src="https://media.licdn.com/dms/image/v2/C4D03AQFaD6AFIgnCIQ/profile-displayphoto-shrink_100_100/profile-displayphoto-shrink_100_100/0/1654370512601?e=1781136000&amp;v=beta&amp;t=TisgIU6NTL4DvuYRCzMkaNL4dRsgcHQsFsIIIvUPhf4" loading="lazy" alt="Test Viewer" id="ember922" class="msg-s-event-listitem__profile-picture EntityPhoto-circle-2 evi-image lazy-image ember-view">
           </a>
   
         
         <div class="msg-s-message-group__meta">
 
                   <span>
-                    <a class="GaIJMxxWxTRgXlEpFUnUYdCHfxUewQIFll  inline-block v-align-middle" href="https://www.linkedin.com/in/ACoAABPgFYABKbKtR8OUL2cEpRe0vD8FPNssXl0" data-test-app-aware-link="">
+                    <a class="GaIJMxxWxTRgXlEpFUnUYdCHfxUewQIFll  inline-block v-align-middle" href="https://www.linkedin.com/in/ACoAATEST0000000000000000000000000000005" data-test-app-aware-link="">
                         <span class="msg-s-message-group__profile-link msg-s-message-group__name t-14 t-black t-bold hoverable-link-text">
 
-                            Barton Holdridge
+                            Test Viewer
                         </span>
                     </a>
                       
@@ -676,9 +676,9 @@
     
 </span></button>
 
-            <div id="ember927" class="msg-s-event-listitem__reactions-options-ellipsis artdeco-dropdown artdeco-dropdown--placement-top artdeco-dropdown--justification-right ember-view" aria-label="Options for the message from Barton: Let me know if I can help with anything in your job search.">
+            <div id="ember927" class="msg-s-event-listitem__reactions-options-ellipsis artdeco-dropdown artdeco-dropdown--placement-top artdeco-dropdown--justification-right ember-view" aria-label="Options for the message from Test Viewer: Let me know if I can help with anything in your job search.">
               <button aria-expanded="false" id="ember928" class="msg-s-event-listitem__options-trigger artdeco-dropdown__trigger artdeco-dropdown__trigger--placement-top ember-view" type="button" tabindex="0">
-                <svg role="img" aria-hidden="false" aria-label="Options for the message from Barton: Let me know if I can help with anything in your job search." class="msg-s-event-listitem__options-trigger-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" data-supported-dps="16x16" data-test-icon="overflow-web-ios-small">
+                <svg role="img" aria-hidden="false" aria-label="Options for the message from Test Viewer: Let me know if I can help with anything in your job search." class="msg-s-event-listitem__options-trigger-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" data-supported-dps="16x16" data-test-icon="overflow-web-ios-small">
 <!---->    
     <use href="#overflow-web-ios-small" width="16" height="16"></use>
 </svg>
@@ -861,14 +861,14 @@
       <input name="persist" value="true" type="hidden">
       <input name="upload_info" type="hidden">
       <input id="attachment-input-ember933" class="msg-form__attachment-upload-input hidden" accept="image/*" type="file">
-      <button title="Attach an image to your conversation with Nirupama Nishtala" aria-label="Attach an image to your conversation with Nirupama Nishtala" id="attachment-trigger-ember933" class="msg-form__footer-action artdeco-button artdeco-button--tertiary artdeco-button--circle artdeco-button--muted m0 artdeco-button--2 artdeco-button artdeco-button--circle artdeco-button--muted artdeco-button--2 artdeco-button--tertiary ember-view" type="button">        <svg role="none" aria-hidden="true" class="artdeco-button__icon " xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" data-supported-dps="24x24" data-test-icon="image-medium">
+      <button title="Attach an image to your conversation with Casey Carter" aria-label="Attach an image to your conversation with Casey Carter" id="attachment-trigger-ember933" class="msg-form__footer-action artdeco-button artdeco-button--tertiary artdeco-button--circle artdeco-button--muted m0 artdeco-button--2 artdeco-button artdeco-button--circle artdeco-button--muted artdeco-button--2 artdeco-button--tertiary ember-view" type="button">        <svg role="none" aria-hidden="true" class="artdeco-button__icon " xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" data-supported-dps="24x24" data-test-icon="image-medium">
 <!---->    
     <use href="#image-medium" width="24" height="24"></use>
 </svg>
 
 
 <span class="artdeco-button__text">
-    Attach an image to your conversation with Nirupama Nishtala
+    Attach an image to your conversation with Casey Carter
 </span></button>
     </div>
   
@@ -877,14 +877,14 @@
       <input name="persist" value="true" type="hidden">
       <input name="upload_info" type="hidden">
       <input id="attachment-input-ember935" class="msg-form__attachment-upload-input hidden" accept="image/*,.ai,.psd,.pdf,.doc,.docx,.ppt,.pptx,.pps,.ppsx,.xls,.xlsx,.txt,.eml,.mov,.mp4" type="file">
-      <button title="Attach a file to your conversation with Nirupama Nishtala" aria-label="Attach a file to your conversation with Nirupama Nishtala" id="attachment-trigger-ember935" class="msg-form__footer-action artdeco-button artdeco-button--tertiary artdeco-button--circle artdeco-button--muted m0 artdeco-button--2 artdeco-button artdeco-button--circle artdeco-button--muted artdeco-button--2 artdeco-button--tertiary ember-view" type="button">        <svg role="none" aria-hidden="true" class="artdeco-button__icon " xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" data-supported-dps="24x24" data-test-icon="attachment-medium">
+      <button title="Attach a file to your conversation with Casey Carter" aria-label="Attach a file to your conversation with Casey Carter" id="attachment-trigger-ember935" class="msg-form__footer-action artdeco-button artdeco-button--tertiary artdeco-button--circle artdeco-button--muted m0 artdeco-button--2 artdeco-button artdeco-button--circle artdeco-button--muted artdeco-button--2 artdeco-button--tertiary ember-view" type="button">        <svg role="none" aria-hidden="true" class="artdeco-button__icon " xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" data-supported-dps="24x24" data-test-icon="attachment-medium">
 <!---->    
     <use href="#attachment-medium" width="24" height="24"></use>
 </svg>
 
 
 <span class="artdeco-button__text">
-    Attach a file to your conversation with Nirupama Nishtala
+    Attach a file to your conversation with Casey Carter
 </span></button>
     </div>
   

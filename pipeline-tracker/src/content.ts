@@ -1127,12 +1127,9 @@ document.body.addEventListener(
         profile_url: pending?.profileUrl,
         button: ariaLabel,
       });
-      handleConnectionRequest(
-        el,
-        pending?.name,
-        pending?.title,
-        pending?.profileUrl,
-      ).catch((err) => console.warn('[Pipeline Tracker] handleConnectionRequest error:', err));
+      handleConnectionRequest(el, pending?.name, pending?.title, pending?.profileUrl).catch((err) =>
+        console.warn('[Pipeline Tracker] handleConnectionRequest error:', err),
+      );
       _pendingConnection = null;
       return;
     }
