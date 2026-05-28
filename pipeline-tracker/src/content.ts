@@ -21,6 +21,13 @@ export { ChatOverlayCard };
 export { MessengerPageCard };
 
 // --- LinkedIn URL normalization ---
+// TODO: this function is duplicated in accept-invitation-card.ts, chat-overlay-card.ts,
+// and messenger-page-card.ts. Extract into a shared `linkedin-url.ts` module so the
+// copies don't drift.
+// TODO: split this file (currently >1k lines) along the flow boundary into
+// `flows/{connection-request,accept-connection,direct-message}.ts` and a
+// `messaging.ts` for sendEvent / drain retry / banner code. Content.ts should
+// reduce to the document listener wiring + dispatch.
 function normalizeLinkedInUrl(url: string): string {
   if (!url) return '';
   try {
@@ -400,6 +407,24 @@ function isContextInvalidated(err: unknown): boolean {
   return /Extension context invalidated/i.test(err.message);
 }
 
+/**
+ * The MV3 service worker is dead but the content script's chrome.* namespace is
+ * still valid. Chrome is *supposed* to auto-revive the SW when sendMessage is
+ * called, but the wake can race or fail outright — these error shapes are how
+ * we know that happened so we can retry / surface a banner instead of dropping
+ * the event silently.
+ */
+function isServiceWorkerUnreachable(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message;
+  return (
+    /Could not establish connection/i.test(msg) ||
+    /Receiving end does not exist/i.test(msg) ||
+    /message port closed/i.test(msg) ||
+    /service worker/i.test(msg)
+  );
+}
+
 let _bannerShown = false;
 
 /** Test-only: reset the once-per-page banner guard between cases. */
@@ -407,7 +432,7 @@ export function resetContextBanner(): void {
   _bannerShown = false;
 }
 
-function showContextInvalidatedBanner(): void {
+function showReloadBanner(message: string): void {
   if (_bannerShown) return;
   _bannerShown = true;
   try {
@@ -419,18 +444,19 @@ function showContextInvalidatedBanner(): void {
     host.style.zIndex = '2147483647';
     const shadow = host.attachShadow({ mode: 'closed' });
     const banner = document.createElement('div');
-    banner.textContent =
-      'Pipeline Tracker needs a tab reload to keep capturing events. Click to reload.';
+    banner.textContent = message;
     banner.style.cssText = [
       'font-family: -apple-system, BlinkMacSystemFont, sans-serif',
       'font-size: 13px',
-      'background: #0d9488',
+      'font-weight: 600',
+      'background: #dc2626',
       'color: #fff',
-      'padding: 10px 14px',
+      'padding: 12px 16px',
       'border-radius: 6px',
-      'box-shadow: 0 2px 8px rgba(0,0,0,0.2)',
+      'box-shadow: 0 4px 12px rgba(0,0,0,0.3)',
       'cursor: pointer',
-      'max-width: 320px',
+      'max-width: 340px',
+      'border: 2px solid #fca5a5',
     ].join(';');
     banner.addEventListener('click', () => {
       window.location.reload();
@@ -440,6 +466,18 @@ function showContextInvalidatedBanner(): void {
   } catch (err) {
     console.warn('[Pipeline Tracker] failed to inject reload banner:', err);
   }
+}
+
+function showContextInvalidatedBanner(): void {
+  showReloadBanner(
+    'Pipeline Tracker stopped capturing events — the extension was updated. Click to reload this tab.',
+  );
+}
+
+function showServiceWorkerUnreachableBanner(): void {
+  showReloadBanner(
+    'Pipeline Tracker can’t reach its background service. Events are not being logged. Click to reload this tab.',
+  );
 }
 
 async function enqueuePendingEvent(
@@ -462,6 +500,54 @@ async function enqueuePendingEvent(
     [STORAGE_KEYS.OUTBOX]: outbox,
     [STORAGE_KEYS.HISTORY]: history,
   });
+}
+
+/**
+ * Send a drain request to the background service worker with retry-on-wake.
+ *
+ * MV3 service workers die after ~30s idle and Chrome is *supposed* to revive
+ * them when sendMessage is called, but the wake can lose its race or fail
+ * outright — sendMessage then rejects with "Could not establish connection" or
+ * "message port closed". Without retry we drop the signal entirely; with one
+ * retry after a short delay the SW has time to spin up and the second attempt
+ * usually succeeds.
+ *
+ * After exhausting retries, throws — caller surfaces the loud banner.
+ */
+const SW_WAKE_RETRY_DELAYS_MS = [150, 400];
+
+async function sendDrainRequestWithRetry(): Promise<void> {
+  let lastErr: unknown;
+  // First attempt + len(delays) retries. So with [150, 400] that's 3 attempts total.
+  for (let attempt = 0; attempt <= SW_WAKE_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      await chrome.runtime.sendMessage({ kind: 'drain_outbox' });
+      if (attempt > 0) {
+        console.log(`[Pipeline Tracker] drain request succeeded on retry attempt ${attempt}`);
+      } else {
+        console.log('[Pipeline Tracker] drain requested');
+      }
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (isContextInvalidated(err)) {
+        // Context invalidation isn't recoverable — bail immediately so caller
+        // shows the context-invalidated banner.
+        throw err;
+      }
+      if (!isServiceWorkerUnreachable(err)) {
+        // Unknown error — don't waste retries; let caller log/surface it.
+        throw err;
+      }
+      const delay = SW_WAKE_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined) break; // out of retries
+      console.warn(
+        `[Pipeline Tracker] SW unreachable on attempt ${attempt + 1}; retrying in ${delay}ms`,
+      );
+      await new Promise<void>((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  throw lastErr;
 }
 
 async function sendEvent(event: PipelineEvent): Promise<void> {
@@ -501,21 +587,38 @@ async function sendEvent(event: PipelineEvent): Promise<void> {
       console.warn('[Pipeline Tracker] extension context invalidated — showing reload banner');
       showContextInvalidatedBanner();
     } else {
-      console.warn('[Pipeline Tracker] failed to enqueue event:', err);
+      console.error('[Pipeline Tracker] failed to enqueue event:', err);
+      // We can't even write to chrome.storage — something is badly wrong.
+      // Fail loudly so the user knows capture isn't working.
+      showReloadBanner(
+        'Pipeline Tracker failed to save an event. Capture is broken — click to reload this tab.',
+      );
     }
     return;
   }
 
   try {
-    await chrome.runtime.sendMessage({ kind: 'drain_outbox' });
-    console.log('[Pipeline Tracker] drain requested');
+    await sendDrainRequestWithRetry();
   } catch (err) {
     if (isContextInvalidated(err)) {
       console.warn('[Pipeline Tracker] extension context invalidated — showing reload banner');
       showContextInvalidatedBanner();
-    } else {
-      console.warn('[Pipeline Tracker] drain request failed (will retry on next event):', err);
+      return;
     }
+    if (isServiceWorkerUnreachable(err)) {
+      // Event is safely in the outbox; the alarm-driven keep-alive drain in the
+      // SW will pick it up if the SW eventually wakes. But from the user's POV
+      // the plugin "just died" — fail loudly so they know to reload.
+      console.error('[Pipeline Tracker] background service worker unreachable after retries:', err);
+      showServiceWorkerUnreachableBanner();
+      return;
+    }
+    // Some other unexpected sendMessage failure — surface it loudly too. We'd
+    // rather over-warn than silently swallow events on a "production" path.
+    console.error('[Pipeline Tracker] drain request failed unexpectedly:', err);
+    showReloadBanner(
+      'Pipeline Tracker hit an unexpected error sending an event. Click to reload this tab.',
+    );
   }
 }
 
@@ -523,9 +626,29 @@ async function sendEvent(event: PipelineEvent): Promise<void> {
 // Flow 1: Outbound connection request
 // =============================================================================
 
-let _pendingConnectionName: string | null = null;
-let _pendingConnectionTitle: string | null = null;
-let _pendingConnectionProfileUrl: string | null = null;
+// Staged on "Invite X to connect" click, consumed on the modal's "Send" click.
+// TTL guards against SPA navigation away from the staged person without sending —
+// without it, the next "Send" on a different person would silently use stale data.
+const PENDING_CONNECTION_TTL_MS = 60_000;
+let _pendingConnection: {
+  name: string;
+  title: string;
+  profileUrl: string;
+  ts: number;
+} | null = null;
+
+function readPendingConnection(): { name: string; title: string; profileUrl: string } | null {
+  if (!_pendingConnection) return null;
+  if (Date.now() - _pendingConnection.ts > PENDING_CONNECTION_TTL_MS) {
+    _pendingConnection = null;
+    return null;
+  }
+  return {
+    name: _pendingConnection.name,
+    title: _pendingConnection.title,
+    profileUrl: _pendingConnection.profileUrl,
+  };
+}
 
 export async function handleConnectionRequest(
   el: HTMLElement,
@@ -971,16 +1094,19 @@ document.body.addEventListener(
     // ProfilePageCard (profile page sidebar), fall back to empty strings.
     const inviteMatch = ariaLabel.match(/^Invite (.+) to connect$/i);
     if (inviteMatch) {
-      _pendingConnectionName = inviteMatch[1].trim();
       const searchCard = ConnectionSearchCard.fromConnectLink(el);
       const profileCard = searchCard === null ? ProfilePageCard.fromConnectLink(el) : null;
       const linkedCard = searchCard ?? profileCard;
-      _pendingConnectionTitle = linkedCard?.title ?? '';
-      _pendingConnectionProfileUrl = linkedCard?.profileUrl ?? '';
+      _pendingConnection = {
+        name: inviteMatch[1].trim(),
+        title: linkedCard?.title ?? '',
+        profileUrl: linkedCard?.profileUrl ?? '',
+        ts: Date.now(),
+      };
       console.log('[Pipeline Tracker] captured (connect click):', {
-        name: _pendingConnectionName,
-        title: _pendingConnectionTitle,
-        profile_url: _pendingConnectionProfileUrl,
+        name: _pendingConnection.name,
+        title: _pendingConnection.title,
+        profile_url: _pendingConnection.profileUrl,
       });
       return;
     }
@@ -994,21 +1120,20 @@ document.body.addEventListener(
       /^send\s+invit/i.test(ariaLabel);
 
     if (isSendInvite) {
+      const pending = readPendingConnection();
       console.log('[Pipeline Tracker] sending (send button):', {
-        name: _pendingConnectionName,
-        title: _pendingConnectionTitle,
-        profile_url: _pendingConnectionProfileUrl,
+        name: pending?.name,
+        title: pending?.title,
+        profile_url: pending?.profileUrl,
         button: ariaLabel,
       });
       handleConnectionRequest(
         el,
-        _pendingConnectionName ?? undefined,
-        _pendingConnectionTitle ?? undefined,
-        _pendingConnectionProfileUrl ?? undefined,
+        pending?.name,
+        pending?.title,
+        pending?.profileUrl,
       ).catch((err) => console.warn('[Pipeline Tracker] handleConnectionRequest error:', err));
-      _pendingConnectionName = null;
-      _pendingConnectionTitle = null;
-      _pendingConnectionProfileUrl = null;
+      _pendingConnection = null;
       return;
     }
 

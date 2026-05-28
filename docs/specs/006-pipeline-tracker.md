@@ -142,7 +142,7 @@ interface PipelineEvent {
 interface DebugPayload {
   button_aria_label: string;
   button_text: string;
-  container_html: string;  // outerHTML of the modal or conversation container, capped at 10,000 chars
+  container_html: string;  // outerHTML of the modal or conversation container, capped at 50,000 chars
   page_url: string;
 }
 ```
@@ -281,7 +281,9 @@ Applies across all three flows.
 ### Debug payload scope
 
 For acceptance flows, the `DebugPayload.container_html` is the outerHTML of the `[role="listitem"]`
-(My Network) or the topcard root (profile page), capped at 10,000 characters.
+(My Network) or the topcard root (profile page), capped at 50,000 characters. The chat-overlay
+DM flow walks up from the composer until the ancestor's outerHTML reaches the cap, so the bubble
+header (recipient name/title) is included alongside the thread.
 
 ## Build
 

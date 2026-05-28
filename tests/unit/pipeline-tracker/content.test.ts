@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { handleConnectionRequest, resetDedup } from '../../../pipeline-tracker/src/content.ts';
+import {
+  handleConnectionRequest,
+  resetContextBanner,
+  resetDedup,
+} from '../../../pipeline-tracker/src/content.ts';
 import {
   STORAGE_KEYS,
   type OutboxEntry,
@@ -45,6 +49,7 @@ describe('pipeline-tracker content script — handleConnectionRequest', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetDedup();
+    resetContextBanner();
     document.body.innerHTML = '';
     local = installStatefulLocalStorage();
     (chrome.storage.sync.get as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -177,8 +182,125 @@ describe('pipeline-tracker content script — handleConnectionRequest', () => {
     expect(payload.name).toBe('Tania Hansraj');
     expect(payload.title).toBe('Head of Talent at Career Systems');
     expect(payload.debug).toBeDefined();
-    expect(payload.debug!.container_html.length).toBeLessThanOrEqual(10000);
+    expect(payload.debug!.container_html.length).toBeLessThanOrEqual(50000);
     expect(payload.debug!.page_url).toContain('/in/taniahansraj/');
+  });
+
+  // Regression: when the extension context is invalidated (orphaned content
+  // script after an extension/browser update), the FIRST chrome.* call on the
+  // capture path is chrome.storage.local inside enqueuePendingEvent — it throws
+  // before sendMessage is ever reached. The reload banner must still be shown
+  // from the enqueue catch, otherwise the event is dropped silently.
+  it('shows reload banner when enqueue throws "Extension context invalidated"', async () => {
+    (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('Extension context invalidated.'),
+    );
+
+    const sendButton = document.createElement('button');
+    sendButton.setAttribute('aria-label', 'Send without a note');
+    document.body.appendChild(sendButton);
+
+    await handleConnectionRequest(sendButton, 'Pending Name');
+
+    expect(document.getElementById('pipeline-tracker-reload-banner')).not.toBeNull();
+    // sendMessage must not have been attempted — enqueue bailed first.
+    expect(chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+  });
+
+  // Regression: in real orphaned content scripts Chrome tears down chrome.storage
+  // to undefined, so the enqueue throws a plain TypeError ("Cannot read
+  // properties of undefined") — NOT the documented "Extension context
+  // invalidated" message. Detection must key off chrome.runtime.id (which goes
+  // undefined on invalidation), otherwise the banner never shows. This is the
+  // exact failure the user hit in manual testing.
+  it('shows reload banner when an orphaned context throws a bare TypeError', async () => {
+    const runtime = chrome.runtime as { id?: string };
+    const savedId = runtime.id;
+    runtime.id = undefined; // simulate invalidated extension context
+    (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new TypeError("Cannot read properties of undefined (reading 'get')"),
+    );
+
+    const sendButton = document.createElement('button');
+    sendButton.setAttribute('aria-label', 'Send without a note');
+    document.body.appendChild(sendButton);
+
+    try {
+      await handleConnectionRequest(sendButton, 'Pending Name');
+      expect(document.getElementById('pipeline-tracker-reload-banner')).not.toBeNull();
+      expect(chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+    } finally {
+      runtime.id = savedId;
+    }
+  });
+
+  // Resilience: MV3 service workers die after ~30s idle. Chrome is supposed to
+  // wake them when sendMessage is called, but the wake can race or fail — and
+  // when it does, sendMessage rejects with "Could not establish connection".
+  // We retry transparently so a single transient SW-wake failure doesn't drop
+  // the event signal to the user.
+  it('retries sendMessage when SW is unreachable and succeeds on retry', async () => {
+    const sendMessage = chrome.runtime.sendMessage as ReturnType<typeof vi.fn>;
+    sendMessage
+      .mockRejectedValueOnce(
+        new Error('Could not establish connection. Receiving end does not exist.'),
+      )
+      .mockResolvedValueOnce(undefined);
+
+    const sendButton = document.createElement('button');
+    sendButton.setAttribute('aria-label', 'Send without a note');
+    document.body.appendChild(sendButton);
+
+    await handleConnectionRequest(sendButton, 'Pending Name');
+
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    // Event was still enqueued — exactly once.
+    expect((local[STORAGE_KEYS.OUTBOX] as OutboxEntry[]).length).toBe(1);
+    // No reload banner — recovery succeeded.
+    expect(document.getElementById('pipeline-tracker-reload-banner')).toBeNull();
+  });
+
+  // Resilience: when every retry fails, the plugin must FAIL LOUDLY so the user
+  // knows capture isn't working — silently dropping the signal is what caused
+  // the "plugin randomly dies" reports.
+  it('shows reload banner when SW is unreachable on every attempt', async () => {
+    const sendMessage = chrome.runtime.sendMessage as ReturnType<typeof vi.fn>;
+    sendMessage.mockRejectedValue(
+      new Error('Could not establish connection. Receiving end does not exist.'),
+    );
+
+    const sendButton = document.createElement('button');
+    sendButton.setAttribute('aria-label', 'Send without a note');
+    document.body.appendChild(sendButton);
+
+    await handleConnectionRequest(sendButton, 'Pending Name');
+
+    // 1 initial + 2 retries = 3 attempts.
+    expect(sendMessage).toHaveBeenCalledTimes(3);
+    // Event is safely in the outbox for the alarm-driven drain to pick up later.
+    expect((local[STORAGE_KEYS.OUTBOX] as OutboxEntry[]).length).toBe(1);
+    // Loud banner shown.
+    const banner = document.getElementById('pipeline-tracker-reload-banner');
+    expect(banner).not.toBeNull();
+  });
+
+  // Regression: "message port closed before a response was received" is the
+  // sister-shape of "Could not establish connection" — same root cause (SW
+  // died mid-request or failed to revive), different Chrome version's wording.
+  it('treats "message port closed" as SW-unreachable and retries', async () => {
+    const sendMessage = chrome.runtime.sendMessage as ReturnType<typeof vi.fn>;
+    sendMessage
+      .mockRejectedValueOnce(new Error('The message port closed before a response was received.'))
+      .mockResolvedValueOnce(undefined);
+
+    const sendButton = document.createElement('button');
+    sendButton.setAttribute('aria-label', 'Send without a note');
+    document.body.appendChild(sendButton);
+
+    await handleConnectionRequest(sendButton, 'Pending Name');
+
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(document.getElementById('pipeline-tracker-reload-banner')).toBeNull();
   });
 
   it('debug_mode=false + scrape success → debug field absent', async () => {
