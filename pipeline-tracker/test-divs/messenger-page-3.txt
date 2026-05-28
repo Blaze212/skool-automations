@@ -1,0 +1,626 @@
+<div class="scaffold-layout__detail
+            msg__detail
+            
+            " tabindex="-1">
+          
+              
+    <div class="msg-convo-wrapper msg-thread msg-thread--pillar relative display-flex" id="message-thread-ember525" data-feedback-redacted="">
+  
+    <div class="relative display-flex flex-column flex-grow-1">
+        
+      
+    <div></div>
+  
+      
+    
+
+  <div class="msg-title-bar global-title-container shared-title-bar" id="thread-detail-jump-target" data-jump-link-target="thread-detail-jump-target" tabindex="0">
+        <div class="shared-title-bar__title msg-title-bar__title-bar-title">
+<!---->
+<!---->
+
+      <!---->
+            <a class="GaIJMxxWxTRgXlEpFUnUYdCHfxUewQIFll  msg-thread__link-to-profile" title="Open Jim Sidler’s profile" href="https://www.linkedin.com/in/ACoAAAH8r4wBrXj5E3mkSQ-1eHEvxYz52lgscAk" data-test-app-aware-link="">
+              
+    <div class="msg-entity-lockup truncate
+        EntityLockup-circle-2">
+      <dl class="truncate">
+        <dt class="msg-entity-lockup__entity-title-wrapper display-flex justify-left align-items-center">
+            <h2 tabindex="-1" class="msg-entity-lockup__entity-title truncate pr2
+                 hoverable-link-text">
+              Jim Sidler
+            </h2>
+        </dt>
+        <dd class="msg-entity-lockup__entity-info t-12 t-black--light t-normal truncate">
+            <div class="display-flex align-items-center msg-entity-lockup__presence-status">
+                
+
+    <div class="msg-entity-lockup__presence-indicator mr2 presence-indicator
+        hidden
+        presence-indicator--size-2">
+      <span class="visually-hidden">
+          Status is offline
+              </span>
+    </div>
+  
+                  Technology Leader | Fractional CTO | SaaS Business Owner | Advisor
+                            </div>
+        </dd>
+      </dl>
+    </div>
+  
+            </a>
+      
+
+
+    <div id="ember965" class="artdeco-dropdown msg-thread-actions__dropdown artdeco-dropdown--placement-bottom artdeco-dropdown--justification-right ember-view">
+      <button aria-expanded="false" id="ember966" class="msg-thread-actions__control artdeco-button artdeco-button--circle artdeco-button--2 artdeco-button--muted artdeco-button--tertiary artdeco-dropdown__trigger artdeco-dropdown__trigger--placement-bottom ember-view" type="button" tabindex="0">
+          <svg role="none" aria-hidden="true" class="artdeco-button__icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" data-supported-dps="24x24" data-test-icon="overflow-web-ios-medium">
+<!---->    
+    <use href="#overflow-web-ios-medium" width="24" height="24"></use>
+</svg>
+
+          <span class="visually-hidden">
+            Open the options list in your conversation with Jim Sidler and Barton Holdridge
+          </span>
+      
+<!----></button>
+      <div class="msg-thread-actions__dropdown-container">
+        <div tabindex="-1" aria-hidden="true" id="ember967" class="msg-thread-actions__dropdown-options artdeco-dropdown__content artdeco-dropdown--is-dropdown-element artdeco-dropdown__content--has-arrow artdeco-dropdown__content--arrow-right artdeco-dropdown__content--justification-right artdeco-dropdown__content--placement-bottom ember-view"><!----></div>
+      </div>
+    </div>
+
+    
+<!---->  
+
+    
+
+    <div data-test-msg-cross-pillar-conversation-semaphore-presenter="">
+<!---->    </div>
+  
+
+<!---->
+<!---->  
+
+      <button class="msg-thread__star-icon
+          
+          artdeco-button artdeco-button--circle artdeco-button--muted artdeco-button--2 artdeco-button--tertiary" aria-label="Star conversation" type="button">
+<!---->          
+  <svg aria-hidden="true" focusable="false" id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 16 16" fill="currentColor">
+    <path d="M8,2.77,9.6,6l3.59.53-2.6,2.54.61,3.58L8,11,4.8,12.67l.61-3.58L2.81,6.55,6.4,6,8,2.77M8,.5,5.73,5.11.67,5.85,4.33,9.43,3.47,14.5,8,12.11l4.53,2.39-.86-5.07,3.66-3.58-5.06-.74L8,.5Z"></path>
+  </svg>
+
+      </button>
+    </div>
+  </div>
+
+  
+      
+    <div>
+      
+    <div class="msg-thread-container msg-thread__thread-actions-tray">
+<!----><!---->    </div>
+
+<!---->
+<!---->  
+    </div>
+
+      
+    <div class="msg-s-message-list-container relative display-flex mbA
+        msg-s-message-list-container--column-reversed
+        ">
+      
+<!---->        
+
+    <div class="msg-s-message-list
+        full-width scrollable" id="message-list-ember525">
+      <ul class="msg-s-message-list-content list-style-none full-width mbA">
+        <li class="msg-s-message-list__top-of-list"></li>
+
+<!---->          <li>
+              
+    <div class="msg-s-profile-card msg-s-profile-card-one-to-one ph3">
+      <div id="ember1007" class="break-words artdeco-entity-lockup artdeco-entity-lockup--stacked-left artdeco-entity-lockup--size-5 ember-view">
+
+          <a tabindex="0" href="https://www.linkedin.com/in/ACoAAAH8r4wBrXj5E3mkSQ-1eHEvxYz52lgscAk" id="ember1008" class="ember-view">
+            <div id="ember1009" class="artdeco-entity-lockup__image artdeco-entity-lockup__image--type-circle ember-view" type="circle">
+                
+    <div class="presence-entity presence-entity--size-5 msg-conversation-card__presence-entity">
+        <img src="https://media.licdn.com/dms/image/v2/D5603AQETw6xK9ZgEDg/profile-displayphoto-shrink_100_100/profile-displayphoto-shrink_100_100/0/1678135734129?e=1781136000&amp;v=beta&amp;t=giPfVen-TshmpKTZfkGoctBm-TtbVjcnyZ_687pi5_4" loading="lazy" alt="Jim Sidler Profile" id="ember1011" class="presence-entity__image EntityPhoto-circle-5  evi-image lazy-image ember-view" aria-describedby="ember1010">
+        
+
+    <div id="ember1010" class="presence-entity__indicator presence-entity__indicator--size-5
+             presence-indicator
+        hidden
+        presence-indicator--size-5">
+      <span class="visually-hidden">
+          Status is offline
+              </span>
+    </div>
+  
+    </div>
+  
+            
+</div>
+          </a>
+        <div id="ember1012" class="artdeco-entity-lockup__content ember-view overflow-hidden">
+          <div id="ember1013" class="artdeco-entity-lockup__title ember-view display-flex truncate align-items-center">
+
+              <span class="display-flex truncate align-items-center mr1">
+                <a class="GaIJMxxWxTRgXlEpFUnUYdCHfxUewQIFll  profile-card-one-to-one__profile-link inline-block v-align-middle truncate" href="https://www.linkedin.com/in/ACoAAAH8r4wBrXj5E3mkSQ-1eHEvxYz52lgscAk" data-test-app-aware-link="">
+                  <span class="truncate">
+                    Jim Sidler
+                  </span>
+                    
+      <svg role="img" aria-hidden="false" aria-label="LinkedIn Verified" class="inline-block flex-shrink-zero v-align-middle msg-ui-profile__badge-icon ml1" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" data-supported-dps="16x16" data-test-icon="verified-small">
+<!---->    
+    <use href="#verified-small" width="16" height="16"></use>
+</svg>
+
+  
+                </a>
+              </span>
+              
+
+<!---->  
+              <div id="ember1014" class="artdeco-entity-lockup__badge ember-view t-14 t-black--light t-normal">    <span class="a11y-text">1st degree connection</span>
+  <span class="artdeco-entity-lockup__degree" aria-hidden="true">
+    ·&nbsp;1st
+  </span>
+<!----><!----></div>
+          
+</div>
+
+          <div id="ember1015" class="artdeco-entity-lockup__subtitle ember-view">
+            <div title="Technology Leader | Fractional CTO | SaaS Business Owner | Advisor">
+              Technology Leader | Fractional CTO | SaaS Business Owner | Advisor
+            </div>
+          </div>
+
+<!---->
+<!---->
+<!---->        </div>
+      
+</div>
+    </div>
+  
+                      </li>
+        <li class="msg-s-message-list__loader hidden">
+          <div id="ember970" class="artdeco-loader artdeco-loader--small ember-view"><!---->
+<span class="artdeco-loader__bars"></span>
+<span class="artdeco-loader__bars"></span>
+<span class="artdeco-loader__bars"></span>
+<span class="artdeco-loader__bars"></span>
+<span class="artdeco-loader__bars"></span>
+<span class="artdeco-loader__bars"></span>
+<span class="artdeco-loader__bars"></span>
+<span class="artdeco-loader__bars"></span>
+<span class="artdeco-loader__bars"></span>
+<span class="artdeco-loader__bars"></span>
+<span class="artdeco-loader__bars"></span>
+<span class="artdeco-loader__bars"></span>
+</div>
+        </li>
+          <li class="msg-s-message-list__event clearfix
+              
+              msg-s-message-list__last-msg-ember969
+              ">
+            
+      <time class="msg-s-message-list__time-heading t-12 t-black--light t-bold">
+        Thursday
+      </time>
+
+      <span class="msg-s-event-listitem--group-a11y-heading visually-hidden">
+        Barton Holdridge sent the following messages at 11:59 PM
+      </span>
+
+    <div class="msg-s-event-listitem
+         msg-s-event-listitem--m2m-msg-followed-by-date-boundary
+        
+        
+         msg-s-event-listitem--last-in-group
+        
+        
+        
+        
+        
+        " data-event-urn="urn:li:msg_message:(urn:li:fsd_profile:ACoAABPgFYABKbKtR8OUL2cEpRe0vD8FPNssXl0,2-MTc3OTQyNTk4NDMxOGI4MzUwNS0xMDAmNTM2YjNkMmMtYjE5NC00N2M3LTljMDctNzBlOWY4ZTdjNDY2XzEwMA==)" data-view-name="message-list-item">
+          
+          <a tabindex="0" href="https://www.linkedin.com/in/ACoAABPgFYABKbKtR8OUL2cEpRe0vD8FPNssXl0" id="ember971" class="ember-view msg-s-event-listitem__link">
+            <span class="a11y-text">
+              View Barton’s profile
+            </span>
+              <img title="Barton Holdridge" src="https://media.licdn.com/dms/image/v2/C4D03AQFaD6AFIgnCIQ/profile-displayphoto-shrink_100_100/profile-displayphoto-shrink_100_100/0/1654370512601?e=1781136000&amp;v=beta&amp;t=TisgIU6NTL4DvuYRCzMkaNL4dRsgcHQsFsIIIvUPhf4" loading="lazy" alt="Barton Holdridge" id="ember972" class="msg-s-event-listitem__profile-picture EntityPhoto-circle-2 evi-image lazy-image ember-view">
+          </a>
+  
+        
+        <div class="msg-s-message-group__meta">
+
+                  <span>
+                    <a class="GaIJMxxWxTRgXlEpFUnUYdCHfxUewQIFll  inline-block v-align-middle" href="https://www.linkedin.com/in/ACoAABPgFYABKbKtR8OUL2cEpRe0vD8FPNssXl0" data-test-app-aware-link="">
+                        <span class="msg-s-message-group__profile-link msg-s-message-group__name t-14 t-black t-bold hoverable-link-text">
+
+                            Barton Holdridge
+                        </span>
+                    </a>
+                      
+      <svg role="img" aria-hidden="false" aria-label="LinkedIn Premium" class="inline-block v-align-middle flex-shrink-zero " xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14" data-supported-dps="14x14" data-test-icon="linkedin-bug-premium-v2-xxsmall">
+<!---->    <svg display="var(--hue-web-svg-display-light)">
+      <image href="https://static.licdn.com/aero-v1/sc/h/7lputkpzv6s224ks0n6c7h2qo" x="0" y="0" width="14" height="14"></image>
+    </svg>
+    <svg display="var(--hue-web-svg-display-dark)">
+      <image href="https://static.licdn.com/aero-v1/sc/h/e41cj52mke6g9s3xjsvu8yrbz" x="0" y="0" width="14" height="14"></image>
+    </svg>
+</svg>
+
+  
+                  </span>
+          
+
+<!---->  
+          <time class="msg-s-message-group__timestamp white-space-nowrap t-12 t-black--light t-normal">
+            11:59 PM
+          </time>
+        </div>
+        
+<!---->
+<!---->
+<!---->
+          
+    <div class="msg-s-event-listitem__message-bubble msg-s-event-listitem__message-bubble--msg-fwd-enabled" tabindex="0">
+        <div class="msg-s-event-listitem__actions-container artdeco-card">
+            
+    <ul class="emoji-popular-list__container" role="menu">
+        <li role="none">
+          <div aria-label="React with clapping hands" class="emoji-popular-list__item" tabindex="0" role="menuitem" title="clapping hands">
+            <span class="emoji-popular-list__item-emoji">
+              👏
+            </span>
+          </div>
+        </li>
+        <li role="none">
+          <div aria-label="React with thumbs up" class="emoji-popular-list__item" tabindex="0" role="menuitem" title="thumbs up">
+            <span class="emoji-popular-list__item-emoji">
+              👍
+            </span>
+          </div>
+        </li>
+        <li role="none">
+          <div aria-label="React with smiling face with smiling eyes" class="emoji-popular-list__item" tabindex="0" role="menuitem" title="smiling face with smiling eyes">
+            <span class="emoji-popular-list__item-emoji">
+              😊
+            </span>
+          </div>
+        </li>
+    </ul>
+
+      
+    <div>
+      <span tabindex="-1" id="ember974" class="artdeco-hoverable-trigger artdeco-hoverable-trigger--content-placed-top ember-view">
+        <button title="Open Emoji Keyboard" aria-label="Open Emoji Keyboard" aria-expanded="false" aria-controls="artdeco-hoverable-msg_pillar_hover_reaction__emoji-hoverable__content" id="ember975" class="msg-reactions__entry-point msg-reactions-action-menu__entry-point m0 p0 emoji-hoverable-trigger artdeco-button artdeco-button--muted artdeco-button--1 artdeco-button--tertiary ember-view" data-reaction-summary__emoji-hoverable="" type="button">        <li-icon aria-hidden="true" type="emoji-face-icon" class="artdeco-button__icon" size="small"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" data-supported-dps="16x16" fill="currentColor" width="16" height="16" focusable="false">
+      <path d="M4.84 6A1.16 1.16 0 116 7.17 1.17 1.17 0 014.84 6zM8 9.38a3.51 3.51 0 01-2.3-.81l-.83 1.29a4.87 4.87 0 006.25 0l-.82-1.28a3.51 3.51 0 01-2.3.8zm2-4.55A1.17 1.17 0 1011.16 6 1.17 1.17 0 0010 4.83zM8 2.88A5.12 5.12 0 112.88 8 5.12 5.12 0 018 2.88M8 1a7 7 0 107 7 7 7 0 00-7-7z"></path>
+    </svg></li-icon>
+
+<span class="artdeco-button__text">
+    Open Emoji Keyboard
+</span></button>
+          
+      </span>
+
+        <div id="msg_pillar_hover_reaction__emoji-hoverable__content" class="ember-view"><div id="ember977" class="ember-view"></div></div>
+    </div>
+  
+  
+
+            <button title="Reply to this message" aria-label="Reply to this message" id="ember978" class="artdeco-button artdeco-button--muted artdeco-button--2 artdeco-button--tertiary ember-view msg-s-event-listitem__hover-action-button">        <svg role="none" aria-hidden="true" class="artdeco-button__icon " xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" data-supported-dps="16x16" data-test-icon="reply-small">
+<!---->    
+    <use href="#reply-small" width="16" height="16"></use>
+</svg>
+
+
+<span class="artdeco-button__text">
+    
+</span></button>
+
+            <div id="ember979" class="msg-s-event-listitem__reactions-options-ellipsis artdeco-dropdown artdeco-dropdown--placement-top artdeco-dropdown--justification-right ember-view" aria-label="Options for the message from Barton: Great to connect with you here, Jim!">
+              <button aria-expanded="false" id="ember980" class="msg-s-event-listitem__options-trigger artdeco-dropdown__trigger artdeco-dropdown__trigger--placement-top ember-view" type="button" tabindex="0">
+                <svg role="img" aria-hidden="false" aria-label="Options for the message from Barton: Great to connect with you here, Jim!" class="msg-s-event-listitem__options-trigger-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" data-supported-dps="16x16" data-test-icon="overflow-web-ios-small">
+<!---->    
+    <use href="#overflow-web-ios-small" width="16" height="16"></use>
+</svg>
+
+              
+<!----></button>
+              <div class="msg-s-event-listitem__options-content">
+                <div tabindex="-1" aria-hidden="true" id="ember981" class="artdeco-dropdown__content artdeco-dropdown--is-dropdown-element artdeco-dropdown__content--has-arrow artdeco-dropdown__content--arrow-right artdeco-dropdown__content--justification-right artdeco-dropdown__content--placement-top ember-view"><!----></div>
+              </div>
+            </div>
+        </div>
+      
+      
+<!---->            
+  <div class="msg-s-event-with-indicator display-flex ">
+    <div class="msg-s-event__content" dir="ltr">
+      
+                <p class="msg-s-event-listitem__body t-14 t-black--light t-normal
+                    "><!---->Great to connect with you here, Jim!<!----><!----></p>
+    </div>
+      
+  <span data-test-msg-cross-pillar-message-sending-indicator-presenter__container="" class="msg-s-event-with-indicator__sending-indicator align-self-flex-end
+       msg-s-event-with-indicator__sending-indicator--sent 
+      
+      " title="Sent at 5/21/2026, 11:59 PM">
+      <svg data-test-msg-cross-pillar-message-sending-indicator-presenter__sending-indicator--sent="" width="100%" height="100%" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="8" cy="8" r="6.5"></circle>
+        <path d="M7.40005 12L4.30005 8.9L5.60005 7.6L7.10005 9L9.70005 5H12L7.40005 12Z">
+        </path>
+      </svg>
+  </span>
+
+  </div>
+
+
+<!---->          
+    </div>
+  
+
+<!---->
+<!---->
+<!---->
+<!---->
+<!---->
+<!---->
+<!---->
+<!---->
+<!---->
+<!---->
+<!---->
+<!---->
+<!---->    
+<!---->  
+
+      
+              
+            
+
+<!---->    </div>
+
+<!---->  
+          </li>
+        <li class="msg-s-message-list__typing-indicator-container--without-seen-receipt">
+<!---->        </li>
+
+<!----><!---->        <li class="msg-s-message-list__bottom-of-list"></li>
+      </ul>
+    </div>
+    <div id="ember982" class="ember-view"><!----></div>
+  
+      
+    </div>
+  
+      
+    <div class="align-items-flex-end display-flex artdeco-divider">
+<!---->    </div>
+  
+    
+<!---->
+        
+    <form id="msg-form-ember968" class="
+        msg-form msg-form--thread-footer-feature">
+        
+<!---->
+<!---->
+            
+    <div class="msg-form__attachment-drag-and-drop">
+      <div class="msg-form__attachment-drag-and-drop-content display-flex flex-column align-items-center justify-center">
+        <svg role="none" aria-hidden="true" class="msg-form__attachment-drag-and-drop-state-illustration" xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" data-supported-dps="128x128" data-test-icon="main-person">
+<!---->  <svg display="var(--hue-web-svg-display-dark)">
+    <image href="https://static.licdn.com/aero-v1/sc/h/dkn9vy3eabq3wt8vt27ka3lh2" x="0" y="0" width="128" height="128"></image>
+  </svg>
+
+  <svg display="var(--hue-web-svg-display-light)">
+    <image href="https://static.licdn.com/aero-v1/sc/h/5i1dq5b4w5vyu5nihh3ntgpy3" x="0" y="0" width="128" height="128"></image>
+  </svg>
+</svg>
+        <div class="msg-form__attachment-drag-and-drop-text display-flex flex-column align-items-center justify-center">
+          <div class="msg-form__attachment-drag-and-drop-state-text t-16 t-bold">
+            Drag your file here.
+          </div>
+          <div class="msg-form__attachment-drag-and-drop-discoverability-text text-align-center">
+            <div class="t-16 t-bold">
+              Select your file
+            </div>
+            <div class="t-14">
+              Or drag &amp; drop next time
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  
+              
+    <div class="overflow-auto scrollable" data-test-msg-cross-pillar-uploaded-attachment-list-presenter="">
+<!---->    </div>
+  
+<!---->
+<!---->
+<!---->
+<!---->
+          
+    <div class="msg-form__msg-content-container
+        
+        
+         msg-form__message-texteditor relative flex-grow-1 display-flex">
+      <div class="msg-form__msg-content-container--scrollable scrollable
+          
+          relative">
+        
+    <div class="flex-grow-1 relative">
+<!---->
+      <div class="msg-form__contenteditable t-14 t-black--light t-normal flex-grow-1 full-height notranslate
+          
+          
+          
+          " contenteditable="true" role="textbox" dir="auto" aria-multiline="true" aria-label="Write a message…"><p><br></p></div>
+
+<!---->
+      <div aria-hidden="true" class="msg-form__placeholder
+          t-14 t-black--light t-normal" data-placeholder="Write a message…">
+      </div>
+
+    </div>
+  
+
+<!---->
+<!---->
+<!---->      </div>
+
+        <div class="msg-form__expand-btn-wrapper p2">
+            <button aria-expanded="false" id="ember984" class="msg-form__expand-btn artdeco-button artdeco-button--circle artdeco-button--muted artdeco-button--1 artdeco-button--tertiary ember-view" type="button">        <svg role="none" aria-hidden="true" class="artdeco-button__icon " xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" data-supported-dps="16x16" data-test-icon="chevron-up-small">
+<!---->    
+    <use href="#chevron-up-small" width="16" height="16"></use>
+</svg>
+
+
+<span class="artdeco-button__text">
+    Maximize compose field
+</span></button>
+        </div>
+<!---->    </div>
+
+    <div class="msg-form__gai-module-container
+        
+        ">
+      
+    <div class="msg-gai-inline-module">
+<!---->
+<!---->    </div>
+  
+    </div>
+  
+<!---->            <footer class="msg-form__footer flex-shrink-zero
+                pb7">
+<!----><!---->              <div class="msg-form__left-actions
+                  display-flex">
+                  
+    <div class="msg-form__upload-attachment inline-block" data-test-msg-ui-upload-attachment-presenter="">
+      <input name="persist" value="true" type="hidden">
+      <input name="upload_info" type="hidden">
+      <input id="attachment-input-ember985" class="msg-form__attachment-upload-input hidden" accept="image/*" type="file">
+      <button title="Attach an image to your conversation with Jim Sidler" aria-label="Attach an image to your conversation with Jim Sidler" id="attachment-trigger-ember985" class="msg-form__footer-action artdeco-button artdeco-button--tertiary artdeco-button--circle artdeco-button--muted m0 artdeco-button--2 artdeco-button artdeco-button--circle artdeco-button--muted artdeco-button--2 artdeco-button--tertiary ember-view" type="button">        <svg role="none" aria-hidden="true" class="artdeco-button__icon " xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" data-supported-dps="24x24" data-test-icon="image-medium">
+<!---->    
+    <use href="#image-medium" width="24" height="24"></use>
+</svg>
+
+
+<span class="artdeco-button__text">
+    Attach an image to your conversation with Jim Sidler
+</span></button>
+    </div>
+  
+                  
+    <div class="msg-form__upload-attachment inline-block" data-test-msg-ui-upload-attachment-presenter="">
+      <input name="persist" value="true" type="hidden">
+      <input name="upload_info" type="hidden">
+      <input id="attachment-input-ember987" class="msg-form__attachment-upload-input hidden" accept="image/*,.ai,.psd,.pdf,.doc,.docx,.ppt,.pptx,.pps,.ppsx,.xls,.xlsx,.txt,.eml,.mov,.mp4" type="file">
+      <button title="Attach a file to your conversation with Jim Sidler" aria-label="Attach a file to your conversation with Jim Sidler" id="attachment-trigger-ember987" class="msg-form__footer-action artdeco-button artdeco-button--tertiary artdeco-button--circle artdeco-button--muted m0 artdeco-button--2 artdeco-button artdeco-button--circle artdeco-button--muted artdeco-button--2 artdeco-button--tertiary ember-view" type="button">        <svg role="none" aria-hidden="true" class="artdeco-button__icon " xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" data-supported-dps="24x24" data-test-icon="attachment-medium">
+<!---->    
+    <use href="#attachment-medium" width="24" height="24"></use>
+</svg>
+
+
+<span class="artdeco-button__text">
+    Attach a file to your conversation with Jim Sidler
+</span></button>
+    </div>
+  
+                  
+    <div class="tenor-gif__button relative">
+        <button title="Open GIF Keyboard" aria-label="Open GIF Keyboard" aria-expanded="false" id="ember989" class="msg-form__footer-action gif-button artdeco-button artdeco-button--circle artdeco-button--muted artdeco-button--2 artdeco-button--tertiary ember-view" type="button">        <svg role="none" aria-hidden="true" class="artdeco-button__icon " xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" data-supported-dps="24x24" data-test-icon="gif-medium">
+<!---->    
+    <use href="#gif-medium" width="24" height="24"></use>
+</svg>
+
+
+<span class="artdeco-button__text">
+    Open GIF Keyboard
+</span></button>
+    </div>
+  
+<!---->                
+    <div>
+      <span tabindex="-1" id="ember991" class="artdeco-hoverable-trigger artdeco-hoverable-trigger--content-placed-top ember-view">
+        <button title="Open Emoji Keyboard" aria-label="Open Emoji Keyboard" aria-expanded="false" aria-controls="artdeco-hoverable-msg_pillar_emoji__emoji-hoverable__content" id="ember992" class="msg-form__footer-action emoji-hoverable-trigger artdeco-button artdeco-button--circle artdeco-button--muted artdeco-button--2 artdeco-button--tertiary ember-view" data-reaction-summary__emoji-hoverable="" type="button">        <svg role="none" aria-hidden="true" class="artdeco-button__icon " xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" data-supported-dps="24x24" data-test-icon="emoji-medium">
+<!---->    
+    <use href="#emoji-medium" width="24" height="24"></use>
+</svg>
+
+
+<span class="artdeco-button__text">
+    Open Emoji Keyboard
+</span></button>
+          
+      </span>
+
+        <div id="msg_pillar_emoji__emoji-hoverable__content" class="ember-view"><div id="ember994" class="ember-view"></div></div>
+    </div>
+  
+<!---->              </div>
+                <div class="msg-form__right-actions display-flex align-items-center">
+                  
+
+  <div>
+      <button class="msg-form__send-button artdeco-button artdeco-button--1" disabled="" type="submit">
+          Send
+      </button>
+  </div>
+
+                  
+
+    <div class="relative ml2">
+      <span tabindex="-1" id="ember996" class="artdeco-hoverable-trigger artdeco-hoverable-trigger--content-placed-top ember-view">
+        <button aria-expanded="false" aria-controls="artdeco-hoverable-artdeco-gen-48" id="ember997" class="msg-form__send-toggle artdeco-button artdeco-button--circle artdeco-button--muted artdeco-button--2 artdeco-button--tertiary ember-view" data-test-msg-ui-send-mode-toggle-presenter__button="" type="button">        <svg role="none" aria-hidden="true" class="artdeco-button__icon " xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" data-supported-dps="24x24" data-test-icon="overflow-web-ios-medium">
+<!---->    
+    <use href="#overflow-web-ios-medium" width="24" height="24"></use>
+</svg>
+
+
+<span class="artdeco-button__text">
+    Open send options
+</span></button>
+        <div id="artdeco-gen-48" class="ember-view"><div id="ember999" class="ember-view"></div></div>
+      </span>
+    </div>
+  
+                </div>
+            </footer>
+          
+
+<!---->
+    <div id="ember1001" class="ember-view"><div id="ember1002" class="ember-view"><!----></div></div>
+  
+        
+    </form>
+
+    <div id="ember1003" class="ember-view"><div id="ember1004" class="ember-view"><!----></div></div>
+
+    <div id="ember1005" class="ember-view"><div id="ember1006" class="ember-view"><!----></div></div>
+  
+          
+<!---->
+<!---->
+<!---->  
+  
+  
+    </div>
+  
+</div>
+
+
+  <div id="ember634" class="ember-view"><div id="ember635" class="ember-view"><!----></div></div>
+
+
+<div id="msg-pillar__reactor-list-outlet"></div>
+  
+            
+        </div>

@@ -323,6 +323,66 @@ describe('content script', () => {
       expect(payload.title).toBe('Software Engineer at Acme');
     });
 
+    // Regression: clicking Connect on a profile page sometimes misses the
+    // button at click time (LinkedIn's display:contents wrappers drop it from
+    // composedPath), so the Send click fires with no pending data. The modal
+    // shown by the "Add a note" flow contains only UI copy — its <h2> reads
+    // "Add a note to your invitation", which we were previously sending as
+    // the recipient name. The fix is to scrape the profile page itself,
+    // anchored on the vanity from the URL.
+    it('on /in/{vanity}/, scrapes owner name/title/profileUrl when modal has only UI text', async () => {
+      window.history.pushState({}, '', '/in/taniahansraj/');
+
+      // Profile page DOM — owner heading anchor + headline <p>
+      const main = document.createElement('main');
+      const section = document.createElement('section');
+      main.appendChild(section);
+      const block = document.createElement('div');
+      section.appendChild(block);
+      const headingAnchor = document.createElement('a');
+      headingAnchor.href = 'https://www.linkedin.com/in/taniahansraj/';
+      const h2 = document.createElement('h2');
+      h2.textContent = 'Tania Hansraj';
+      headingAnchor.appendChild(h2);
+      block.appendChild(headingAnchor);
+      const headlineP = document.createElement('p');
+      headlineP.textContent =
+        'Head of Talent at Career Systems | helping engineers land senior roles';
+      block.appendChild(headlineP);
+      document.body.appendChild(main);
+
+      // LinkedIn "Add a note" modal — UI heading, no recipient name/lockup
+      const modal = document.createElement('div');
+      modal.setAttribute('role', 'dialog');
+      const modalHeading = document.createElement('h2');
+      modalHeading.textContent = 'Add a note to your invitation?';
+      modal.appendChild(modalHeading);
+      const modalBody = document.createElement('p');
+      modalBody.textContent =
+        'LinkedIn members are more likely to accept invitations that include a personal note.';
+      modal.appendChild(modalBody);
+      const sendButton = document.createElement('button');
+      sendButton.setAttribute('aria-label', 'Send without a note');
+      sendButton.textContent = 'Send without a note';
+      modal.appendChild(sendButton);
+      document.body.appendChild(modal);
+
+      await handleConnectionRequest(sendButton);
+
+      const payload = (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as TrackerEvent;
+      expect(payload.name).toBe('Tania Hansraj');
+      expect(payload.title).toBe(
+        'Head of Talent at Career Systems | helping engineers land senior roles',
+      );
+      expect(payload.profile_url).toBe('https://www.linkedin.com/in/taniahansraj');
+      // And not the modal UI text
+      expect(payload.name).not.toContain('Add a note');
+      expect(payload.title).not.toContain('LinkedIn members are more likely');
+
+      window.history.pushState({}, '', '/');
+    });
+
     it('debug_mode=true + scrape failure → debug field present with container_html ≤ 10000 chars', async () => {
       (chrome.storage.sync.get as ReturnType<typeof vi.fn>).mockResolvedValue({
         debug_mode: true,
