@@ -54,6 +54,7 @@ export class DriveClient {
       },
       media: { mimeType: options.mimeType, body },
       fields: 'id, webViewLink',
+      supportsAllDrives: true,
     });
 
     const id = res.data.id;

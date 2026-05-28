@@ -13,7 +13,7 @@ try {
   log.info({ group: GROUP }, 'ensuring session');
   await skool.ensureSession(GROUP);
   log.info('session ready');
-  const members = await skool.fetchAllMembers({ group: GROUP, maxPages: 2, log });
+  const members = await skool.listMembersAsAdmin({ group: GROUP, maxPages: 2, log });
   console.log(JSON.stringify(members, null, 2));
 } finally {
   await skool.close();

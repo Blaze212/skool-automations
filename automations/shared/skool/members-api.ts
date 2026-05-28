@@ -31,6 +31,19 @@ function parseSurvey(raw: string | undefined): {
   }
 }
 
+/** Parses the full survey JSON blob into all question/answer pairs, preserving order. */
+export function parseFullSurvey(raw: string | undefined): SurveyEntry[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as SurveyPayload;
+    return (parsed.survey ?? []).filter(
+      (e): e is SurveyEntry => typeof e?.question === 'string' && typeof e?.answer === 'string',
+    );
+  } catch {
+    return [];
+  }
+}
+
 const SKOOL_HEADERS = {
   'User-Agent':
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -51,21 +64,35 @@ async function extractBuildId(cookies: string, group: string, log?: pino.Logger)
   return match[1];
 }
 
-async function fetchMembersPage(
+/** Admin-authenticated path. Respects the `p` param and returns correct pagination. */
+async function fetchAdminMembersPage(
   cookies: string,
   buildId: string,
   group: string,
   page: number,
   log?: pino.Logger,
 ): Promise<{ members: RawMemberData[]; totalPages: number }> {
-  const url =
-    `https://www.skool.com/_next/data/${buildId}/${group}/-/members.json` +
-    `?group=${group}&page=${page}`;
-  log?.info({ page, url }, 'fetching members page');
+  const params = new URLSearchParams({
+    t: 'active',
+    p: String(page),
+    online: '',
+    levels: '',
+    price: '',
+    courseIds: '',
+    sortType: '',
+    monthly: 'false',
+    annual: 'false',
+    oneTime: 'false',
+    trials: 'false',
+    free: 'false',
+    group,
+  });
+  const url = `https://www.skool.com/_next/data/${buildId}/${group}/-/members.json?${params}`;
+  log?.info({ page, url }, 'fetching admin members page');
   const res = await fetch(url, {
     headers: { ...SKOOL_HEADERS, Cookie: cookies },
   });
-  if (!res.ok) throw new Error(`Members page ${page} fetch failed: ${res.status}`);
+  if (!res.ok) throw new Error(`Admin members page ${page} fetch failed: ${res.status}`);
 
   const json = (await res.json()) as {
     pageProps?: {
@@ -75,11 +102,11 @@ async function fetchMembersPage(
     };
   };
 
-  log?.debug({ page, keys: Object.keys(json.pageProps ?? {}) }, 'members page response keys');
+  log?.debug({ page, keys: Object.keys(json.pageProps ?? {}) }, 'admin page response keys');
 
   const members = json.pageProps?.renderData?.members ?? [];
   const totalPages = json.pageProps?.totalPages ?? 1;
-  log?.info({ page, count: members.length, totalPages }, 'page fetched');
+  log?.info({ page, count: members.length, totalPages }, 'admin page fetched');
 
   return { members, totalPages };
 }
@@ -97,28 +124,73 @@ function normalizeRawMember(raw: RawMemberData): SkoolMember {
   };
 }
 
-export async function fetchAllMembers(options: {
+/**
+ * Fetches ~30 members using the non-admin member-view path.
+ *
+ * WARNING: This endpoint does not support pagination — Skool ignores the page
+ * parameter and always returns the same ~30 members regardless of what is
+ * requested. Use listMembersAsAdmin for full paginated access.
+ */
+export async function getMembersAsUser(options: {
+  group: string;
+  cookies: string;
+  log?: pino.Logger;
+}): Promise<SkoolMember[]> {
+  const { group, cookies, log } = options;
+  const buildId = await extractBuildId(cookies, group, log);
+  const url =
+    `https://www.skool.com/_next/data/${buildId}/${group}/-/members.json` +
+    `?group=${group}&page=1`;
+  log?.info({ url }, 'getMembersAsUser — single request, no pagination');
+  const res = await fetch(url, { headers: { ...SKOOL_HEADERS, Cookie: cookies } });
+  if (!res.ok) throw new Error(`getMembersAsUser fetch failed: ${res.status}`);
+  const json = (await res.json()) as {
+    pageProps?: { renderData?: { members?: RawMemberData[] } };
+  };
+  const members = (json.pageProps?.renderData?.members ?? []).map(normalizeRawMember);
+  log?.info({ count: members.length }, 'getMembersAsUser complete');
+  return members;
+}
+
+/**
+ * Fetches all members using the admin pagination path. Requires an admin session cookie.
+ * Pass maxPages to cap the number of pages fetched (useful for debugging).
+ */
+export async function listMembersAsAdmin(options: {
   group: string;
   cookies: string;
   maxPages?: number;
   log?: pino.Logger;
 }): Promise<SkoolMember[]> {
+  const raws = await listRawMembersAsAdmin(options);
+  return raws.map(normalizeRawMember);
+}
+
+/**
+ * Same admin-paginated fetch as listMembersAsAdmin but returns the raw payload
+ * (un-normalized). Use when you need fields outside the SkoolMember shape — e.g.
+ * the full onboarding survey via parseFullSurvey().
+ */
+export async function listRawMembersAsAdmin(options: {
+  group: string;
+  cookies: string;
+  maxPages?: number;
+  log?: pino.Logger;
+}): Promise<RawMemberData[]> {
   const { group, cookies, maxPages, log } = options;
 
   const buildId = await extractBuildId(cookies, group, log);
-  const allMembers: SkoolMember[] = [];
+  const allMembers: RawMemberData[] = [];
   let page = 1;
   let totalPages = 1;
 
   do {
-    const result = await fetchMembersPage(cookies, buildId, group, page, log);
+    const result = await fetchAdminMembersPage(cookies, buildId, group, page, log);
     if (page === 1) totalPages = result.totalPages;
-    for (const raw of result.members) {
-      allMembers.push(normalizeRawMember(raw));
-    }
+    allMembers.push(...result.members);
     page++;
   } while (page <= totalPages && (maxPages === undefined || page <= maxPages));
 
-  log?.info({ total: allMembers.length }, 'fetchAllMembers complete');
+  log?.info({ total: allMembers.length }, 'listRawMembersAsAdmin complete');
   return allMembers;
 }

@@ -30,11 +30,33 @@ export class SheetsClient {
 
   async batchUpdate(
     updates: { range: string; values: (string | number | undefined)[][] }[],
+    valueInputOption: 'RAW' | 'USER_ENTERED' = 'RAW',
   ): Promise<void> {
     if (updates.length === 0) return;
     await this.sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: this.spreadsheetId,
-      requestBody: { valueInputOption: 'RAW', data: updates },
+      requestBody: { valueInputOption, data: updates },
+    });
+  }
+
+  async insertRows(sheetId: number, startRowIndex: number, count: number): Promise<void> {
+    await this.sheets.spreadsheets.batchUpdate({
+      spreadsheetId: this.spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            insertDimension: {
+              range: {
+                sheetId,
+                dimension: 'ROWS',
+                startIndex: startRowIndex,
+                endIndex: startRowIndex + count,
+              },
+              inheritFromBefore: false,
+            },
+          },
+        ],
+      },
     });
   }
 

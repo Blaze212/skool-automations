@@ -28,6 +28,7 @@
     "pull:kit-sequences": "doppler run -- pnpm tsx scripts/pull-kit-sequences.ts",
     "skool-sync": "doppler run -- tsx automations/free-member-sync/skool-sync.ts",
     "kit-sync": "doppler run -- tsx automations/free-member-sync/kit-sync.ts",
+    "test:backfill-skool-ids": "doppler run -- tsx automations/free-member-sync/test-scripts/backfill-skool-ids.ts > automations/free-member-sync/logs/scriptout.log",
     "test:get-members": "doppler run -- tsx automations/free-member-sync/test-scripts/get-members.ts > automations/free-member-sync/logs/scriptout.log",
     "test:upsert-members-sheet": "doppler run -- tsx automations/free-member-sync/test-scripts/upsert-members-sheet.ts > automations/free-member-sync/logs/scriptout.log",
     "test:get-pending-members": "doppler run -- tsx automations/free-member-sync/test-scripts/get-pending-members.ts",

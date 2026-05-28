@@ -1,75 +1,40 @@
-#!/usr/bin/env tsx
-import { loadEnv } from '../shared/env.js';
-import type { ProofLogRow } from './proof-log-sheet.js';
-import { ProofLogSheet } from './proof-log-sheet.js';
+/**
+ * Append a proof-log entry to the tracking Google Sheet.
+ *
+ * Usage: tsx automations/proof-log/sheets-updater.ts <source-file-path> <drive-url> [notes]
+ * Appends one row: [ISO date, filename, drive-url, notes]
+ */
 
-const REQUIRED_FIELDS: (keyof ProofLogRow)[] = [
-  'date',
-  'screenshotLink',
-  'area',
-  'level',
-  'function',
-  'status',
-];
+import path from 'node:path';
+import { SheetsClient } from '../shared/google/sheets-client.js';
+import { readConfig } from './config.js';
 
-function validate(data: unknown): ProofLogRow {
-  if (!data || typeof data !== 'object') throw new Error('JSON must be an object');
-  const row = data as Record<string, unknown>;
-  for (const field of REQUIRED_FIELDS) {
-    if (typeof row[field] !== 'string') {
-      throw new Error(`Missing or invalid required field: ${field}`);
-    }
+const SHEET_RANGE = 'Overview!A:D';
+
+async function main() {
+  const [, , filePath, driveUrl, notes = ''] = process.argv;
+  if (!filePath || !driveUrl) {
+    console.error('Usage: sheets-updater.ts <source-file-path> <drive-url> [notes]');
+    process.exit(1);
   }
-  return {
-    date: (row.date as string) ?? '',
-    screenshotLink: (row.screenshotLink as string) ?? '',
-    redactedLink: (row.redactedLink as string) ?? '',
-    finalLink: (row.finalLink as string) ?? '',
-    area: (row.area as string) ?? '',
-    level: (row.level as string) ?? '',
-    function: (row.function as string) ?? '',
-    status: (row.status as string) ?? '',
-    trigger: (row.trigger as string) ?? '',
-    behavior: (row.behavior as string) ?? '',
-    outcome: (row.outcome as string) ?? '',
-    friction: (row.friction as string) ?? '',
-    artifacts: (row.artifacts as string) ?? '',
-    mainObjection: (row.mainObjection as string) ?? '',
-  };
+
+  const serviceAccountJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (!serviceAccountJson) {
+    console.error('GOOGLE_SERVICE_ACCOUNT_JSON env var is required (inject via doppler run --)');
+    process.exit(1);
+  }
+
+  const config = readConfig();
+  const client = new SheetsClient(serviceAccountJson, config.sheetId);
+
+  const date = new Date().toISOString().slice(0, 10);
+  const fileName = path.basename(filePath);
+
+  await client.appendRows(SHEET_RANGE, [[date, fileName, driveUrl, notes]]);
+  console.log(`Logged: ${date} | ${fileName} | ${driveUrl}`);
 }
 
-async function main(): Promise<void> {
-  const [jsonArg] = process.argv.slice(2);
-
-  if (!jsonArg) {
-    process.stderr.write("Usage: tsx sheets-updater.ts '<json-string>'\n");
-    process.exit(1);
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonArg);
-  } catch {
-    process.stderr.write('Invalid JSON argument\n');
-    process.exit(1);
-  }
-
-  let row: ProofLogRow;
-  try {
-    row = validate(parsed);
-  } catch (err) {
-    process.stderr.write((err instanceof Error ? err.message : String(err)) + '\n');
-    process.exit(1);
-  }
-
-  try {
-    const env = loadEnv(['GOOGLE_SERVICE_ACCOUNT_JSON', 'PROOF_LOG_SHEET_ID']);
-    const sheet = new ProofLogSheet(env.GOOGLE_SERVICE_ACCOUNT_JSON, env.PROOF_LOG_SHEET_ID);
-    await sheet.insertRowAtTop(row);
-  } catch (err) {
-    process.stderr.write((err instanceof Error ? err.message : String(err)) + '\n');
-    process.exit(1);
-  }
-}
-
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
