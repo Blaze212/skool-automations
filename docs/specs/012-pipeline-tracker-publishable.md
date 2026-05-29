@@ -12,11 +12,14 @@
 - [009-pipeline-tracker-outbox-queue.md](009-pipeline-tracker-outbox-queue.md) — durable outbox in `chrome.storage.local` (`OutboxEntry`, `OUTBOX_CAP=50`, `OUTBOX_MAX_ATTEMPTS=3`)
 - [011-pipeline-tracker-scraping-core.md](011-pipeline-tracker-scraping-core.md) — **prereq**: extracts cards + validator + orchestrator into `@cs/scraping-core`
 
-**Companion follow-on (can ship before, after, or in parallel):**
+**Companion follow-ons (can ship before, after, or in parallel — except 014 depends on this):**
 
 - [013-pipeline-tracker-ai-fallback.md](013-pipeline-tracker-ai-fallback.md) — on-device LLM
   field recovery. This spec defines the `recovered_html` wire format and per-id keyed storage
   shape that spec 013 writes into; spec 013 owns the actual model invocation.
+- [014-pipeline-tracker-shared-side-panel.md](014-pipeline-tracker-shared-side-panel.md) —
+  retires the internal build's popup in favor of the side panel introduced here. Depends on
+  this spec's `sidepanel/` + `DestinationStrategy` landing.
 
 ## Prerequisites
 
@@ -709,7 +712,8 @@ end-to-end and Phase 3's e2e test still green.
 - Publishable badge logic in `background.ts`:
   `setBadgeText(String(unsyncedCount || ''))` + `BADGE_COLOR_PENDING` (#9333ea) by default;
   error/partial override per spec 007 (D-rev-26).
-- `recovered_html` row content is NOT rendered at list mount (D-rev-30) — placeholder.
+- `recovered_html` is never rendered in the side panel — neither at list mount nor on row
+  expand (D-rev-30). The panel shows structured fields only.
 - Tests: `setPanelBehavior` called once on install; badge transitions across (no events, N
   unsynced, error present); list pagination boundary at 500; row click stub.
 
@@ -796,17 +800,20 @@ end-to-end and Phase 3's e2e test still green.
 - This is the largest phase; if it lands over 400 LoC, split atomic removal (one PR) from race
   tests (second PR).
 
-### Phase 11 — CSV export + lazy recovered_html rendering (~250 LoC)
+### Phase 11 — CSV export + row-expand UI (~250 LoC)
 
 - Side panel "Export CSV" button → background builds CSV via `data:` URL →
   `chrome.downloads.download` (filename `pipeline-YYYY-MM-DD.csv`).
 - Columns per §CSV format.
-- `recovered_html` column: empty unless `source === 'ai-recovered'` AND the per-id key exists;
-  read lazily from `recoveredHtml.get(historyId)` (D-rev-30).
+- `recovered_html` column: empty unless `source === 'ai-recovered'` AND the per-id key
+  exists; read from `recoveredHtml.get(historyId)` at CSV-build time only (D-rev-30).
 - CSV escaping for commas/quotes/newlines.
-- Side panel: row click expands `<details>` and lazily fetches `recovered_html` for display
-  (D-rev-30).
-- Tests: column-format snapshots; escaping cases; per-id lazy load.
+- Side panel row click expands `<details>` showing **only structured fields** — name, title,
+  profile URL, event type, captured timestamp, `source` badge, and `message_text` (if
+  `capture_message_bodies` is on). `recovered_html` is NOT read or displayed (D-rev-30
+  revised).
+- Tests: column-format snapshots; escaping cases; CSV reads recovered_html from keyed
+  store; row expand does NOT call `recoveredHtml.get()`.
 
 ### Phase 12 — Web Store packaging + privacy policy (no LoC; docs PR)
 
@@ -934,10 +941,21 @@ Done when: all guards green; manifest valid for Web Store; listing draft reviewe
   storage with no UX benefit. Side-panel UX is built around "unsynced needs your attention"
   + "HISTORY shows last 10 resolved" — synced-archive browsing happens in the app.
 
-- **D-rev-30.** **`recovered_html` is lazy-rendered in the side panel.** The side-panel
-  unsynced list does NOT render `recovered_html` at list mount. It is read from the per-id
-  keyed store and shown only when the user expands the row's `<details>` widget. This caps
-  initial DOM size for a 500-row render at ~500 row stubs rather than ~500 × 16 KB of HTML.
+- **D-rev-30.** **`recovered_html` is NOT exposed in the side panel.** The side panel never
+  reads or displays `recovered_html` — not at list mount, not on row expand. Row expand
+  shows only the structured fields the user can act on (name, title, profile URL, event
+  type, message text if `capture_message_bodies` is on, captured timestamp, `source`
+  badge). The `recovered_html_<history_id>` keyed store is consulted only by:
+
+  - `sync-pull` (re-attaches HTML to the wire-format `PipelineEvent` for transit to the app)
+  - CSV export (writes the column from the keyed store)
+
+  *Why:* the HTML evidence is a payload for the backend / analyst, not a UI artifact. Users
+  cannot do anything useful with it on the device, and rendering it inflates DOM, leaks
+  message bodies (when `capture_message_bodies` is off, the strip-at-persist closure means
+  there's nothing to show anyway — but absent that, rendering would re-open the side
+  channel D-rev-13 closed). Single principle: HTML stays in cold storage; the panel shows
+  fields.
 
 - **D-rev-31.** **Phase 3 e2e regression test for the internal drain.** Before the
   `DestinationStrategy` refactor (Phase 4 in the current plan) lands, an end-to-end test of the
