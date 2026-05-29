@@ -97,3 +97,41 @@ Tracked improvements deferred from active implementation work.
 **Effort:** M  
 **Context:** The `linkedin_tracker_clients` table has a simple schema (`api_key`, `sheet_id`, `label`). A POST endpoint protected by a service-role key or admin secret would be sufficient for V1.5 self-service.  
 **Depends on:** Phase 4 of linkedin-tracker shipped; enough clients to justify the overhead
+
+---
+
+## Pipeline Tracker — Publishable (spec 010)
+
+### [P2] bindingToken per-cycle rotation (publishable extension)
+
+**What:** Rotate the extension's `bindingToken` on every successful `sync-ack` so a stolen token has at most a one-cycle blast radius. Mechanism: extension generates a new token, returns it in the `sync-ack` response, and the app PATCHes `/api/pipeline/bind-extension` to update the server-side copy before the next cycle.
+
+**Why:** Spec 010 D-rev-14 documents `bindingToken` theft (via XSS on `app.cmcareersystems.com`, or a sibling browser extension with that host permission) as a residual risk. Once stolen, the token is a bearer credential for the user's full unsynced outbox until the user manually disconnects in the side panel. Rotation reduces the window to the time between two syncs.
+
+**Effort:** M
+**Context:** Spec 010 ships with a static post-bind token. v1.0 documents the theft path in the Web Store privacy posture. Rotation is the planned mitigation. Coordinate with the CareerSystems app team — `/api/pipeline/bind-extension` needs to accept a PATCH/rotate verb.
+**Depends on:** Spec 010 v1.0 shipped + stable; app-team endpoint supports PATCH/rotate
+
+---
+
+### [P3] Ambient sync via chrome.alarms (publishable extension)
+
+**What:** Add a `chrome.alarms`-driven background check that, when `app.cmcareersystems.com` is open in any tab, triggers a sync without the user clicking the side panel's Sync button.
+
+**Why:** Spec 010 v1.0 sync is user-gestured only — a user who captures heavily but rarely opens the app sees the outbox grow indefinitely (uncapped per Issue 1 redesign). Ambient sync removes that friction at the cost of a Web Store "runs in the background" disclosure and the `alarms` permission.
+
+**Effort:** S
+**Context:** Spec 010 Open Q #3. Deliberately deferred from v1.0 to keep the Web Store permission disclosure minimal. Revisit after dogfooding signals — if users report "I forgot to sync for two weeks," do this.
+**Depends on:** Spec 010 v1.0 shipped + dogfooding feedback on sync friction
+
+---
+
+### [P2] linkedin-tracker / pipeline-tracker convergence direction
+
+**What:** Decide the long-term shape of LinkedIn-scraping inside the CareerSystems product. Three plausible end states: (a) `linkedin-tracker/` stays as the fractional-clients internal tool and `pipeline-tracker/` is the consumer Web Store product — permanently separate; (b) `linkedin-tracker/` retires and `pipeline-tracker/` (internal build) replaces it for fractional clients; (c) both merge into a single shared core with two manifest targets.
+
+**Why:** Spec 010 D-rev-21 accepts "double-capture" when both extensions are installed in the same Chrome profile as a convergence-period compromise. That's not sustainable forever — users who install both will see duplicate rows in their backend (the app dedupes per D-rev-18, but the UX is confusing).
+
+**Effort:** L (any convergence) or zero (if (a) is the answer)
+**Context:** Spec 010 Open Q #5. The scraping cores are already close (linkedin-tracker uses ConnectionSearchCard/ProfilePageCard/MessengerPageCard; pipeline-tracker adds accept-invitation + chat-overlay + profile-page-accept). Once spec 010's prereq scraping-core spec lands, option (c) is much cheaper. Convergence is mostly a *product* question, not engineering: does fractional-client scope diverge from consumer scope, or are they the same surface?
+**Depends on:** Spec 010 v1.0 shipped; scraping-core extraction spec landed
