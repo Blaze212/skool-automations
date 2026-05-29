@@ -1,6 +1,7 @@
 node_modules/
 dist/
 linkedin-tracker/dist/
+pipeline-tracker/dist.zip
 .env
 *.local
 .pnpm-store/
@@ -9,3 +10,7 @@ supabase/.branches/_current_branch
 supabase/.temp/cli-latest
 coverage/
 .DS_Store
+
+# Agent / worktree scratch dirs — created by Claude Code worktree isolation
+.worktrees/
+.claude/worktrees/
