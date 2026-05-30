@@ -16,6 +16,7 @@ import {
   ChatOverlayCard,
   MessengerPageCard,
   ProfilePageAcceptCard,
+  validate,
 } from '@cs/scraping-core';
 
 export { AcceptInvitationCard };
@@ -559,6 +560,19 @@ async function sendDrainRequestWithRetry(): Promise<void> {
 }
 
 async function sendEvent(event: PipelineEvent): Promise<void> {
+  // Pre-flight validation: log structural gaps + noise hits so they show up in
+  // the page console alongside the per-flow extraction logs. Severity-driving
+  // logic stays in background.ts (effectiveSeverity); validate() is a strict
+  // observer here — no payload mutation, no skip. Spec 011 phase 3.
+  const validation = validate(event);
+  if (validation.dirty) {
+    console.warn(
+      tag(),
+      'validation gaps:',
+      validation.gaps.map((g) => `${g.field}:${g.code}`).join(', '),
+    );
+  }
+
   const historyId =
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
