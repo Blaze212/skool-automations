@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { AcceptInvitationCard } from '../../../pipeline-tracker/src/accept-invitation-card.ts';
+import { AcceptInvitationCard } from '../../src/cards/accept-invitation-card.ts';
 
 function makeInvitationCard(
   name: string,

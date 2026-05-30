@@ -3,9 +3,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { ChatOverlayCard } from '../../../pipeline-tracker/src/chat-overlay-card.ts';
+import { ChatOverlayCard } from '../../src/cards/chat-overlay-card.ts';
 
-const FIXTURE_DIR = join(__dirname, '../../../pipeline-tracker/test-divs');
+const FIXTURE_DIR = join(__dirname, '../../../../pipeline-tracker/test-divs');
 
 function loadFixture(name: string): void {
   const html = readFileSync(join(FIXTURE_DIR, name), 'utf-8');

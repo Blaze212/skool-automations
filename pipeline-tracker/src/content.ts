@@ -11,10 +11,12 @@ import { ts } from './logger.ts';
 import { ConnectionSearchCard } from '../../linkedin-tracker/src/connection-search-card.ts';
 import { ProfilePageCard } from '../../linkedin-tracker/src/profile-page-card.ts';
 import { ProfilePageOwnerCard } from '../../linkedin-tracker/src/profile-page-owner-card.ts';
-import { AcceptInvitationCard } from './accept-invitation-card.ts';
-import { ProfilePageAcceptCard } from './profile-page-accept-card.ts';
-import { ChatOverlayCard } from './chat-overlay-card.ts';
-import { MessengerPageCard } from './messenger-page-card.ts';
+import {
+  AcceptInvitationCard,
+  ChatOverlayCard,
+  MessengerPageCard,
+  ProfilePageAcceptCard,
+} from '@cs/scraping-core';
 
 export { AcceptInvitationCard };
 export { ProfilePageAcceptCard };
