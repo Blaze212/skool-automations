@@ -769,21 +769,24 @@ async function handleAcceptConnection(button: HTMLElement): Promise<void> {
   // Card routing + extraction + validation all live in @cs/scraping-core's
   // extract() now (spec 011 phase 4). content.ts owns only the chrome-side
   // wiring: debug-payload assembly, dedup, and the sendEvent dispatch.
-  const result = extract({
-    document,
-    target: button,
-    pageUrl: window.location.href,
-    eventType: 'accepted_connection',
-  });
+  //
+  // Single-probe pattern: probe both cards ONCE, here, and pass the winner to
+  // both the orchestrator (for field extraction) AND the debug-container
+  // assembly. Re-probing for the debug path opens a TOCTOU window where React
+  // can swap the DOM between probes, causing debug.container_html to belong to
+  // a different snapshot than event.{name,title,linkedin_url} — exactly the
+  // case the debug payload exists to diagnose.
+  const inviteCard =
+    AcceptInvitationCard.fromAcceptButton(button) ?? ProfilePageAcceptCard.fromAcceptButton(button);
 
-  // Card type diagnostics — useful for unblocking selector regressions in
-  // the wild. Reconstructed from the same probes extract() uses so the log
-  // line matches the orchestrator's actual routing decision.
-  const cardType = ProfilePageAcceptCard.fromAcceptButton(button)
-    ? 'profile-page'
-    : AcceptInvitationCard.fromAcceptButton(button)
+  // Card type diagnostic uses the same single probe that drives routing — the
+  // logged type always matches the card whose data was actually used.
+  const cardType =
+    inviteCard instanceof AcceptInvitationCard
       ? 'my-network'
-      : 'none';
+      : inviteCard instanceof ProfilePageAcceptCard
+        ? 'profile-page'
+        : 'none';
   console.log(
     tag(),
     'accept: ariaLabel=',
@@ -792,17 +795,30 @@ async function handleAcceptConnection(button: HTMLElement): Promise<void> {
     cardType,
   );
 
-  const { event } = result;
+  const result = extract({
+    document,
+    target: button,
+    pageUrl: window.location.href,
+    eventType: 'accepted_connection',
+  });
+  const { event, validation } = result;
   if (!event.name) console.warn(tag(), 'accept: could not find name');
   if (!event.title) console.warn(tag(), 'accept: could not find title');
+  if (validation.dirty) {
+    // Surface the orchestrator's validation result here at the call site —
+    // spec 013's AI fallback decision lives at this seam. sendEvent runs
+    // validate() again today for badge severity; this log captures the
+    // upstream signal so we don't lose it.
+    console.warn(
+      tag(),
+      'accept: validation gaps=',
+      validation.gaps.map((g) => `${g.field}:${g.code}`).join(','),
+    );
+  }
 
   const debugMode = await getDebugMode();
-  // Container probing for the debug payload still needs the card instance
-  // (orchestrator returns plain fields, not the DOM scope). Cheap re-probe.
-  const containerCard =
-    AcceptInvitationCard.fromAcceptButton(button) ?? ProfilePageAcceptCard.fromAcceptButton(button);
   const debug = debugMode
-    ? buildDebugPayload(button, containerCard?.container ?? findDebugContainer(button))
+    ? buildDebugPayload(button, inviteCard?.container ?? findDebugContainer(button))
     : undefined;
 
   if (isDuplicate(event.name)) return;
