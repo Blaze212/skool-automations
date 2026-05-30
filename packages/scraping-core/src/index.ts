@@ -28,8 +28,7 @@ export {
   type AiRecoveryOptions,
   type ExtractEventHint,
   type ExtractInput,
-  type ExtractionSource,
   type ExtractResult,
 } from './extract.js';
 
-export type { DebugPayload, EventType, PipelineEvent } from './types.js';
+export type { DebugPayload, EventType, ExtractionSource, PipelineEvent } from './types.js';

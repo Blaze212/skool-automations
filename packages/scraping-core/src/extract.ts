@@ -20,7 +20,7 @@
 
 import { AcceptInvitationCard, ProfilePageAcceptCard } from './cards/index.js';
 import { validate, type ValidationResult } from './validate.js';
-import type { EventType, PipelineEvent } from './types.js';
+import type { EventType, ExtractionSource, PipelineEvent } from './types.js';
 
 /**
  * Discriminates the orchestrator's calling context so future card types can
@@ -61,9 +61,6 @@ export interface AiRecoveryOptions {
    * skill). */
   timeoutMs?: number;
 }
-
-/** Source of the extracted fields. Spec 013 broadens to `'ai-recovered'`. */
-export type ExtractionSource = 'selectors';
 
 export interface ExtractResult {
   /** Fully populated event — fields filled to best ability. Caller is
