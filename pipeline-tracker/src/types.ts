@@ -1,3 +1,10 @@
+// Canonical type definitions live in @cs/scraping-core (spec 011 phase 5).
+// This file re-exports them for the extension-internal modules (background.ts,
+// popup, content.ts) so their import paths don't have to change and so spec
+// 012's publishable-build PR diff stays small.
+
+export type { DebugPayload, EventType, ExtractionSource, PipelineEvent } from '@cs/scraping-core';
+
 export const STORAGE_KEYS = {
   API_KEY: 'api_key',
   DEBUG_MODE: 'debug_mode',
@@ -10,28 +17,12 @@ export const STORAGE_KEYS = {
   OUTBOX: 'outbox',
 } as const;
 
-export type EventType = 'connection_request' | 'accepted_connection' | 'direct_message';
-
+// `Severity` describes the badge state machine; it is extension-specific
+// (popup colours + history rendering) so it stays here rather than moving
+// into @cs/scraping-core.
 export type Severity = 'ok' | 'partial' | 'error' | 'pending';
 
-export interface PipelineEvent {
-  api_key: string;
-  event_type: EventType;
-  date: string;
-  name: string;
-  title: string;
-  linkedin_url: string;
-  page_url: string;
-  message_text: string;
-  debug?: DebugPayload;
-}
-
-export interface DebugPayload {
-  button_aria_label: string;
-  button_text: string;
-  container_html: string;
-  page_url: string;
-}
+import type { EventType, PipelineEvent } from '@cs/scraping-core';
 
 export interface HistoryEntry {
   id: string;

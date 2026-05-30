@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ProfilePageAcceptCard } from '../../../pipeline-tracker/src/profile-page-accept-card.ts';
+import { ProfilePageAcceptCard } from '../../src/cards/profile-page-accept-card.ts';
 
 function setProfilePath(vanity: string): void {
   window.history.pushState({}, '', `/in/${vanity}/`);

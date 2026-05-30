@@ -9,7 +9,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['tests/unit/**/*.test.ts'],
+    include: ['tests/unit/**/*.test.ts', 'packages/*/tests/**/*.test.ts'],
     setupFiles: ['tests/__mocks__/chrome.ts'],
     coverage: {
       provider: 'v8',
@@ -29,6 +29,7 @@ export default defineConfig({
         'tests/__mocks__/supabase-js.ts',
       ),
       'npm:pino': resolve(__dirname, 'tests/__mocks__/pino.ts'),
+      '@cs/scraping-core': resolve(__dirname, 'packages/scraping-core/src/index.ts'),
     },
   },
 });

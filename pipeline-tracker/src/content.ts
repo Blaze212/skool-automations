@@ -11,10 +11,14 @@ import { ts } from './logger.ts';
 import { ConnectionSearchCard } from '../../linkedin-tracker/src/connection-search-card.ts';
 import { ProfilePageCard } from '../../linkedin-tracker/src/profile-page-card.ts';
 import { ProfilePageOwnerCard } from '../../linkedin-tracker/src/profile-page-owner-card.ts';
-import { AcceptInvitationCard } from './accept-invitation-card.ts';
-import { ProfilePageAcceptCard } from './profile-page-accept-card.ts';
-import { ChatOverlayCard } from './chat-overlay-card.ts';
-import { MessengerPageCard } from './messenger-page-card.ts';
+import {
+  AcceptInvitationCard,
+  ChatOverlayCard,
+  extract,
+  MessengerPageCard,
+  ProfilePageAcceptCard,
+  validate,
+} from '@cs/scraping-core';
 
 export { AcceptInvitationCard };
 export { ProfilePageAcceptCard };
@@ -557,6 +561,19 @@ async function sendDrainRequestWithRetry(): Promise<void> {
 }
 
 async function sendEvent(event: PipelineEvent): Promise<void> {
+  // Pre-flight validation: log structural gaps + noise hits so they show up in
+  // the page console alongside the per-flow extraction logs. Severity-driving
+  // logic stays in background.ts (effectiveSeverity); validate() is a strict
+  // observer here — no payload mutation, no skip. Spec 011 phase 3.
+  const validation = validate(event);
+  if (validation.dirty) {
+    console.warn(
+      tag(),
+      'validation gaps:',
+      validation.gaps.map((g) => `${g.field}:${g.code}`).join(', '),
+    );
+  }
+
   const historyId =
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
@@ -749,54 +766,72 @@ export async function handleConnectionRequest(
 // =============================================================================
 
 async function handleAcceptConnection(button: HTMLElement): Promise<void> {
-  // My Network / invitation-manager page: button lives inside [role="listitem"]/li.
-  // Profile page (where Connect normally sits): no listitem ancestor — use the
-  // profile header section, anchored on /in/{vanity}/ from the URL.
+  // Card routing + extraction + validation all live in @cs/scraping-core's
+  // extract() now (spec 011 phase 4). content.ts owns only the chrome-side
+  // wiring: debug-payload assembly, dedup, and the sendEvent dispatch.
+  //
+  // Single-probe pattern: probe both cards ONCE, here, and pass the winner to
+  // both the orchestrator (for field extraction) AND the debug-container
+  // assembly. Re-probing for the debug path opens a TOCTOU window where React
+  // can swap the DOM between probes, causing debug.container_html to belong to
+  // a different snapshot than event.{name,title,linkedin_url} — exactly the
+  // case the debug payload exists to diagnose.
   const inviteCard =
     AcceptInvitationCard.fromAcceptButton(button) ?? ProfilePageAcceptCard.fromAcceptButton(button);
+
+  // Card type diagnostic uses the same single probe that drives routing — the
+  // logged type always matches the card whose data was actually used.
+  const cardType =
+    inviteCard instanceof AcceptInvitationCard
+      ? 'my-network'
+      : inviteCard instanceof ProfilePageAcceptCard
+        ? 'profile-page'
+        : 'none';
   console.log(
     tag(),
     'accept: ariaLabel=',
     JSON.stringify(button.getAttribute('aria-label') ?? ''),
     'card type=',
-    inviteCard instanceof ProfilePageAcceptCard
-      ? 'profile-page'
-      : inviteCard
-        ? 'my-network'
-        : 'none',
+    cardType,
   );
 
-  const name = inviteCard?.name ?? '';
-  const title = inviteCard?.title ?? '';
-  const linkedin_url = inviteCard?.profileUrl ?? '';
-  const messageText = inviteCard?.messageText ?? '';
-
-  if (!name) console.warn(tag(), 'accept: could not find name');
-  if (!title) console.warn(tag(), 'accept: could not find title');
+  const result = extract({
+    document,
+    target: button,
+    pageUrl: window.location.href,
+    eventType: 'accepted_connection',
+  });
+  const { event, validation } = result;
+  if (!event.name) console.warn(tag(), 'accept: could not find name');
+  if (!event.title) console.warn(tag(), 'accept: could not find title');
+  if (validation.dirty) {
+    // Surface the orchestrator's validation result here at the call site —
+    // spec 013's AI fallback decision lives at this seam. sendEvent runs
+    // validate() again today for badge severity; this log captures the
+    // upstream signal so we don't lose it.
+    console.warn(
+      tag(),
+      'accept: validation gaps=',
+      validation.gaps.map((g) => `${g.field}:${g.code}`).join(','),
+    );
+  }
 
   const debugMode = await getDebugMode();
   const debug = debugMode
     ? buildDebugPayload(button, inviteCard?.container ?? findDebugContainer(button))
     : undefined;
 
-  if (isDuplicate(name)) return;
-  recordSent(name);
+  if (isDuplicate(event.name)) return;
+  recordSent(event.name);
 
-  console.log(tag(), 'captured (accept click):', { name, title, linkedin_url });
+  console.log(tag(), 'captured (accept click):', {
+    name: event.name,
+    title: event.title,
+    linkedin_url: event.linkedin_url,
+  });
 
-  const event: PipelineEvent = {
-    api_key: '',
-    event_type: 'accepted_connection',
-    date: new Date().toISOString().slice(0, 10),
-    name,
-    title,
-    linkedin_url,
-    page_url: window.location.href,
-    message_text: messageText,
-    ...(debug ? { debug } : {}),
-  };
-
-  await sendEvent(event);
+  const finalEvent: PipelineEvent = debug ? { ...event, debug } : event;
+  await sendEvent(finalEvent);
 }
 
 // =============================================================================

@@ -6,9 +6,9 @@
     "esModuleInterop": true,
     "strict": true,
     "skipLibCheck": true,
-    "rootDir": ".",
-    "outDir": "dist"
-  },
-  "include": ["scripts/**/*", "automations/**/*"],
-  "references": [{ "path": "./packages/scraping-core" }]
+    "lib": ["ES2022", "DOM"],
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  }
 }

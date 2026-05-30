@@ -3,9 +3,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { MessengerPageCard } from '../../../pipeline-tracker/src/messenger-page-card.ts';
+import { MessengerPageCard } from '../../src/cards/messenger-page-card.ts';
 
-const FIXTURE_DIR = join(__dirname, '../../../pipeline-tracker/test-divs');
+const FIXTURE_DIR = join(__dirname, '../../../../pipeline-tracker/test-divs');
 
 function loadFixture(name: string): void {
   const html = readFileSync(join(FIXTURE_DIR, name), 'utf-8');
