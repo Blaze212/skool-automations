@@ -143,7 +143,21 @@ selectors-only base.
 Each phase ships as ONE PR sized to ~200-400 lines of diff. The internal extension flow must
 work after every phase — no half-states.
 
-Every phase ends with `pnpm typecheck && pnpm test && pnpm lint && pnpm format:check` green.
+### Per-PR workflow (mandatory for every phase in this spec)
+
+Before opening a PR for any phase:
+
+1. `pnpm typecheck && pnpm test && pnpm lint && pnpm format:check` — must be green.
+2. **Run `/code-review --effort high` against the current diff.** This invokes the multi-angle
+   reviewer skill on the local branch (no PR required). Address every CONFIRMED finding.
+   Triage PLAUSIBLE findings — fix or document why you're deferring; never silently drop.
+3. Re-run step 1 after the fixes.
+4. Only THEN open the PR.
+
+Rationale: this protocol was added after the spec-011 implementation review found 4 real
+issues (two diagnostic-correctness bugs introduced by Phase 4-5, two validator regex
+over-matches) that would have shipped without it. Catching them on the local branch instead
+of the PR review keeps the PR diff focused on intended changes.
 
 ### Phase 1 — Workspace skeleton (~200 lines)
 

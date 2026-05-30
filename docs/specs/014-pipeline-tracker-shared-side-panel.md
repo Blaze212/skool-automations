@@ -213,6 +213,18 @@ it.
 Each phase ships as ONE PR sized to ~200-400 lines of diff. The internal extension flow
 must work after every phase — no half-states.
 
+### Per-PR workflow (mandatory for every phase in this spec)
+
+Before opening a PR for any phase:
+
+1. `pnpm typecheck && pnpm test && pnpm lint && pnpm format:check` — must be green.
+2. **Run `/code-review --effort high` against the current diff.** Address every CONFIRMED
+   finding. Triage PLAUSIBLE — fix or document; never silently drop.
+3. Re-run step 1 after the fixes.
+4. Only THEN open the PR.
+
+See spec 011 for the rationale.
+
 ### Phase 1 — Internal manifest gains side panel; popup stays as fallback (~250 LoC)
 
 - `manifest.internal.json` adds the `"sidePanel"` permission + `"side_panel": {"default_path":

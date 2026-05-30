@@ -629,11 +629,24 @@ rows use spec-008 server-side extraction, so no client-side HTML carry-through.
 
 ## Implementation phases
 
-Each phase ships as ONE PR sized to ~200-400 lines of diff (source + tests). Each phase ends
-with `pnpm typecheck && pnpm test && pnpm lint && pnpm format:check` green. The internal flow
-must work after every phase — no half-states allowed.
+Each phase ships as ONE PR sized to ~200-400 lines of diff (source + tests). The internal
+flow must work after every phase — no half-states allowed.
 
 Phase 0 has zero code diff; it's a baseline-sanity checklist that gates the rest.
+
+### Per-PR workflow (mandatory for every phase in this spec)
+
+Before opening a PR for any phase:
+
+1. `pnpm typecheck && pnpm test && pnpm lint && pnpm format:check` — must be green.
+2. **Run `/code-review --effort high` against the current diff.** Invokes the multi-angle
+   reviewer skill on the local branch (no PR required). Address every CONFIRMED finding.
+   Triage PLAUSIBLE findings — fix or document why you're deferring; never silently drop.
+3. Re-run step 1 after the fixes.
+4. Only THEN open the PR.
+
+Established by spec 011 — see that spec's per-PR workflow note for the rationale (real
+issues caught locally that would have shipped through PR review otherwise).
 
 ### Phase 0 — Branch sync + baseline sanity (no LoC; checklist PR)
 

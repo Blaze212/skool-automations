@@ -265,6 +265,18 @@ Each phase ships as ONE PR sized to ~200-400 lines of diff. Internal extension b
 continue to function after every phase — but with `ai_fallback_enabled` defaulting to false,
 no AI code runs unless the user opts in, so there is no rollout risk to existing users.
 
+### Per-PR workflow (mandatory for every phase in this spec)
+
+Before opening a PR for any phase:
+
+1. `pnpm typecheck && pnpm test && pnpm lint && pnpm format:check` — must be green.
+2. **Run `/code-review --effort high` against the current diff.** Address every CONFIRMED
+   finding. Triage PLAUSIBLE — fix or document; never silently drop.
+3. Re-run step 1 after the fixes.
+4. Only THEN open the PR.
+
+See spec 011 for the rationale.
+
 ### Phase 1 — Strip helper + capability detection (~250 lines)
 
 - `packages/scraping-core/src/ai-fallback/strip-html.ts` — `stripHtmlForCarry` + cap constant.
