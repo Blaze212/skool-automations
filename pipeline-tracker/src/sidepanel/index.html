@@ -318,10 +318,86 @@
         border-radius: 3px;
         padding: 6px 8px;
       }
+
+      /* ── Binding section (Phase 7) ────────────────────────────────────── */
+      .binding-section {
+        margin-bottom: 16px;
+        border: 1px solid #e5e7eb;
+        border-radius: 4px;
+        padding: 10px;
+        background: #f9fafb;
+      }
+      .binding-section .section-header {
+        margin-bottom: 6px;
+      }
+      .binding-explain {
+        font-size: 12px;
+        color: #475569;
+        line-height: 1.4;
+        margin-bottom: 8px;
+      }
+      .binding-help {
+        font-size: 11px;
+        color: #64748b;
+        line-height: 1.4;
+        margin: 4px 0 8px;
+      }
+      .binding-status {
+        font-weight: 600;
+        font-size: 13px;
+      }
+      .binding-status-pending {
+        color: #6b21a8;
+      }
+      .binding-status-confirmed {
+        color: #166534;
+      }
+      .binding-countdown {
+        font-size: 11px;
+        color: #6b21a8;
+        margin-top: 2px;
+      }
+      .binding-error {
+        margin-top: 8px;
+        font-size: 11px;
+        color: #991b1b;
+        background: #fee2e2;
+        border-radius: 3px;
+        padding: 6px 8px;
+      }
+      .binding-primary {
+        appearance: none;
+        background: #2563eb;
+        color: #ffffff;
+        border: 0;
+        border-radius: 4px;
+        padding: 6px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .binding-primary:disabled {
+        background: #cbd5e1;
+        cursor: not-allowed;
+      }
+      .binding-secondary {
+        appearance: none;
+        background: transparent;
+        color: #475569;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        padding: 5px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .binding-secondary:hover {
+        background: #f1f5f9;
+      }
     </style>
   </head>
   <body>
     <div id="settings-section"></div>
+    <div id="binding-section"></div>
 
     <section id="unsynced-section" class="section">
       <div class="section-header">

@@ -18,6 +18,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  _resetBindingMountForTests,
   initSidePanel,
   renderActivity,
   renderUnsynced,
@@ -97,6 +98,7 @@ beforeEach(() => {
   _resetInitLatchForTests();
   document.body.innerHTML = `
     <div id="settings-section"></div>
+    <div id="binding-section"></div>
     <section id="unsynced-section"><div id="unsynced-list"></div><span id="unsynced-count"></span></section>
     <section id="activity-section"><div id="activity-list"></div></section>
     <div id="modal-root"></div>
@@ -104,6 +106,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  _resetBindingMountForTests();
   document.body.innerHTML = '';
 });
 
@@ -350,5 +353,126 @@ describe('side panel — initSidePanel', () => {
     expect(
       (document.getElementById('unsynced-list') as HTMLElement).querySelectorAll('.row'),
     ).toHaveLength(1);
+  });
+});
+
+describe('side panel — binding section + storage.onChanged wiring', () => {
+  it('mounts the binding section with the persisted binding from storage', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+    local[STORAGE_KEYS.BINDING] = {
+      token: 'tok',
+      bound_at: '2026-05-30T10:00:00Z',
+      status: 'confirmed',
+    };
+
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const binding = document.querySelector('.binding-status-confirmed') as HTMLElement;
+    expect(binding).not.toBeNull();
+    expect(binding.textContent).toMatch(/Connected/);
+  });
+
+  it('registers a chrome.storage.onChanged listener that re-renders on BINDING changes', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Capture the listener that mountBinding registered.
+    const calls = (chrome.storage.onChanged.addListener as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const listener = calls[calls.length - 1][0] as (
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string,
+    ) => void;
+
+    // Initial state: unbound (no binding seeded).
+    expect(document.querySelector('.binding-primary')).not.toBeNull();
+
+    // Simulate the SW writing a confirmed binding (bind-ack path).
+    local[STORAGE_KEYS.BINDING] = {
+      token: 'tok',
+      bound_at: '2026-05-30T10:00:00Z',
+      status: 'confirmed',
+    };
+    listener(
+      {
+        [STORAGE_KEYS.BINDING]: {
+          newValue: local[STORAGE_KEYS.BINDING],
+        } as chrome.storage.StorageChange,
+      },
+      'local',
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.querySelector('.binding-status-confirmed')).not.toBeNull();
+    expect(document.querySelector('.binding-primary')).toBeNull();
+  });
+
+  it('ignores storage.onChanged events from other areas (sync, session)', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const listener = (
+      chrome.storage.onChanged.addListener as ReturnType<typeof vi.fn>
+    ).mock.calls.at(-1)?.[0] as (
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string,
+    ) => void;
+
+    // Spy on bindingStore activity by clearing get-mock history.
+    (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockClear();
+
+    listener(
+      { [STORAGE_KEYS.BINDING]: { newValue: 'whatever' } as chrome.storage.StorageChange },
+      'sync',
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    // No bindingStore.get round-trip should have fired.
+    expect(chrome.storage.local.get).not.toHaveBeenCalled();
+  });
+
+  it('ignores storage.onChanged events where the BINDING key did not change', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const listener = (
+      chrome.storage.onChanged.addListener as ReturnType<typeof vi.fn>
+    ).mock.calls.at(-1)?.[0] as (
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string,
+    ) => void;
+    (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockClear();
+
+    // A change to OUTBOX or HISTORY should not trigger a binding re-read.
+    listener({ [STORAGE_KEYS.OUTBOX]: { newValue: [] } as chrome.storage.StorageChange }, 'local');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(chrome.storage.local.get).not.toHaveBeenCalled();
+  });
+
+  it('re-mounting via a second initSidePanel call does NOT leak storage.onChanged listeners', async () => {
+    installStatefulStorage();
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Each safelyMountBinding call MUST tear down the prior subscription
+    // before installing its own.
+    expect(chrome.storage.onChanged.removeListener).toHaveBeenCalled();
   });
 });

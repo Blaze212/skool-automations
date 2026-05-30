@@ -11,6 +11,10 @@ import { vi } from 'vitest';
       set: vi.fn().mockResolvedValue(undefined),
       remove: vi.fn().mockResolvedValue(undefined),
     },
+    onChanged: {
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+    },
   },
   runtime: {
     id: 'test-extension-id',
@@ -20,6 +24,9 @@ import { vi } from 'vitest';
       addListener: vi.fn(),
     },
     onMessageExternal: {
+      addListener: vi.fn(),
+    },
+    onConnectExternal: {
       addListener: vi.fn(),
     },
     onInstalled: {
