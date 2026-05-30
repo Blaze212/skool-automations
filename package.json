@@ -12,6 +12,7 @@
     "typecheck:extension": "tsc --noEmit --project linkedin-tracker/tsconfig.json",
     "typecheck:pipeline-tracker": "tsc --noEmit --project pipeline-tracker/tsconfig.json",
     "typecheck:packages": "tsc --build packages/scraping-core",
+    "guard:no-cards-in-pipeline-tracker": "if grep -rE 'class[[:space:]]+[A-Za-z0-9_]+Card\\b' pipeline-tracker/src/; then echo 'ERROR: card classes must live in @cs/scraping-core (spec 011 phase 5 guard)'; exit 1; else echo 'OK: no card classes in pipeline-tracker/src/'; fi",
     "typecheck": "tsc --noEmit && pnpm typecheck:functions && pnpm typecheck:extension && pnpm typecheck:pipeline-tracker && pnpm typecheck:packages",
     "format:check": "prettier --check . && cd supabase/functions",
     "lint:functions": "cd supabase/functions && deno lint",

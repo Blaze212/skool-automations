@@ -12,6 +12,13 @@
 
 export type EventType = 'connection_request' | 'accepted_connection' | 'direct_message';
 
+/**
+ * Source of the extracted PipelineEvent fields. Today only the selector chain
+ * produces values; spec 013 broadens this to `'ai-recovered'` for values the
+ * on-device LanguageModel repaired after validate() flagged a gap.
+ */
+export type ExtractionSource = 'selectors';
+
 export interface DebugPayload {
   button_aria_label: string;
   button_text: string;

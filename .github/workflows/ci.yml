@@ -40,6 +40,11 @@ jobs:
       - run: pnpm lint
       - run: pnpm test:unit:coverage
 
+      # Spec 011 phase 5 guard: card classes must live in @cs/scraping-core,
+      # not pipeline-tracker/src/. Prevents regression of the workspace split.
+      - name: Guard — no card classes in pipeline-tracker/src/
+        run: pnpm guard:no-cards-in-pipeline-tracker
+
   supabase-migrate-and-deploy:
     name: Supabase Migrate & Deploy Functions
     runs-on: ubuntu-latest
