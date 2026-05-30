@@ -1,6 +1,6 @@
 # Pipeline Tracker — Publishable Chrome Extension
 
-**Status:** In progress (Phases 0–3 complete; Phase 4 next)
+**Status:** In progress (Phases 0–4 complete; Phase 5 next)
 **Owner:** Barton Holdridge
 **Last updated:** 2026-05-30
 
@@ -736,7 +736,7 @@ Lock the working internal flow before the DestinationStrategy refactor touches i
 
 Done when: test passes against current `background.ts` on `origin/main` and runs in CI.
 
-### Phase 4 — Manifest split + DestinationStrategy (~400 LoC)
+### Phase 4 — Manifest split + DestinationStrategy (~400 LoC) ✅ COMPLETE (2026-05-30)
 
 - Split `manifest.json` → `manifest.internal.json` + `manifest.publishable.json`.
 - `build.ts` accepts `--target=internal|publishable`; selects manifest + UI bundle (popup vs
@@ -746,6 +746,25 @@ Done when: test passes against current `background.ts` on `origin/main` and runs
 - `AppSyncStrategy` is a no-op shell (`onEventCaptured` resolves immediately).
 - CI guard #3 (no `fetch(`/`XMLHttpRequest` in publishable bundle outside an allow list).
 - Phase 3's e2e test must still pass — this is the regression gate.
+
+> Delivered as `worktree-spec-012-phase-4-destination-strategy`.
+> `destination.ts` holds `DestinationStrategy` + `WebhookAutoPushStrategy`
+> (`drainNow`, `deliverEventDirect`, `_resetDrainingForTests`) +
+> `AppSyncStrategy` (no-op). `BUILD_TARGET` is injected via esbuild `define`
+> and gated through a `typeof`-guarded `RESOLVED_BUILD_TARGET` so a missing
+> define falls back to `internal` instead of throwing `ReferenceError` at SW
+> startup. Publishable DCE is layered: empty `PIPELINE_TRACKER_WEBHOOK_URL`
+> triggers an early return inside `performWebhookDelivery` that esbuild can
+> tree-shake the fetch out of; CI guard #3 (`guard:no-fetch-in-publishable`)
+> backstops with a recursive grep over `dist-publishable/`. Build outputs are
+> `dist-internal/` and `dist-publishable/`. /code-review --effort high
+> surfaced three findings — guard-grep fragility (silent pass on missing
+> file → switched to `grep -rnE --include=*.js`), `BUILD_TARGET`
+> `ReferenceError` fragility (typeof fallback added), and a weak
+> `_resetDrainingForTests` test (strengthened to mutate the latch via a brand
+> cast and assert subsequent drains run). 5 new tests in
+> `tests/unit/pipeline-tracker/destination.test.ts`; full suite 335/335; all
+> three CI guards green.
 
 Done when: both `dist-internal/` and `dist-publishable/` build. Internal flow unchanged
 end-to-end and Phase 3's e2e test still green.

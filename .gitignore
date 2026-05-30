@@ -3,6 +3,8 @@ dist/
 linkedin-tracker/dist/
 pipeline-tracker/dist.zip
 pipeline-tracker/dist/
+pipeline-tracker/dist-internal/
+pipeline-tracker/dist-publishable/
 packages/*/dist/
 *.tsbuildinfo
 .env
