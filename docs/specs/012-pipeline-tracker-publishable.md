@@ -1,6 +1,6 @@
 # Pipeline Tracker — Publishable Chrome Extension
 
-**Status:** In progress (Phases 0–2 complete; Phase 3 next)
+**Status:** In progress (Phases 0–3 complete; Phase 4 next)
 **Owner:** Barton Holdridge
 **Last updated:** 2026-05-30
 
@@ -711,7 +711,7 @@ works end-to-end against a test sheet. No code change.
 > raw-storage-local` extended to cover `chrome.storage.local.remove`. 17 new
 > tests; full suite 314/314.
 
-### Phase 3 — Internal-build e2e regression test (~350 LoC)
+### Phase 3 — Internal-build e2e regression test (~350 LoC) ✅ COMPLETE (2026-05-30)
 
 Lock the working internal flow before the DestinationStrategy refactor touches it (D-rev-31).
 
@@ -721,6 +721,18 @@ Lock the working internal flow before the DestinationStrategy refactor touches i
 - Asserts webhook payload is byte-identical to the pre-refactor shape — this is the regression
   guard for Phase 4.
 - Mock plumbing for `chrome.storage` + `fetch` lives in `tests/__mocks__/`.
+
+> Delivered as `worktree-spec-012-phase-3-drain-e2e`. 9 new tests routed
+> through the actual `chrome.runtime.onMessage` listener registered at
+> `background.ts` module load. The byte-identical guard pins the POST body
+> via `JSON.stringify` (order-sensitive). /code-review --effort high added
+> three coverage gaps caught by the reviewer: the `effectiveSeverity()`
+> override (200 success with empty name+url → red bubble), the stale-entry
+> drop branch (>7d via `OUTBOX_STALE_AFTER_MS`), and multi-entry FIFO via
+> the listener route. Also added a `_resetDrainingForTests()` helper in
+> `background.ts` (called in beforeEach) so the module-load
+> `restoreBadgeOnStartup` chain's fire-and-forget drain can't leak
+> `_draining=true` into the first test. Full suite 330/330.
 
 Done when: test passes against current `background.ts` on `origin/main` and runs in CI.
 
