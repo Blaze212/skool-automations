@@ -1,4 +1,5 @@
 import { STORAGE_KEYS, type HistoryEntry, type PipelineEvent } from '../types.ts';
+import { badgeStore, deliveryStore, historyStore, setHistoryAndBadge } from '../storage.ts';
 
 function formatTimestamp(iso: string): string {
   return new Date(iso).toLocaleString('en-US', {
@@ -101,10 +102,7 @@ export function renderHistory(entries: HistoryEntry[]): void {
 async function clearUnreadCounter(): Promise<void> {
   // The toolbar bubble reflects the *last update* (set in background.ts) and is
   // intentionally NOT cleared here — it should persist until the next event.
-  await chrome.storage.local.set({
-    [STORAGE_KEYS.UNREAD_COUNT]: 0,
-    [STORAGE_KEYS.HIGHEST_SEVERITY]: 'ok',
-  });
+  await badgeStore.setPartial({ unreadCount: 0, highestSeverity: 'ok' });
 }
 
 export async function initPopup(): Promise<void> {
@@ -140,25 +138,22 @@ export async function initPopup(): Promise<void> {
     showSetupMode();
   }
 
-  const localData = (await chrome.storage.local.get([
-    STORAGE_KEYS.LAST_LOGGED_AT,
-    STORAGE_KEYS.LAST_ERROR,
-    STORAGE_KEYS.HISTORY,
-  ])) as Record<string, unknown>;
+  const [lastLoggedAt, lastError, history] = await Promise.all([
+    deliveryStore.getLastLoggedAt(),
+    deliveryStore.getLastError(),
+    historyStore.get(),
+  ]);
 
-  const lastLoggedAt = localData[STORAGE_KEYS.LAST_LOGGED_AT] as string | undefined;
   if (lastLoggedAt) {
     timestampEl.textContent = `Last logged: ${formatTimestamp(lastLoggedAt)}`;
     timestampEl.style.display = '';
   }
 
-  const lastError = localData[STORAGE_KEYS.LAST_ERROR] as string | null | undefined;
   if (lastError) {
     lastErrorEl.textContent = `Last POST failed: ${formatTimestamp(lastError)}`;
     lastErrorEl.style.display = '';
   }
 
-  const history = (localData[STORAGE_KEYS.HISTORY] as HistoryEntry[] | undefined) ?? [];
   renderHistory(history);
 
   // Opening the popup acknowledges unread notifications.
@@ -220,11 +215,8 @@ export async function initPopup(): Promise<void> {
     testBtn.disabled = false;
 
     // Re-render history (background just wrote a new entry) and clear badge again.
-    const refreshed = (await chrome.storage.local.get(STORAGE_KEYS.HISTORY)) as Record<
-      string,
-      unknown
-    >;
-    renderHistory((refreshed[STORAGE_KEYS.HISTORY] as HistoryEntry[] | undefined) ?? []);
+    const refreshed = await historyStore.get();
+    renderHistory(refreshed);
     await clearUnreadCounter();
   });
 
@@ -242,11 +234,13 @@ export async function initPopup(): Promise<void> {
   });
 
   clearHistoryBtn.addEventListener('click', async () => {
-    await chrome.storage.local.set({
-      [STORAGE_KEYS.HISTORY]: [],
-      [STORAGE_KEYS.UNREAD_COUNT]: 0,
-      [STORAGE_KEYS.HIGHEST_SEVERITY]: 'ok',
-      [STORAGE_KEYS.LAST_STATUS]: null,
+    // Atomic — empty history + clear all three badge keys in one set() so a
+    // popup close mid-await can't leave the badge populated with a now-empty
+    // history pointer.
+    await setHistoryAndBadge([], {
+      unreadCount: 0,
+      highestSeverity: 'ok',
+      lastStatus: null,
     });
     renderHistory([]);
     if (chrome.action && typeof chrome.action.setBadgeText === 'function') {

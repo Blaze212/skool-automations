@@ -1,6 +1,7 @@
 node_modules/
 dist/
 linkedin-tracker/dist/
+pipeline-tracker/dist.zip
 pipeline-tracker/dist/
 packages/*/dist/
 *.tsbuildinfo
@@ -12,3 +13,7 @@ supabase/.branches/_current_branch
 supabase/.temp/cli-latest
 coverage/
 .DS_Store
+
+# Agent / worktree scratch dirs — created by Claude Code worktree isolation
+.worktrees/
+.claude/worktrees/

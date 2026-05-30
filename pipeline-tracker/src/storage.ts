@@ -1,0 +1,466 @@
+// Typed facade over chrome.storage.local. Spec 012 Phase 1.
+//
+// Rules (D-rev-11):
+//   (a) Quota-exceeded on set throws StorageQuotaExceededError; callers on
+//       capture paths convert that to a HistoryEntry { status: 'error',
+//       code: 'STORAGE_QUOTA' } via recordStorageQuotaError, which also
+//       bumps unread + highest severity (spec 007).
+//   (b) Every get validates the value against a shape predicate; on mismatch
+//       the key resets to its default (or — for the two array-keyed stores —
+//       salvages individual valid entries) and the bad shape is warned about.
+//   (c) ensureInitialized() runs once per SW spin-up to fill missing keys with
+//       defaults. Idempotent — must be awaited at every entry point that may
+//       read settings/last_synced_at (handleMessage, onAlarm, onStartup,
+//       onInstalled, the module-load startup hook).
+//
+// Atomic multi-key writes: callers that need to mutate logically-coupled keys
+// (history + badge, outbox + history, delivery success+clear-error, history +
+// badge clear in the popup) MUST use the dedicated multi-key helpers exported
+// at the bottom of this file. Two sequential .set() calls don't satisfy
+// chrome.storage.local's per-call atomicity guarantee — a quota failure on the
+// second call leaves the two keys diverged. The helpers below issue one
+// rawSet().
+//
+// CI guard #2 (package.json `guard:no-raw-storage-local`) forbids
+// chrome.storage.local.{get,set} outside this file.
+
+import {
+  HISTORY_CAP,
+  STORAGE_KEYS,
+  type HistoryEntry,
+  type OutboxEntry,
+  type Severity,
+  type Settings,
+} from './types.ts';
+import { ts } from './logger.ts';
+
+const tag = () => `[Pipeline Tracker Storage - ${ts()}]`;
+
+// === Defaults ===
+
+export const DEFAULT_SETTINGS: Settings = {
+  ai_fallback_enabled: false,
+  ai_model_downloaded: false,
+  capture_message_bodies: false,
+  first_run_completed: false,
+};
+
+// === Errors ===
+
+export class StorageQuotaExceededError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StorageQuotaExceededError';
+  }
+}
+
+// Quota detection uses the error itself only. We deliberately do NOT consult
+// `chrome.runtime.lastError` — that channel is meaningful only inside the
+// callback-style API, and reading it here from a promise-API rejection risks
+// misclassifying an unrelated stale lastError (e.g. a prior storage.sync write)
+// as a local-storage quota event. The promise rejection's Error / DOMException
+// is the authoritative signal.
+function isQuotaError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.name === 'QuotaExceededError') return true; // DOMException form
+  return /quota/i.test(err.message);
+}
+
+// === Raw IO (only place that touches chrome.storage.local in the codebase) ===
+
+async function rawGet(keys: string | string[]): Promise<Record<string, unknown>> {
+  return (await chrome.storage.local.get(keys)) as Record<string, unknown>;
+}
+
+async function rawSet(items: Record<string, unknown>): Promise<void> {
+  try {
+    await chrome.storage.local.set(items);
+  } catch (err) {
+    if (isQuotaError(err)) {
+      throw new StorageQuotaExceededError(
+        err instanceof Error ? err.message : 'chrome.storage.local quota exceeded',
+      );
+    }
+    throw err;
+  }
+}
+
+// === Validators (D-rev-11b) ===
+
+const SEVERITY_SET = new Set<Severity>(['ok', 'partial', 'error', 'pending']);
+function isSeverity(v: unknown): v is Severity {
+  return typeof v === 'string' && SEVERITY_SET.has(v as Severity);
+}
+function isSeverityOrNull(v: unknown): v is Severity | null {
+  return v === null || isSeverity(v);
+}
+function isStringOrNull(v: unknown): v is string | null {
+  return v === null || typeof v === 'string';
+}
+function isNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+const EVENT_TYPE_SET = new Set(['connection_request', 'accepted_connection', 'direct_message']);
+
+function isSettings(v: unknown): v is Settings {
+  if (!v || typeof v !== 'object') return false;
+  const s = v as Record<string, unknown>;
+  return (
+    typeof s.ai_fallback_enabled === 'boolean' &&
+    typeof s.ai_model_downloaded === 'boolean' &&
+    typeof s.capture_message_bodies === 'boolean' &&
+    typeof s.first_run_completed === 'boolean'
+  );
+}
+
+// Per-entry predicates. The OUTBOX / HISTORY array stores use these to salvage
+// individual valid entries rather than wiping the whole array on a single bad
+// row — a corruption in entry[5] should not silently destroy entries 0–4 and
+// 6–N that the user is still owed delivery for.
+function isHistoryEntry(e: unknown): e is HistoryEntry {
+  if (e === null || typeof e !== 'object') return false;
+  const h = e as Record<string, unknown>;
+  return (
+    typeof h.id === 'string' &&
+    typeof h.ts === 'string' &&
+    isSeverity(h.status) &&
+    typeof h.event_type === 'string' &&
+    EVENT_TYPE_SET.has(h.event_type) &&
+    typeof h.name === 'string' &&
+    typeof h.page_url === 'string' &&
+    typeof h.message === 'string' &&
+    Array.isArray(h.warnings)
+  );
+}
+
+function isOutboxEntry(e: unknown): e is OutboxEntry {
+  if (e === null || typeof e !== 'object') return false;
+  const o = e as Record<string, unknown>;
+  return (
+    typeof o.history_id === 'string' &&
+    typeof o.enqueued_at === 'string' &&
+    isNumber(o.attempts) &&
+    o.event !== null &&
+    typeof o.event === 'object'
+  );
+}
+
+// === Generic helpers ===
+
+function cloneDefault<T>(v: T): T {
+  if (v === null || typeof v !== 'object') return v;
+  if (Array.isArray(v)) return [...v] as unknown as T;
+  return { ...(v as Record<string, unknown>) } as T;
+}
+
+/**
+ * Read a key, validate its shape, and on mismatch reset to the default and
+ * return the default. The reset rawSet is best-effort: if it itself throws
+ * (e.g. quota), we swallow and return the default anyway — callers that
+ * invoke this from read paths (popup init, badge restoration) must never see
+ * a thrown StorageQuotaExceededError from what they treat as a pure read.
+ */
+async function getValidated<T>(
+  key: string,
+  predicate: (v: unknown) => v is T,
+  defaultValue: T,
+): Promise<T> {
+  const r = await rawGet(key);
+  const raw = r[key];
+  if (raw === undefined) return cloneDefault(defaultValue);
+  if (!predicate(raw)) {
+    console.warn(tag(), `${key} shape mismatch — resetting to default`);
+    try {
+      await rawSet({ [key]: cloneDefault(defaultValue) });
+    } catch (err) {
+      console.warn(tag(), `failed to reset ${key} to default (best-effort):`, err);
+    }
+    return cloneDefault(defaultValue);
+  }
+  return raw;
+}
+
+/**
+ * Read a known-array key, salvage entries that pass the per-entry predicate,
+ * and if any entries had to be filtered out, write the salvaged array back
+ * (best-effort; quota failure on the salvage write is swallowed).
+ */
+async function getValidatedArray<T>(key: string, perEntry: (e: unknown) => e is T): Promise<T[]> {
+  const r = await rawGet(key);
+  const raw = r[key];
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    console.warn(tag(), `${key} shape mismatch (not an array) — resetting to []`);
+    try {
+      await rawSet({ [key]: [] });
+    } catch (err) {
+      console.warn(tag(), `failed to reset ${key} (best-effort):`, err);
+    }
+    return [];
+  }
+  const salvaged = raw.filter(perEntry);
+  if (salvaged.length !== raw.length) {
+    console.warn(
+      tag(),
+      `${key} had ${raw.length - salvaged.length} invalid entr${raw.length - salvaged.length === 1 ? 'y' : 'ies'} — salvaging ${salvaged.length}/${raw.length}`,
+    );
+    try {
+      await rawSet({ [key]: salvaged });
+    } catch (err) {
+      console.warn(tag(), `failed to write salvaged ${key} (best-effort):`, err);
+    }
+  }
+  return salvaged;
+}
+
+// === Initialization (D-rev-11c) ===
+
+let _initPromise: Promise<void> | null = null;
+
+export function ensureInitialized(): Promise<void> {
+  if (_initPromise) return _initPromise;
+  _initPromise = (async () => {
+    const all = await rawGet([STORAGE_KEYS.SETTINGS, STORAGE_KEYS.LAST_SYNCED_AT]);
+    const missing: Record<string, unknown> = {};
+    if (all[STORAGE_KEYS.SETTINGS] === undefined) {
+      missing[STORAGE_KEYS.SETTINGS] = { ...DEFAULT_SETTINGS };
+    }
+    if (all[STORAGE_KEYS.LAST_SYNCED_AT] === undefined) {
+      missing[STORAGE_KEYS.LAST_SYNCED_AT] = null;
+    }
+    if (Object.keys(missing).length > 0) {
+      await rawSet(missing);
+    }
+  })().catch((err: unknown) => {
+    // Reset so the next caller retries — don't latch a failed init permanently.
+    _initPromise = null;
+    throw err;
+  });
+  return _initPromise;
+}
+
+/** Test-only — drop the init latch so a fresh ensureInitialized() runs. */
+export function _resetInitLatchForTests(): void {
+  _initPromise = null;
+}
+
+// === Stores ===
+
+export const settingsStore = {
+  async get(): Promise<Settings> {
+    return getValidated(STORAGE_KEYS.SETTINGS, isSettings, { ...DEFAULT_SETTINGS });
+  },
+  async set(s: Settings): Promise<void> {
+    await rawSet({ [STORAGE_KEYS.SETTINGS]: s });
+  },
+  async update(patch: Partial<Settings>): Promise<Settings> {
+    const cur = await settingsStore.get();
+    const next = { ...cur, ...patch };
+    await settingsStore.set(next);
+    return next;
+  },
+};
+
+export const lastSyncedAtStore = {
+  async get(): Promise<string | null> {
+    return getValidated(STORAGE_KEYS.LAST_SYNCED_AT, isStringOrNull, null);
+  },
+  async set(v: string | null): Promise<void> {
+    await rawSet({ [STORAGE_KEYS.LAST_SYNCED_AT]: v });
+  },
+};
+
+export const outboxStore = {
+  async get(): Promise<OutboxEntry[]> {
+    return getValidatedArray(STORAGE_KEYS.OUTBOX, isOutboxEntry);
+  },
+  async set(o: OutboxEntry[]): Promise<void> {
+    await rawSet({ [STORAGE_KEYS.OUTBOX]: o });
+  },
+};
+
+export const historyStore = {
+  async get(): Promise<HistoryEntry[]> {
+    return getValidatedArray(STORAGE_KEYS.HISTORY, isHistoryEntry);
+  },
+  async set(h: HistoryEntry[]): Promise<void> {
+    await rawSet({ [STORAGE_KEYS.HISTORY]: h });
+  },
+  /** Prepend an entry, capped at HISTORY_CAP. Returns the new array. */
+  async prepend(entry: HistoryEntry): Promise<HistoryEntry[]> {
+    const prev = await historyStore.get();
+    const next = [entry, ...prev].slice(0, HISTORY_CAP);
+    await historyStore.set(next);
+    return next;
+  },
+};
+
+// Badge state (unread + highest severity + last status) is read together as a
+// snapshot by background.ts; expose it the same way so writers can keep
+// multi-key set atomicity.
+export interface BadgeState {
+  unreadCount: number;
+  highestSeverity: Severity;
+  lastStatus: Severity | null;
+}
+
+const DEFAULT_BADGE_STATE: BadgeState = {
+  unreadCount: 0,
+  highestSeverity: 'ok',
+  lastStatus: null,
+};
+
+function buildBadgePatchItems(patch: Partial<BadgeState>): Record<string, unknown> {
+  const items: Record<string, unknown> = {};
+  if (patch.unreadCount !== undefined) items[STORAGE_KEYS.UNREAD_COUNT] = patch.unreadCount;
+  if (patch.highestSeverity !== undefined) {
+    items[STORAGE_KEYS.HIGHEST_SEVERITY] = patch.highestSeverity;
+  }
+  if (patch.lastStatus !== undefined) items[STORAGE_KEYS.LAST_STATUS] = patch.lastStatus;
+  return items;
+}
+
+export const badgeStore = {
+  async get(): Promise<BadgeState> {
+    const r = await rawGet([
+      STORAGE_KEYS.UNREAD_COUNT,
+      STORAGE_KEYS.HIGHEST_SEVERITY,
+      STORAGE_KEYS.LAST_STATUS,
+    ]);
+    const unread = r[STORAGE_KEYS.UNREAD_COUNT];
+    const highest = r[STORAGE_KEYS.HIGHEST_SEVERITY];
+    const last = r[STORAGE_KEYS.LAST_STATUS];
+    const result: BadgeState = {
+      unreadCount: isNumber(unread) ? unread : DEFAULT_BADGE_STATE.unreadCount,
+      highestSeverity: isSeverity(highest) ? highest : DEFAULT_BADGE_STATE.highestSeverity,
+      lastStatus: isSeverityOrNull(last) ? last : DEFAULT_BADGE_STATE.lastStatus,
+    };
+    // Reset on shape mismatch — defense in depth (D-rev-11b). Best-effort:
+    // a quota failure on the salvage write must not turn this read into a throw.
+    const fixups: Record<string, unknown> = {};
+    if (unread !== undefined && !isNumber(unread)) {
+      console.warn(tag(), `${STORAGE_KEYS.UNREAD_COUNT} shape mismatch — resetting`);
+      fixups[STORAGE_KEYS.UNREAD_COUNT] = DEFAULT_BADGE_STATE.unreadCount;
+    }
+    if (highest !== undefined && !isSeverity(highest)) {
+      console.warn(tag(), `${STORAGE_KEYS.HIGHEST_SEVERITY} shape mismatch — resetting`);
+      fixups[STORAGE_KEYS.HIGHEST_SEVERITY] = DEFAULT_BADGE_STATE.highestSeverity;
+    }
+    if (last !== undefined && !isSeverityOrNull(last)) {
+      console.warn(tag(), `${STORAGE_KEYS.LAST_STATUS} shape mismatch — resetting`);
+      fixups[STORAGE_KEYS.LAST_STATUS] = DEFAULT_BADGE_STATE.lastStatus;
+    }
+    if (Object.keys(fixups).length > 0) {
+      try {
+        await rawSet(fixups);
+      } catch (err) {
+        console.warn(tag(), 'failed to reset badge fixups (best-effort):', err);
+      }
+    }
+    return result;
+  },
+  /** Set any subset of the badge state in a single chrome.storage.local.set call. */
+  async setPartial(patch: Partial<BadgeState>): Promise<void> {
+    const items = buildBadgePatchItems(patch);
+    if (Object.keys(items).length === 0) return;
+    await rawSet(items);
+  },
+};
+
+export const deliveryStore = {
+  async getLastLoggedAt(): Promise<string | null> {
+    return getValidated(STORAGE_KEYS.LAST_LOGGED_AT, isStringOrNull, null);
+  },
+  async setLastLoggedAt(v: string | null): Promise<void> {
+    await rawSet({ [STORAGE_KEYS.LAST_LOGGED_AT]: v });
+  },
+  async getLastError(): Promise<string | null> {
+    return getValidated(STORAGE_KEYS.LAST_ERROR, isStringOrNull, null);
+  },
+  async setLastError(v: string | null): Promise<void> {
+    await rawSet({ [STORAGE_KEYS.LAST_ERROR]: v });
+  },
+  /** Atomic — used on POST success so a stale lastError doesn't linger alongside a fresh lastLoggedAt. */
+  async setLastLoggedAndClearError(loggedAt: string): Promise<void> {
+    await rawSet({
+      [STORAGE_KEYS.LAST_LOGGED_AT]: loggedAt,
+      [STORAGE_KEYS.LAST_ERROR]: null,
+    });
+  },
+};
+
+// === Atomic multi-key helpers ===
+//
+// These exist because chrome.storage.local guarantees per-set atomicity but
+// callers historically wrote multiple logically-coupled keys in one set().
+// Splitting that set into two awaits introduces a window where a quota
+// failure on the second write diverges the two keys. Reuse these helpers
+// instead of two sequential .set() calls when state is coupled.
+
+/** outbox + history in one set (content.ts enqueue path). */
+export async function setOutboxAndHistory(
+  outbox: OutboxEntry[],
+  history: HistoryEntry[],
+): Promise<void> {
+  await rawSet({
+    [STORAGE_KEYS.OUTBOX]: outbox,
+    [STORAGE_KEYS.HISTORY]: history,
+  });
+}
+
+/** history + (any subset of) badge state in one set (background recordResolved). */
+export async function setHistoryAndBadge(
+  history: HistoryEntry[],
+  badgePatch: Partial<BadgeState>,
+): Promise<void> {
+  const items: Record<string, unknown> = {
+    [STORAGE_KEYS.HISTORY]: history,
+    ...buildBadgePatchItems(badgePatch),
+  };
+  await rawSet(items);
+}
+
+// === Quota → history error row (D-rev-11a) ===
+
+/**
+ * Append a HistoryEntry signaling that a chrome.storage.local write failed
+ * due to quota AND atomically bump unread + highest severity so the badge
+ * surfaces the failure (spec 007 — error rows raise the bubble). Callers on
+ * the capture path invoke this after they catch StorageQuotaExceededError.
+ *
+ * Best-effort — if storage is still over quota we can't write the warning row;
+ * we log and return rather than re-throwing into the capture path.
+ */
+export async function recordStorageQuotaError(params: {
+  id: string;
+  pageUrl: string;
+  name?: string;
+  eventType: HistoryEntry['event_type'];
+}): Promise<void> {
+  const entry: HistoryEntry = {
+    id: params.id,
+    ts: new Date().toISOString(),
+    status: 'error',
+    event_type: params.eventType,
+    name: params.name ?? '',
+    page_url: params.pageUrl,
+    message: 'Storage full — clear history to keep capturing.',
+    warnings: [],
+    code: 'STORAGE_QUOTA',
+  };
+  try {
+    const prev = await historyStore.get();
+    const badge = await badgeStore.get();
+    const next = [entry, ...prev].slice(0, HISTORY_CAP);
+    // 'error' is the highest severity — always wins the rank comparison.
+    await setHistoryAndBadge(next, {
+      unreadCount: badge.unreadCount + 1,
+      highestSeverity: 'error',
+      lastStatus: 'error',
+    });
+  } catch (err) {
+    // We're already in the quota path. Logging is the only safe action.
+    console.error(tag(), 'failed to record STORAGE_QUOTA history row:', err);
+  }
+}

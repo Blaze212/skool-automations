@@ -13,10 +13,17 @@ import {
   OUTBOX_STALE_AFTER_MS,
   STORAGE_KEYS,
   type HistoryEntry,
-  type OutboxEntry,
   type PipelineEvent,
   type Severity,
 } from './types.ts';
+import {
+  badgeStore,
+  deliveryStore,
+  ensureInitialized,
+  historyStore,
+  outboxStore,
+  setHistoryAndBadge,
+} from './storage.ts';
 import { ts } from './logger.ts';
 
 const tag = () => `[Pipeline Tracker BG - ${ts()}]`;
@@ -90,11 +97,10 @@ async function applyBadge(severity: Severity): Promise<void> {
 }
 
 export async function restoreBadgeOnStartup(): Promise<void> {
-  const local = (await chrome.storage.local.get([STORAGE_KEYS.LAST_STATUS])) as Record<
-    string,
-    unknown
-  >;
-  const lastStatus = local[STORAGE_KEYS.LAST_STATUS] as Severity | undefined;
+  // Spec 012 D-rev-11c — every SW entry point that touches the facade must
+  // await ensureInitialized first, not just handleMessage.
+  await ensureInitialized();
+  const { lastStatus } = await badgeStore.get();
   if (!lastStatus) {
     await chrome.action.setBadgeText({ text: '' });
   } else {
@@ -106,6 +112,19 @@ export async function restoreBadgeOnStartup(): Promise<void> {
   drainOutbox().catch((err: unknown) => {
     console.error(tag(), 'drainOutbox (restoreBadgeOnStartup) threw:', err);
   });
+}
+
+/**
+ * Wrap drainOutbox calls fired from non-message entry points so ensureInitialized
+ * runs first. Errors are swallowed with logging — propagating into onAlarm /
+ * onStartup / onInstalled would become an unhandled rejection in the SW global.
+ */
+function initThenDrain(source: string): Promise<void> {
+  return ensureInitialized()
+    .then(() => drainOutbox())
+    .catch((err: unknown) => {
+      console.error(tag(), `drainOutbox (${source}) threw:`, err);
+    });
 }
 
 // --- Result recording ---
@@ -125,15 +144,9 @@ async function recordResolved(
   classified: Classified,
   historyId: string | null,
 ): Promise<void> {
-  const local = (await chrome.storage.local.get([
-    STORAGE_KEYS.HISTORY,
-    STORAGE_KEYS.UNREAD_COUNT,
-    STORAGE_KEYS.HIGHEST_SEVERITY,
-  ])) as Record<string, unknown>;
-
-  const prevHistory = (local[STORAGE_KEYS.HISTORY] as HistoryEntry[] | undefined) ?? [];
-  const prevUnread = (local[STORAGE_KEYS.UNREAD_COUNT] as number | undefined) ?? 0;
-  const prevSeverity = (local[STORAGE_KEYS.HIGHEST_SEVERITY] as Severity | undefined) ?? 'ok';
+  const [prevHistory, badge] = await Promise.all([historyStore.get(), badgeStore.get()]);
+  const prevUnread = badge.unreadCount;
+  const prevSeverity = badge.highestSeverity;
 
   const lastStatus = effectiveSeverity(event, classified);
   const ts = new Date().toISOString();
@@ -164,12 +177,12 @@ async function recordResolved(
   const unreadCount = isNoisy ? prevUnread + 1 : prevUnread;
   const highestSeverity = isNoisy ? pickHigherSeverity(prevSeverity, lastStatus) : prevSeverity;
 
-  await chrome.storage.local.set({
-    [STORAGE_KEYS.HISTORY]: history,
-    [STORAGE_KEYS.UNREAD_COUNT]: unreadCount,
-    [STORAGE_KEYS.HIGHEST_SEVERITY]: highestSeverity,
-    [STORAGE_KEYS.LAST_STATUS]: lastStatus,
-  });
+  // Atomic write — history + the three badge keys land in one set() call so a
+  // quota failure can't leave history ahead of badge state. applyBadge() runs
+  // after the storage write succeeds; if storage throws, applyBadge is skipped
+  // and the throw propagates to the message-handler boundary (where we'd
+  // rather surface the failure than half-update the UI).
+  await setHistoryAndBadge(history, { unreadCount, highestSeverity, lastStatus });
 
   await applyBadge(lastStatus);
 }
@@ -231,7 +244,7 @@ async function deliverEvent(event: PipelineEvent): Promise<DeliveryOutcome> {
         // non-JSON body; ignore
       }
       console.error(tag(), `POST failed ${res.status}:`, bodyText);
-      await chrome.storage.local.set({ [STORAGE_KEYS.LAST_ERROR]: now });
+      await deliveryStore.setLastError(now);
 
       let message: string;
       if (res.status === 403) {
@@ -248,10 +261,10 @@ async function deliverEvent(event: PipelineEvent): Promise<DeliveryOutcome> {
     }
 
     console.log(tag(), 'POST succeeded');
-    await chrome.storage.local.set({
-      [STORAGE_KEYS.LAST_LOGGED_AT]: now,
-      [STORAGE_KEYS.LAST_ERROR]: null,
-    });
+    // Atomic — clear any prior lastError alongside writing the new
+    // lastLoggedAt so the popup never shows contradictory "Last logged" +
+    // "Last POST failed" lines if the second write fails.
+    await deliveryStore.setLastLoggedAndClearError(now);
 
     const bodyText = await res.text().catch(() => '');
     let warnings: string[] = [];
@@ -274,14 +287,14 @@ async function deliverEvent(event: PipelineEvent): Promise<DeliveryOutcome> {
     clearTimeout(timeout);
     if (err instanceof Error && err.name === 'AbortError') {
       console.warn(tag(), 'POST timed out');
-      await chrome.storage.local.set({ [STORAGE_KEYS.LAST_ERROR]: now });
+      await deliveryStore.setLastError(now);
       return {
         classified: { status: 'error', message: 'Connection timed out' },
         transientFailure: true,
       };
     }
     console.error(tag(), 'POST threw:', err);
-    await chrome.storage.local.set({ [STORAGE_KEYS.LAST_ERROR]: now });
+    await deliveryStore.setLastError(now);
     return {
       classified: { status: 'error', message: 'Connection failed' },
       transientFailure: true,
@@ -301,11 +314,7 @@ export async function drainOutbox(): Promise<void> {
   _draining = true;
   try {
     while (true) {
-      const local = (await chrome.storage.local.get(STORAGE_KEYS.OUTBOX)) as Record<
-        string,
-        unknown
-      >;
-      const outbox = (local[STORAGE_KEYS.OUTBOX] as OutboxEntry[] | undefined) ?? [];
+      const outbox = await outboxStore.get();
       if (outbox.length === 0) return;
 
       const entry = outbox[0];
@@ -357,22 +366,22 @@ export async function drainOutbox(): Promise<void> {
 }
 
 async function popOutboxHead(historyId: string): Promise<void> {
-  const local = (await chrome.storage.local.get(STORAGE_KEYS.OUTBOX)) as Record<string, unknown>;
-  const outbox = (local[STORAGE_KEYS.OUTBOX] as OutboxEntry[] | undefined) ?? [];
-  const next = outbox.filter((e) => e.history_id !== historyId);
-  await chrome.storage.local.set({ [STORAGE_KEYS.OUTBOX]: next });
+  const outbox = await outboxStore.get();
+  await outboxStore.set(outbox.filter((e) => e.history_id !== historyId));
 }
 
 async function bumpOutboxHeadAttempts(historyId: string, attempts: number): Promise<void> {
-  const local = (await chrome.storage.local.get(STORAGE_KEYS.OUTBOX)) as Record<string, unknown>;
-  const outbox = (local[STORAGE_KEYS.OUTBOX] as OutboxEntry[] | undefined) ?? [];
-  const next = outbox.map((e) => (e.history_id === historyId ? { ...e, attempts } : e));
-  await chrome.storage.local.set({ [STORAGE_KEYS.OUTBOX]: next });
+  const outbox = await outboxStore.get();
+  await outboxStore.set(outbox.map((e) => (e.history_id === historyId ? { ...e, attempts } : e)));
 }
 
 // --- Message handling ---
 
 export async function handleMessage(msg: BgMessage): Promise<BackgroundResult> {
+  // Spec 012 D-rev-11c: every SW spin-up fills missing storage keys with
+  // defaults before any handler logic touches them. Idempotent across spin-ups.
+  await ensureInitialized();
+
   if ('kind' in msg && msg.kind === 'drain_outbox') {
     console.log(tag(), 'drain_outbox requested');
     await drainOutbox();
@@ -431,18 +440,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 if (chrome.runtime.onStartup && typeof chrome.runtime.onStartup.addListener === 'function') {
   chrome.runtime.onStartup.addListener(() => {
     console.log(tag(), 'onStartup — draining outbox');
-    drainOutbox().catch((err: unknown) => {
-      console.error(tag(), 'drainOutbox (onStartup) threw:', err);
-    });
+    void initThenDrain('onStartup');
   });
 }
 
 if (chrome.runtime.onInstalled && typeof chrome.runtime.onInstalled.addListener === 'function') {
   chrome.runtime.onInstalled.addListener(() => {
     console.log(tag(), 'onInstalled — draining outbox');
-    drainOutbox().catch((err: unknown) => {
-      console.error(tag(), 'drainOutbox (onInstalled) threw:', err);
-    });
+    void initThenDrain('onInstalled');
   });
 }
 
@@ -493,8 +498,6 @@ if (chrome.alarms?.onAlarm && typeof chrome.alarms.onAlarm.addListener === 'func
     // Receiving the alarm itself wakes the SW — even a no-op listener body
     // would be enough. We additionally drain the outbox so events that hit a
     // dead-SW window get flushed without waiting for the user.
-    drainOutbox().catch((err: unknown) => {
-      console.error(tag(), 'drainOutbox (keep-alive) threw:', err);
-    });
+    void initThenDrain('keep-alive');
   });
 }
