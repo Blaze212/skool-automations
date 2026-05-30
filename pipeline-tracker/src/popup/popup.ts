@@ -1,5 +1,5 @@
 import { STORAGE_KEYS, type HistoryEntry, type PipelineEvent } from '../types.ts';
-import { badgeStore, deliveryStore, historyStore } from '../storage.ts';
+import { badgeStore, deliveryStore, historyStore, setHistoryAndBadge } from '../storage.ts';
 
 function formatTimestamp(iso: string): string {
   return new Date(iso).toLocaleString('en-US', {
@@ -234,8 +234,14 @@ export async function initPopup(): Promise<void> {
   });
 
   clearHistoryBtn.addEventListener('click', async () => {
-    await historyStore.set([]);
-    await badgeStore.setPartial({ unreadCount: 0, highestSeverity: 'ok', lastStatus: null });
+    // Atomic — empty history + clear all three badge keys in one set() so a
+    // popup close mid-await can't leave the badge populated with a now-empty
+    // history pointer.
+    await setHistoryAndBadge([], {
+      unreadCount: 0,
+      highestSeverity: 'ok',
+      lastStatus: null,
+    });
     renderHistory([]);
     if (chrome.action && typeof chrome.action.setBadgeText === 'function') {
       await chrome.action.setBadgeText({ text: '' });

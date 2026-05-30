@@ -5,6 +5,7 @@ import {
   handleMessage,
   onMessageHandler,
 } from '../../../pipeline-tracker/src/background.ts';
+import { _resetInitLatchForTests } from '../../../pipeline-tracker/src/storage.ts';
 
 // Snapshot the alarm registration that happened as a module-load side effect
 // of the background.ts import above. We capture it BEFORE any test runs so
@@ -100,6 +101,10 @@ describe('pipeline-tracker background.handleMessage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Drop the storage facade's module-level _initPromise latch so each test
+    // sees a fresh ensureInitialized() against its own stateful storage —
+    // without this, the first test's latch leaks into the rest of the file.
+    _resetInitLatchForTests();
     stores = installStatefulStorage();
   });
 
@@ -310,6 +315,10 @@ describe('pipeline-tracker drainOutbox', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Drop the storage facade's module-level _initPromise latch so each test
+    // sees a fresh ensureInitialized() against its own stateful storage —
+    // without this, the first test's latch leaks into the rest of the file.
+    _resetInitLatchForTests();
     stores = installStatefulStorage();
   });
 
@@ -534,6 +543,10 @@ describe('pipeline-tracker background.handleMessage — last-update flip', () =>
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Drop the storage facade's module-level _initPromise latch so each test
+    // sees a fresh ensureInitialized() against its own stateful storage —
+    // without this, the first test's latch leaks into the rest of the file.
+    _resetInitLatchForTests();
     stores = installStatefulStorage();
   });
 

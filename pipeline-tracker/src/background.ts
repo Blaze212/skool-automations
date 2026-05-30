@@ -22,6 +22,7 @@ import {
   ensureInitialized,
   historyStore,
   outboxStore,
+  setHistoryAndBadge,
 } from './storage.ts';
 import { ts } from './logger.ts';
 
@@ -96,6 +97,9 @@ async function applyBadge(severity: Severity): Promise<void> {
 }
 
 export async function restoreBadgeOnStartup(): Promise<void> {
+  // Spec 012 D-rev-11c — every SW entry point that touches the facade must
+  // await ensureInitialized first, not just handleMessage.
+  await ensureInitialized();
   const { lastStatus } = await badgeStore.get();
   if (!lastStatus) {
     await chrome.action.setBadgeText({ text: '' });
@@ -108,6 +112,19 @@ export async function restoreBadgeOnStartup(): Promise<void> {
   drainOutbox().catch((err: unknown) => {
     console.error(tag(), 'drainOutbox (restoreBadgeOnStartup) threw:', err);
   });
+}
+
+/**
+ * Wrap drainOutbox calls fired from non-message entry points so ensureInitialized
+ * runs first. Errors are swallowed with logging — propagating into onAlarm /
+ * onStartup / onInstalled would become an unhandled rejection in the SW global.
+ */
+function initThenDrain(source: string): Promise<void> {
+  return ensureInitialized()
+    .then(() => drainOutbox())
+    .catch((err: unknown) => {
+      console.error(tag(), `drainOutbox (${source}) threw:`, err);
+    });
 }
 
 // --- Result recording ---
@@ -160,8 +177,12 @@ async function recordResolved(
   const unreadCount = isNoisy ? prevUnread + 1 : prevUnread;
   const highestSeverity = isNoisy ? pickHigherSeverity(prevSeverity, lastStatus) : prevSeverity;
 
-  await historyStore.set(history);
-  await badgeStore.setPartial({ unreadCount, highestSeverity, lastStatus });
+  // Atomic write — history + the three badge keys land in one set() call so a
+  // quota failure can't leave history ahead of badge state. applyBadge() runs
+  // after the storage write succeeds; if storage throws, applyBadge is skipped
+  // and the throw propagates to the message-handler boundary (where we'd
+  // rather surface the failure than half-update the UI).
+  await setHistoryAndBadge(history, { unreadCount, highestSeverity, lastStatus });
 
   await applyBadge(lastStatus);
 }
@@ -240,8 +261,10 @@ async function deliverEvent(event: PipelineEvent): Promise<DeliveryOutcome> {
     }
 
     console.log(tag(), 'POST succeeded');
-    await deliveryStore.setLastLoggedAt(now);
-    await deliveryStore.setLastError(null);
+    // Atomic — clear any prior lastError alongside writing the new
+    // lastLoggedAt so the popup never shows contradictory "Last logged" +
+    // "Last POST failed" lines if the second write fails.
+    await deliveryStore.setLastLoggedAndClearError(now);
 
     const bodyText = await res.text().catch(() => '');
     let warnings: string[] = [];
@@ -417,18 +440,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 if (chrome.runtime.onStartup && typeof chrome.runtime.onStartup.addListener === 'function') {
   chrome.runtime.onStartup.addListener(() => {
     console.log(tag(), 'onStartup — draining outbox');
-    drainOutbox().catch((err: unknown) => {
-      console.error(tag(), 'drainOutbox (onStartup) threw:', err);
-    });
+    void initThenDrain('onStartup');
   });
 }
 
 if (chrome.runtime.onInstalled && typeof chrome.runtime.onInstalled.addListener === 'function') {
   chrome.runtime.onInstalled.addListener(() => {
     console.log(tag(), 'onInstalled — draining outbox');
-    drainOutbox().catch((err: unknown) => {
-      console.error(tag(), 'drainOutbox (onInstalled) threw:', err);
-    });
+    void initThenDrain('onInstalled');
   });
 }
 
@@ -479,8 +498,6 @@ if (chrome.alarms?.onAlarm && typeof chrome.alarms.onAlarm.addListener === 'func
     // Receiving the alarm itself wakes the SW — even a no-op listener body
     // would be enough. We additionally drain the outbox so events that hit a
     // dead-SW window get flushed without waiting for the user.
-    drainOutbox().catch((err: unknown) => {
-      console.error(tag(), 'drainOutbox (keep-alive) threw:', err);
-    });
+    void initThenDrain('keep-alive');
   });
 }

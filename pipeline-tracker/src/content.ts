@@ -11,6 +11,7 @@ import {
   historyStore,
   outboxStore,
   recordStorageQuotaError,
+  setOutboxAndHistory,
   StorageQuotaExceededError,
 } from './storage.ts';
 import { ts } from './logger.ts';
@@ -508,8 +509,9 @@ async function enqueuePendingEvent(
   const outbox = [...prevOutbox, outboxEntry].slice(-OUTBOX_CAP);
   const history = [pendingHistoryEntry, ...prevHistory].slice(0, HISTORY_CAP);
 
-  await outboxStore.set(outbox);
-  await historyStore.set(history);
+  // Atomic — both keys land in one storage write so a quota failure on a
+  // second write can't leave the outbox ahead of history.
+  await setOutboxAndHistory(outbox, history);
 }
 
 /**

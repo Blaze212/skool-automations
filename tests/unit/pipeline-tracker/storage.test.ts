@@ -11,6 +11,8 @@ import {
   lastSyncedAtStore,
   outboxStore,
   recordStorageQuotaError,
+  setHistoryAndBadge,
+  setOutboxAndHistory,
   settingsStore,
 } from '../../../pipeline-tracker/src/storage.ts';
 import {
@@ -182,11 +184,67 @@ describe('pipeline-tracker storage facade', () => {
   // ----- outbox + history shape-validation -----
 
   describe('outboxStore + historyStore shape validation', () => {
-    it('outbox shape-mismatch resets to [] + warns', async () => {
+    it('outbox shape-mismatch resets to [] + warns (all entries invalid)', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       stores.local[STORAGE_KEYS.OUTBOX] = [{ wrong: 'shape' }];
       expect(await outboxStore.get()).toEqual([]);
       expect(stores.local[STORAGE_KEYS.OUTBOX]).toEqual([]);
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it('outbox salvages valid entries when only some are corrupt', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const goodEntry: OutboxEntry = {
+        history_id: 'good',
+        enqueued_at: '2026-05-30T00:00:00Z',
+        attempts: 0,
+        event: {
+          api_key: '',
+          event_type: 'connection_request',
+          date: '2026-05-30',
+          name: 'X',
+          title: '',
+          linkedin_url: '',
+          page_url: '',
+          message_text: '',
+        },
+      };
+      stores.local[STORAGE_KEYS.OUTBOX] = [
+        goodEntry,
+        { history_id: 'bad', enqueued_at: 'not-a-string', attempts: 0 }, // missing event
+        { wrong: 'shape' },
+        goodEntry,
+      ];
+      const salvaged = await outboxStore.get();
+      expect(salvaged).toHaveLength(2);
+      // Storage was rewritten with only the valid entries — one bad row no
+      // longer wipes the entire outbox.
+      expect((stores.local[STORAGE_KEYS.OUTBOX] as OutboxEntry[]).length).toBe(2);
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it('history salvages valid entries when only some are corrupt', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const goodEntry: HistoryEntry = {
+        id: 'g',
+        ts: '2026-05-30T00:00:00Z',
+        status: 'ok',
+        event_type: 'connection_request',
+        name: 'X',
+        page_url: '',
+        message: 'Logged',
+        warnings: [],
+      };
+      stores.local[STORAGE_KEYS.HISTORY] = [
+        goodEntry,
+        { id: 'bad', status: 'unknown-severity' }, // invalid status
+        goodEntry,
+      ];
+      const salvaged = await historyStore.get();
+      expect(salvaged).toHaveLength(2);
+      expect((stores.local[STORAGE_KEYS.HISTORY] as HistoryEntry[]).length).toBe(2);
       expect(warnSpy).toHaveBeenCalled();
       warnSpy.mockRestore();
     });
@@ -262,11 +320,17 @@ describe('pipeline-tracker storage facade', () => {
   describe('quota handling', () => {
     function installQuotaThrowingStorage(): { local: Store } {
       return installStatefulStorage((items) => {
-        // Throw quota error UNLESS the only key being written is HISTORY —
-        // we let the STORAGE_QUOTA history row land so the test can assert it.
-        const keys = Object.keys(items);
-        const onlyHistory = keys.length === 1 && keys[0] === STORAGE_KEYS.HISTORY;
-        if (!onlyHistory) {
+        // Throw quota error UNLESS the write is the recordStorageQuotaError
+        // atomic set — history + badge bump. The capture-path enqueue (outbox +
+        // history) still throws so the test models a near-quota condition that
+        // permits a tiny bookkeeping write but not the larger payload write.
+        const keys = new Set(Object.keys(items));
+        const isQuotaErrorWrite =
+          keys.has(STORAGE_KEYS.HISTORY) &&
+          !keys.has(STORAGE_KEYS.OUTBOX) &&
+          // history + at most {unread_count, highest_severity, last_status}
+          keys.size <= 4;
+        if (!isQuotaErrorWrite) {
           throw new Error('QuotaExceededError: chrome.storage.local quota exceeded');
         }
       });
@@ -285,7 +349,7 @@ describe('pipeline-tracker storage facade', () => {
       await expect(outboxStore.set([])).rejects.not.toBeInstanceOf(StorageQuotaExceededError);
     });
 
-    it('recordStorageQuotaError prepends a STORAGE_QUOTA history row', async () => {
+    it('recordStorageQuotaError prepends a STORAGE_QUOTA history row + bumps the badge', async () => {
       stores = installQuotaThrowingStorage();
       await recordStorageQuotaError({
         id: 'h-quota-1',
@@ -303,6 +367,48 @@ describe('pipeline-tracker storage facade', () => {
         name: 'Jane Doe',
         event_type: 'connection_request',
       });
+
+      // Badge bump — spec 007 says error rows raise the badge. Pre-fix the
+      // STORAGE_QUOTA path only wrote the history row, leaving the badge silent.
+      expect(stores.local[STORAGE_KEYS.UNREAD_COUNT]).toBe(1);
+      expect(stores.local[STORAGE_KEYS.HIGHEST_SEVERITY]).toBe('error');
+      expect(stores.local[STORAGE_KEYS.LAST_STATUS]).toBe('error');
+    });
+
+    it('setHistoryAndBadge issues a single chrome.storage.local.set with all keys', async () => {
+      const setSpy = chrome.storage.local.set as ReturnType<typeof vi.fn>;
+      await setHistoryAndBadge([], { unreadCount: 0, highestSeverity: 'ok', lastStatus: null });
+      // The original two-call pattern would have been 2 set() invocations.
+      // The new atomic helper is exactly 1.
+      expect(setSpy).toHaveBeenCalledTimes(1);
+      const items = setSpy.mock.calls[0][0] as Record<string, unknown>;
+      expect(items[STORAGE_KEYS.HISTORY]).toEqual([]);
+      expect(items[STORAGE_KEYS.UNREAD_COUNT]).toBe(0);
+      expect(items[STORAGE_KEYS.HIGHEST_SEVERITY]).toBe('ok');
+      expect(items[STORAGE_KEYS.LAST_STATUS]).toBeNull();
+    });
+
+    it('setOutboxAndHistory issues a single chrome.storage.local.set with both keys', async () => {
+      const setSpy = chrome.storage.local.set as ReturnType<typeof vi.fn>;
+      await setOutboxAndHistory([], []);
+      expect(setSpy).toHaveBeenCalledTimes(1);
+      const items = setSpy.mock.calls[0][0] as Record<string, unknown>;
+      expect(items[STORAGE_KEYS.OUTBOX]).toEqual([]);
+      expect(items[STORAGE_KEYS.HISTORY]).toEqual([]);
+    });
+
+    it('shape-mismatch read swallows quota errors from the reset write (read never throws)', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      stores = installStatefulStorage(() => {
+        throw new Error('QuotaExceededError: quota');
+      });
+      // Seed an invalid value so the validator triggers a reset-write.
+      stores.local[STORAGE_KEYS.SETTINGS] = { wrong: 'shape' };
+      // Pre-fix: the reset rawSet would throw and the read would crash the
+      // popup. Post-fix: we swallow + log, return the default.
+      const result = await settingsStore.get();
+      expect(result).toEqual(DEFAULT_SETTINGS);
+      warnSpy.mockRestore();
     });
 
     it('recordStorageQuotaError swallows secondary quota failure (best-effort)', async () => {
