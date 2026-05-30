@@ -306,6 +306,15 @@ async function deliverEvent(event: PipelineEvent): Promise<DeliveryOutcome> {
 
 let _draining = false;
 
+/** Test-only — drop the in-progress latch so a fresh drainOutbox() runs.
+ *  Tests that import background.ts inherit the module-load
+ *  restoreBadgeOnStartup() chain's fire-and-forget drainOutbox call; without
+ *  this reset a stale `_draining=true` can leak across tests and silently
+ *  short-circuit later drains. */
+export function _resetDrainingForTests(): void {
+  _draining = false;
+}
+
 export async function drainOutbox(): Promise<void> {
   if (_draining) {
     console.log(tag(), 'drain already in progress, skipping');
