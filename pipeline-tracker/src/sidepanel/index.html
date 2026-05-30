@@ -132,9 +132,197 @@
         color: #6b21a8;
         font-style: italic;
       }
+
+      /* ── Settings section (Phase 6) ───────────────────────────────────── */
+      .settings-details {
+        margin-bottom: 16px;
+        border: 1px solid #e5e7eb;
+        border-radius: 4px;
+        background: rgba(243, 244, 246, 0.4);
+      }
+      .settings-summary {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #666;
+        padding: 8px 10px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      .settings-summary::-webkit-details-marker {
+        color: #888;
+      }
+      .settings-body {
+        padding: 4px 10px 10px;
+      }
+      .settings-row {
+        display: flex;
+        gap: 10px;
+        padding: 8px 0;
+        border-top: 1px solid #f0f0f0;
+        align-items: flex-start;
+        cursor: pointer;
+      }
+      .settings-row:first-of-type {
+        border-top: none;
+      }
+      .settings-row-disabled {
+        cursor: default;
+        opacity: 0.55;
+      }
+      .settings-row input[type='checkbox'] {
+        margin-top: 2px;
+        flex: 0 0 auto;
+      }
+      .settings-row-text {
+        flex: 1;
+      }
+      .settings-row-label {
+        font-weight: 600;
+        font-size: 12px;
+      }
+      .settings-row-help {
+        font-size: 11px;
+        color: #666;
+        margin-top: 2px;
+        line-height: 1.4;
+      }
+      .settings-row-error {
+        font-size: 11px;
+        color: #991b1b;
+        background: #fee2e2;
+        border-radius: 3px;
+        padding: 4px 6px;
+        margin: 4px 0;
+      }
+      .settings-subheading {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #888;
+        margin: 10px 0 2px;
+        font-weight: 600;
+      }
+
+      /* ── First-run modal (Phase 6 / D8 / D-rev-17) ─────────────────────── */
+      .first-run-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.55);
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        z-index: 1000;
+        padding: 24px 12px;
+        overflow-y: auto;
+      }
+      .first-run-dialog {
+        background: #ffffff;
+        color: #0f172a;
+        border-radius: 6px;
+        max-width: 420px;
+        width: 100%;
+        padding: 18px 18px 14px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+      }
+      .first-run-title {
+        font-size: 15px;
+        margin: 0 0 6px;
+      }
+      .first-run-intro {
+        font-size: 12px;
+        color: #475569;
+        margin: 0 0 10px;
+        line-height: 1.4;
+      }
+      .first-run-points {
+        margin: 0 0 12px;
+        padding-left: 18px;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .first-run-points li {
+        margin-bottom: 6px;
+      }
+      .first-run-toggle {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 10px;
+        border: 1px solid #e5e7eb;
+        border-radius: 4px;
+        background: rgba(243, 244, 246, 0.5);
+        cursor: pointer;
+        margin-bottom: 12px;
+      }
+      .first-run-toggle input[type='checkbox'] {
+        margin-top: 2px;
+        flex: 0 0 auto;
+      }
+      .first-run-toggle-text {
+        flex: 1;
+      }
+      .first-run-toggle-label {
+        font-weight: 600;
+        font-size: 12px;
+      }
+      .first-run-toggle-help {
+        font-size: 11px;
+        color: #475569;
+        margin-top: 2px;
+        line-height: 1.4;
+      }
+      .first-run-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .first-run-hint {
+        font-size: 11px;
+        color: #94a3b8;
+      }
+      .first-run-close {
+        appearance: none;
+        background: #2563eb;
+        color: #ffffff;
+        border: 0;
+        border-radius: 4px;
+        padding: 6px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .first-run-close:disabled {
+        background: #cbd5e1;
+        cursor: not-allowed;
+      }
+      .first-run-skip {
+        appearance: none;
+        background: transparent;
+        color: #475569;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        padding: 6px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .first-run-skip:hover {
+        background: #f1f5f9;
+      }
+      .first-run-error {
+        margin-top: 10px;
+        font-size: 11px;
+        color: #991b1b;
+        background: #fee2e2;
+        border-radius: 3px;
+        padding: 6px 8px;
+      }
     </style>
   </head>
   <body>
+    <div id="settings-section"></div>
+
     <section id="unsynced-section" class="section">
       <div class="section-header">
         <h2>Unsynced events</h2>
@@ -149,6 +337,8 @@
       </div>
       <div id="activity-list"></div>
     </section>
+
+    <div id="modal-root"></div>
 
     <script src="sidepanel.js"></script>
   </body>

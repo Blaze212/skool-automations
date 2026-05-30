@@ -96,8 +96,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   _resetInitLatchForTests();
   document.body.innerHTML = `
+    <div id="settings-section"></div>
     <section id="unsynced-section"><div id="unsynced-list"></div><span id="unsynced-count"></span></section>
     <section id="activity-section"><div id="activity-list"></div></section>
+    <div id="modal-root"></div>
   `;
 });
 
@@ -209,9 +211,23 @@ describe('side panel — renderActivity', () => {
   });
 });
 
+function seedFirstRunComplete(local: LocalStore): void {
+  // Phase 6 — pre-seed first_run_completed so the modal does not block init.
+  // Tests targeting the modal flow override this via their own local store
+  // setup. Without this, every initSidePanel call would mount the modal and
+  // hang (the close button is disabled until the user touches the toggle).
+  local[STORAGE_KEYS.SETTINGS] = {
+    ai_fallback_enabled: false,
+    ai_model_downloaded: false,
+    capture_message_bodies: false,
+    first_run_completed: true,
+  };
+}
+
 describe('side panel — initSidePanel', () => {
   it('reads outbox + history and clears the unread counter on open', async () => {
     const local = installStatefulStorage();
+    seedFirstRunComplete(local);
     local[STORAGE_KEYS.OUTBOX] = [makeOutboxEntry(1)];
     local[STORAGE_KEYS.HISTORY] = [makeHistoryEntry(1, 'ok')];
     local[STORAGE_KEYS.UNREAD_COUNT] = 3;
@@ -230,11 +246,109 @@ describe('side panel — initSidePanel', () => {
   });
 
   it('sends drain_outbox to the SW after clearing so the publishable badge repaints', async () => {
-    installStatefulStorage();
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
     (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 
     await initSidePanel();
 
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'drain_outbox' });
+  });
+
+  it('renders the settings section above the events when first_run_completed is true', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+
+    await initSidePanel();
+
+    // Settings is mounted from inside the modal-flow Promise chain; it's
+    // fire-and-forget so we need to drain a macrotask for the
+    // already-completed first-run path's synchronous return.
+    await new Promise((r) => setTimeout(r, 0));
+
+    const settingsRoot = document.getElementById('settings-section') as HTMLElement;
+    expect(settingsRoot.querySelector('.settings-details')).not.toBeNull();
+    // capture_message_bodies seeds to false here.
+    const captureToggle = settingsRoot.querySelector(
+      '#settings-capture-bodies',
+    ) as HTMLInputElement;
+    expect(captureToggle.checked).toBe(false);
+  });
+
+  it('renders events + clears badge BEFORE awaiting the first-run modal (defers nothing critical)', async () => {
+    const local = installStatefulStorage();
+    // First run — no settings seeded. Even though the modal will mount, the
+    // events and badge-clear path must run first so the user never sees a
+    // blank panel and the toolbar repaint isn't blocked by the disclosure.
+    local[STORAGE_KEYS.OUTBOX] = [makeOutboxEntry(1)];
+    local[STORAGE_KEYS.HISTORY] = [makeHistoryEntry(1, 'ok')];
+    local[STORAGE_KEYS.UNREAD_COUNT] = 3;
+    local[STORAGE_KEYS.HIGHEST_SEVERITY] = 'error';
+
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Events rendered.
+    expect(
+      (document.getElementById('unsynced-list') as HTMLElement).querySelectorAll('.row'),
+    ).toHaveLength(1);
+    expect(
+      (document.getElementById('activity-list') as HTMLElement).querySelectorAll('.row'),
+    ).toHaveLength(1);
+    // Badge cleared.
+    expect(local[STORAGE_KEYS.UNREAD_COUNT]).toBe(0);
+    expect(local[STORAGE_KEYS.HIGHEST_SEVERITY]).toBe('ok');
+    // Modal still up (settings-section stays empty until the user closes it).
+    expect(document.querySelector('.first-run-overlay')).not.toBeNull();
+    expect(document.getElementById('settings-section')?.children.length).toBe(0);
+  });
+
+  it('mounts the settings section after the user closes the first-run modal', async () => {
+    const local = installStatefulStorage();
+
+    initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const modal = document.querySelector('.first-run-overlay');
+    const toggle = modal!.querySelector('#first-run-capture-bodies') as HTMLInputElement;
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    const closeBtn = modal!.querySelector('.first-run-close') as HTMLButtonElement;
+    closeBtn.click();
+
+    // Two macrotask yields — modal close → commit await → mountSettings.
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.querySelector('.first-run-overlay')).toBeNull();
+    expect(document.getElementById('settings-section')?.children.length).toBeGreaterThan(0);
+    expect(
+      (local[STORAGE_KEYS.SETTINGS] as { first_run_completed: boolean }).first_run_completed,
+    ).toBe(true);
+    expect(
+      (local[STORAGE_KEYS.SETTINGS] as { capture_message_bodies: boolean }).capture_message_bodies,
+    ).toBe(true);
+  });
+
+  it('falls back to default settings + still renders events when settingsStore.get throws', async () => {
+    const local = installStatefulStorage();
+    local[STORAGE_KEYS.OUTBOX] = [makeOutboxEntry(1)];
+    // Make ONLY the settings-key read throw. Outbox + history reads stay clean.
+    (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockImplementation(
+      async (keys?: string | string[]) => {
+        const list = Array.isArray(keys) ? keys : keys === undefined ? [] : [keys];
+        if (list.includes(STORAGE_KEYS.SETTINGS)) {
+          throw new Error('storage read failed');
+        }
+        const out: LocalStore = {};
+        for (const k of list) if (k in local) out[k] = local[k];
+        return out;
+      },
+    );
+
+    await expect(initSidePanel()).resolves.toBeUndefined();
+    expect(
+      (document.getElementById('unsynced-list') as HTMLElement).querySelectorAll('.row'),
+    ).toHaveLength(1);
   });
 });
