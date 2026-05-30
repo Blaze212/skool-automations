@@ -18,6 +18,12 @@ export const STORAGE_KEYS = {
   // Spec 012 additions (Phase 1):
   SETTINGS: 'settings',
   LAST_SYNCED_AT: 'last_synced_at',
+  // Spec 012 additions (Phase 2):
+  BINDING: 'binding',
+  // recovered_html is NOT a single key — it lives under per-id keys of the form
+  //   `recovered_html_<history_id>`
+  // so that the hot OutboxEntry payload stays small (~2 KB). D-rev-28. The
+  // prefix is owned by the storage facade; callers use recoveredHtmlStore.*.
 } as const;
 
 // Spec 012 D5. ai_fallback_enabled + ai_model_downloaded are added by spec 013
@@ -27,6 +33,15 @@ export interface Settings {
   ai_model_downloaded: boolean;
   capture_message_bodies: boolean;
   first_run_completed: boolean;
+}
+
+// Spec 012 D-rev-8 two-phase binding handshake.
+export type BindingStatus = 'pending' | 'confirmed';
+
+export interface ExtensionBinding {
+  token: string;
+  bound_at: string; // ISO
+  status: BindingStatus;
 }
 
 // `Severity` describes the badge state machine; it is extension-specific

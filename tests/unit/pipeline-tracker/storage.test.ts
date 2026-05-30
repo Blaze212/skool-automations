@@ -2,21 +2,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   DEFAULT_SETTINGS,
+  RECOVERED_HTML_MAX_BYTES,
+  RecoveredHtmlTooLargeError,
   StorageQuotaExceededError,
   _resetInitLatchForTests,
   badgeStore,
+  bindingStore,
   deliveryStore,
   ensureInitialized,
   historyStore,
   lastSyncedAtStore,
   outboxStore,
   recordStorageQuotaError,
+  recoveredHtmlStore,
   setHistoryAndBadge,
   setOutboxAndHistory,
   settingsStore,
 } from '../../../pipeline-tracker/src/storage.ts';
 import {
   STORAGE_KEYS,
+  type ExtensionBinding,
   type HistoryEntry,
   type OutboxEntry,
   type Settings,
@@ -49,6 +54,12 @@ function installStatefulStorage(onSet?: (items: Store) => void): { local: Store 
     async (entries: Store) => {
       if (onSet) onSet(entries);
       Object.assign(local, entries);
+    },
+  );
+  (chrome.storage.local.remove as ReturnType<typeof vi.fn>).mockImplementation(
+    async (keys: string | string[]) => {
+      const list = Array.isArray(keys) ? keys : [keys];
+      for (const k of list) delete local[k];
     },
   );
 
@@ -428,6 +439,253 @@ describe('pipeline-tracker storage facade', () => {
       ).resolves.toBeUndefined();
       expect(errSpy).toHaveBeenCalled();
       errSpy.mockRestore();
+    });
+  });
+
+  // ----- Phase 2: bindingStore (D-rev-8) -----
+
+  describe('bindingStore', () => {
+    const validBinding: ExtensionBinding = {
+      token: 'b-1234',
+      bound_at: '2026-05-30T00:00:00Z',
+      status: 'pending',
+    };
+
+    it('get() returns null when no binding is stored', async () => {
+      expect(await bindingStore.get()).toBeNull();
+    });
+
+    it('round-trips an ExtensionBinding', async () => {
+      await bindingStore.set(validBinding);
+      expect(await bindingStore.get()).toEqual(validBinding);
+      expect(stores.local[STORAGE_KEYS.BINDING]).toEqual(validBinding);
+    });
+
+    it('clear() removes the BINDING key entirely (not just nulled out)', async () => {
+      await bindingStore.set(validBinding);
+      await bindingStore.clear();
+      expect(STORAGE_KEYS.BINDING in stores.local).toBe(false);
+      expect(await bindingStore.get()).toBeNull();
+    });
+
+    it('set() rejects an invalid binding shape (defensive)', async () => {
+      await expect(
+        bindingStore.set({
+          token: '',
+          bound_at: '2026-05-30T00:00:00Z',
+          status: 'pending',
+        }),
+      ).rejects.toBeInstanceOf(TypeError);
+      // Bad write was prevented; storage stays empty.
+      expect(STORAGE_KEYS.BINDING in stores.local).toBe(false);
+    });
+
+    it('get() clears the key + returns null on shape mismatch (D-rev-11b)', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      stores.local[STORAGE_KEYS.BINDING] = { token: 'x', status: 'WAT' }; // bad status
+      const result = await bindingStore.get();
+      expect(result).toBeNull();
+      expect(STORAGE_KEYS.BINDING in stores.local).toBe(false);
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it("accepts both 'pending' and 'confirmed' status values", async () => {
+      await bindingStore.set({ ...validBinding, status: 'pending' });
+      expect((await bindingStore.get())?.status).toBe('pending');
+      await bindingStore.set({ ...validBinding, status: 'confirmed' });
+      expect((await bindingStore.get())?.status).toBe('confirmed');
+    });
+  });
+
+  // ----- Phase 2: recoveredHtmlStore (D-rev-28) -----
+
+  describe('recoveredHtmlStore', () => {
+    it('set() writes under the per-id key `recovered_html_<historyId>`', async () => {
+      await recoveredHtmlStore.set('hist-1', '<div>hello</div>');
+      expect(stores.local['recovered_html_hist-1']).toBe('<div>hello</div>');
+      // The hot OUTBOX/HISTORY keys are untouched — recovered_html lives only
+      // under its per-id key so the hot payload stays small.
+      expect(STORAGE_KEYS.OUTBOX in stores.local).toBe(false);
+      expect(STORAGE_KEYS.HISTORY in stores.local).toBe(false);
+    });
+
+    it('get() round-trips a stored value', async () => {
+      await recoveredHtmlStore.set('hist-1', '<div>hello</div>');
+      expect(await recoveredHtmlStore.get('hist-1')).toBe('<div>hello</div>');
+    });
+
+    it('get() returns null cleanly when the key is missing', async () => {
+      expect(await recoveredHtmlStore.get('nope')).toBeNull();
+    });
+
+    it('remove() deletes the per-id key', async () => {
+      await recoveredHtmlStore.set('hist-1', '<div>hello</div>');
+      await recoveredHtmlStore.remove('hist-1');
+      expect('recovered_html_hist-1' in stores.local).toBe(false);
+      expect(await recoveredHtmlStore.get('hist-1')).toBeNull();
+    });
+
+    it('remove() on a missing id is a no-op (not an error)', async () => {
+      await expect(recoveredHtmlStore.remove('never-existed')).resolves.toBeUndefined();
+    });
+
+    it('multiple per-id values are independent', async () => {
+      await recoveredHtmlStore.set('a', '<a>');
+      await recoveredHtmlStore.set('b', '<b>');
+      await recoveredHtmlStore.remove('a');
+      expect(await recoveredHtmlStore.get('a')).toBeNull();
+      expect(await recoveredHtmlStore.get('b')).toBe('<b>');
+    });
+
+    it('rejects HTML over the 16 KB UTF-8 cap', async () => {
+      const oneByteOver = 'a'.repeat(RECOVERED_HTML_MAX_BYTES + 1);
+      await expect(recoveredHtmlStore.set('hist-1', oneByteOver)).rejects.toBeInstanceOf(
+        RecoveredHtmlTooLargeError,
+      );
+      // Nothing landed in storage.
+      expect('recovered_html_hist-1' in stores.local).toBe(false);
+    });
+
+    it('accepts HTML exactly at the 16 KB cap', async () => {
+      const exact = 'a'.repeat(RECOVERED_HTML_MAX_BYTES);
+      await expect(recoveredHtmlStore.set('hist-1', exact)).resolves.toBeUndefined();
+      expect(stores.local['recovered_html_hist-1']).toBe(exact);
+    });
+
+    it('cap is measured in UTF-8 bytes, not character count', async () => {
+      // Each '€' encodes to 3 UTF-8 bytes.
+      const charsThatFit = Math.floor(RECOVERED_HTML_MAX_BYTES / 3);
+      const charsThatOverflow = charsThatFit + 1;
+      await expect(recoveredHtmlStore.set('a', '€'.repeat(charsThatFit))).resolves.toBeUndefined();
+      await expect(
+        recoveredHtmlStore.set('b', '€'.repeat(charsThatOverflow)),
+      ).rejects.toBeInstanceOf(RecoveredHtmlTooLargeError);
+    });
+
+    it('quota error on set() bubbles as StorageQuotaExceededError (not TooLargeError)', async () => {
+      // Scoped install so the throwing storage stays inside this test —
+      // subsequent it()s in this describe get the normal stateful mock from
+      // beforeEach.
+      installStatefulStorage(() => {
+        throw new Error('QuotaExceededError: storage');
+      });
+      await expect(recoveredHtmlStore.set('hist-1', '<small>')).rejects.toBeInstanceOf(
+        StorageQuotaExceededError,
+      );
+    });
+
+    it('set/get/remove reject empty historyId (collision-domain defense)', async () => {
+      await expect(recoveredHtmlStore.set('', '<x>')).rejects.toBeInstanceOf(TypeError);
+      await expect(recoveredHtmlStore.get('')).rejects.toBeInstanceOf(TypeError);
+      await expect(recoveredHtmlStore.remove('')).rejects.toBeInstanceOf(TypeError);
+    });
+
+    it('removeMany clears multiple per-id keys in one chrome.storage.local.remove call', async () => {
+      await recoveredHtmlStore.set('a', '<a>');
+      await recoveredHtmlStore.set('b', '<b>');
+      await recoveredHtmlStore.set('c', '<c>');
+
+      const removeSpy = chrome.storage.local.remove as ReturnType<typeof vi.fn>;
+      removeSpy.mockClear();
+
+      await recoveredHtmlStore.removeMany(['a', 'c']);
+
+      expect(removeSpy).toHaveBeenCalledTimes(1);
+      // Single batch call with both keys, not one call per id.
+      const passedKeys = removeSpy.mock.calls[0][0] as string[];
+      expect(passedKeys).toEqual(['recovered_html_a', 'recovered_html_c']);
+
+      expect('recovered_html_a' in stores.local).toBe(false);
+      expect('recovered_html_c' in stores.local).toBe(false);
+      expect(stores.local['recovered_html_b']).toBe('<b>'); // untouched
+    });
+
+    it('removeMany is a no-op on empty input (no storage call)', async () => {
+      const removeSpy = chrome.storage.local.remove as ReturnType<typeof vi.fn>;
+      removeSpy.mockClear();
+      await recoveredHtmlStore.removeMany([]);
+      expect(removeSpy).not.toHaveBeenCalled();
+    });
+
+    it('get() returns null + clears the key on shape mismatch', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      stores.local['recovered_html_hist-1'] = 42; // not a string
+      expect(await recoveredHtmlStore.get('hist-1')).toBeNull();
+      expect('recovered_html_hist-1' in stores.local).toBe(false);
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+  });
+
+  // ----- Phase 2: atomic helper for spec 013 -----
+
+  describe('setOutboxHistoryAndRecoveredHtml', () => {
+    it('writes outbox + history + recovered_html_<id> in a single set() call', async () => {
+      const setSpy = chrome.storage.local.set as ReturnType<typeof vi.fn>;
+      setSpy.mockClear();
+
+      const { setOutboxHistoryAndRecoveredHtml } =
+        await import('../../../pipeline-tracker/src/storage.ts');
+      await setOutboxHistoryAndRecoveredHtml([], [], 'hist-1', '<recovered>');
+
+      expect(setSpy).toHaveBeenCalledTimes(1);
+      const items = setSpy.mock.calls[0][0] as Record<string, unknown>;
+      expect(items[STORAGE_KEYS.OUTBOX]).toEqual([]);
+      expect(items[STORAGE_KEYS.HISTORY]).toEqual([]);
+      expect(items['recovered_html_hist-1']).toBe('<recovered>');
+    });
+
+    it('rejects empty historyId before touching storage', async () => {
+      const setSpy = chrome.storage.local.set as ReturnType<typeof vi.fn>;
+      setSpy.mockClear();
+
+      const { setOutboxHistoryAndRecoveredHtml } =
+        await import('../../../pipeline-tracker/src/storage.ts');
+      await expect(setOutboxHistoryAndRecoveredHtml([], [], '', '<x>')).rejects.toBeInstanceOf(
+        TypeError,
+      );
+      expect(setSpy).not.toHaveBeenCalled();
+    });
+
+    it('rejects oversize HTML before touching storage', async () => {
+      const setSpy = chrome.storage.local.set as ReturnType<typeof vi.fn>;
+      setSpy.mockClear();
+
+      const { setOutboxHistoryAndRecoveredHtml } =
+        await import('../../../pipeline-tracker/src/storage.ts');
+      const tooBig = 'a'.repeat(RECOVERED_HTML_MAX_BYTES + 1);
+      await expect(
+        setOutboxHistoryAndRecoveredHtml([], [], 'hist-1', tooBig),
+      ).rejects.toBeInstanceOf(RecoveredHtmlTooLargeError);
+      expect(setSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ----- Phase 2 review fixups: bindingStore shape-mismatch logs structure -----
+
+  describe('bindingStore shape-mismatch debuggability', () => {
+    it('logs the bad value’s key/type shape (but not the token value) before clearing', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      stores.local[STORAGE_KEYS.BINDING] = {
+        token: 'SECRET-TOKEN-VALUE',
+        bound_at: '2026-05-30T00:00:00Z',
+        status: 'pending',
+        extra_field_from_future_phase: 42,
+      };
+      // Missing required validation — say status was changed to enum that
+      // doesn't include 'pending'. Force shape mismatch:
+      stores.local[STORAGE_KEYS.BINDING] = {
+        token: 'SECRET-TOKEN-VALUE',
+        weird_field: 'x',
+      };
+      await bindingStore.get();
+      // The warn call should include the SHAPE fingerprint (key -> typeof),
+      // never the token value itself.
+      const seenArgs = warnSpy.mock.calls.flat().map(String).join(' | ');
+      expect(seenArgs).toContain('shape mismatch');
+      expect(seenArgs).not.toContain('SECRET-TOKEN-VALUE');
+      warnSpy.mockRestore();
     });
   });
 });

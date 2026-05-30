@@ -27,6 +27,7 @@
 import {
   HISTORY_CAP,
   STORAGE_KEYS,
+  type ExtensionBinding,
   type HistoryEntry,
   type OutboxEntry,
   type Severity,
@@ -53,6 +54,40 @@ export class StorageQuotaExceededError extends Error {
     this.name = 'StorageQuotaExceededError';
   }
 }
+
+/**
+ * Thrown by recoveredHtmlStore.set when the HTML payload exceeds the 16 KB
+ * cap. Spec 013 enforces the same cap at strip time; the facade enforces it
+ * again at the persist boundary so a single misbehaving caller can't poison
+ * chrome.storage.local with a massive value.
+ */
+export class RecoveredHtmlTooLargeError extends Error {
+  readonly historyId: string;
+  readonly bytes: number;
+  constructor(historyId: string, bytes: number) {
+    super(`recovered_html for ${historyId} is ${bytes} bytes, exceeds 16 KB cap`);
+    this.name = 'RecoveredHtmlTooLargeError';
+    this.historyId = historyId;
+    this.bytes = bytes;
+  }
+}
+
+/** Spec 012 D-rev-28 / D-AI-4 — 16 KB cap on recovered_html at persist boundary. */
+export const RECOVERED_HTML_MAX_BYTES = 16 * 1024;
+
+// The `recovered_html_` prefix is RESERVED — no other STORAGE_KEYS value may
+// start with it, and recoveredHtmlStore guards against empty historyId so
+// `recovered_html_` (no suffix) is never produced as a real key.
+const RECOVERED_HTML_KEY_PREFIX = 'recovered_html_';
+
+function recoveredHtmlKey(historyId: string): string {
+  return `${RECOVERED_HTML_KEY_PREFIX}${historyId}`;
+}
+
+// Hoisted — TextEncoder is stateless and reused across set() calls. Spec 013's
+// AI-fallback hot path can write recovered_html repeatedly; we don't want each
+// call to allocate a fresh encoder.
+const _utf8Encoder = new TextEncoder();
 
 // Quota detection uses the error itself only. We deliberately do NOT consult
 // `chrome.runtime.lastError` — that channel is meaningful only inside the
@@ -83,6 +118,10 @@ async function rawSet(items: Record<string, unknown>): Promise<void> {
     }
     throw err;
   }
+}
+
+async function rawRemove(keys: string | string[]): Promise<void> {
+  await chrome.storage.local.remove(keys);
 }
 
 // === Validators (D-rev-11b) ===
@@ -143,6 +182,19 @@ function isOutboxEntry(e: unknown): e is OutboxEntry {
     isNumber(o.attempts) &&
     o.event !== null &&
     typeof o.event === 'object'
+  );
+}
+
+const BINDING_STATUS_SET = new Set<ExtensionBinding['status']>(['pending', 'confirmed']);
+function isExtensionBinding(v: unknown): v is ExtensionBinding {
+  if (!v || typeof v !== 'object') return false;
+  const b = v as Record<string, unknown>;
+  return (
+    typeof b.token === 'string' &&
+    b.token.length > 0 &&
+    typeof b.bound_at === 'string' &&
+    typeof b.status === 'string' &&
+    BINDING_STATUS_SET.has(b.status as ExtensionBinding['status'])
   );
 }
 
@@ -262,6 +314,64 @@ export const settingsStore = {
   },
 };
 
+/**
+ * Spec 012 Phase 2 — D-rev-8 two-phase binding handshake. The token + status
+ * live on a single key; clear() removes the key entirely rather than writing
+ * null so storage stays minimal when the user is unbound.
+ *
+ * Phase 2 only exposes the API; Phase 7 wires the side-panel handshake to it.
+ */
+export const bindingStore = {
+  async get(): Promise<ExtensionBinding | null> {
+    const r = await rawGet(STORAGE_KEYS.BINDING);
+    const raw = r[STORAGE_KEYS.BINDING];
+    if (raw === undefined || raw === null) return null;
+    if (!isExtensionBinding(raw)) {
+      // Clearing an unrecognizable binding matches the spec D-rev-11b 'reset
+      // to default' rule (default = unbound) AND is what the user perceives
+      // anyway — an unusable binding is the same as no binding. But for an
+      // auth-adjacent key, destroying state silently makes future schema
+      // upgrades opaque to debug. Log the SHAPE (key names + types only;
+      // never the token value) before clearing so version-mismatch incidents
+      // leave a trail in the SW console.
+      const shapeFingerprint =
+        typeof raw === 'object' && raw !== null
+          ? Object.fromEntries(
+              Object.entries(raw as Record<string, unknown>).map(([k, v]) => [k, typeof v]),
+            )
+          : typeof raw;
+      console.warn(
+        tag(),
+        `${STORAGE_KEYS.BINDING} shape mismatch — clearing. shape was:`,
+        shapeFingerprint,
+      );
+      try {
+        await rawRemove(STORAGE_KEYS.BINDING);
+      } catch (err) {
+        console.warn(tag(), `failed to clear ${STORAGE_KEYS.BINDING} (best-effort):`, err);
+      }
+      return null;
+    }
+    return raw;
+  },
+  /**
+   * Persist a binding. Throws TypeError on invalid shape (caller-side bug —
+   * e.g. status mistyped as 'confirm' instead of 'confirmed'). This is
+   * intentionally a different class from StorageQuotaExceededError; the
+   * facade convention is: storage-side failures throw Storage*, caller-side
+   * bugs throw TypeError. Catchers in Phase 7's handshake should handle both.
+   */
+  async set(b: ExtensionBinding): Promise<void> {
+    if (!isExtensionBinding(b)) {
+      throw new TypeError('bindingStore.set called with invalid ExtensionBinding shape');
+    }
+    await rawSet({ [STORAGE_KEYS.BINDING]: b });
+  },
+  async clear(): Promise<void> {
+    await rawRemove(STORAGE_KEYS.BINDING);
+  },
+};
+
 export const lastSyncedAtStore = {
   async get(): Promise<string | null> {
     return getValidated(STORAGE_KEYS.LAST_SYNCED_AT, isStringOrNull, null);
@@ -293,6 +403,76 @@ export const historyStore = {
     const next = [entry, ...prev].slice(0, HISTORY_CAP);
     await historyStore.set(next);
     return next;
+  },
+};
+
+/**
+ * Spec 012 Phase 2 / D-rev-28 — per-id recovered_html storage.
+ *
+ * Each history_id gets its own key (`recovered_html_<historyId>`) so the hot
+ * OutboxEntry payload stays ~2 KB and we never load all recovered HTML at
+ * once. Spec 013 populates these keys during AI fallback; this spec's
+ * sync-pull (Phase 9) and CSV export (Phase 11) read them per-row.
+ *
+ * 16 KB cap is enforced at set() — defense in depth alongside spec 013's
+ * strip-time cap. UTF-8 byte length, not character count.
+ */
+function utf8ByteLength(s: string): number {
+  return _utf8Encoder.encode(s).length;
+}
+
+function assertHistoryId(historyId: string): void {
+  // Empty historyId would collapse to the bare `recovered_html_` key (a
+  // collision domain shared across all empty-id callers). Defensive — every
+  // real caller has a UUID/randomUUID-derived id.
+  if (typeof historyId !== 'string' || historyId.length === 0) {
+    throw new TypeError('recoveredHtmlStore: historyId must be a non-empty string');
+  }
+}
+
+export const recoveredHtmlStore = {
+  async set(historyId: string, html: string): Promise<void> {
+    assertHistoryId(historyId);
+    const bytes = utf8ByteLength(html);
+    if (bytes > RECOVERED_HTML_MAX_BYTES) {
+      throw new RecoveredHtmlTooLargeError(historyId, bytes);
+    }
+    await rawSet({ [recoveredHtmlKey(historyId)]: html });
+  },
+  async get(historyId: string): Promise<string | null> {
+    assertHistoryId(historyId);
+    const key = recoveredHtmlKey(historyId);
+    const r = await rawGet(key);
+    const raw = r[key];
+    if (raw === undefined || raw === null) return null;
+    if (typeof raw !== 'string') {
+      console.warn(tag(), `${key} shape mismatch — removing`);
+      try {
+        await rawRemove(key);
+      } catch (err) {
+        console.warn(tag(), `failed to remove ${key} (best-effort):`, err);
+      }
+      return null;
+    }
+    return raw;
+  },
+  async remove(historyId: string): Promise<void> {
+    assertHistoryId(historyId);
+    await rawRemove(recoveredHtmlKey(historyId));
+  },
+  /**
+   * Batch-remove recovered_html for multiple historyIds. Callers (Phase 11
+   * CSV export's HISTORY_CAP rollover, spec 013's settings-toggle wipe) use
+   * this to clean up orphan recovered_html_<id> bytes when their referencing
+   * HistoryEntry/OutboxEntry rolls off.
+   */
+  async removeMany(historyIds: string[]): Promise<void> {
+    if (historyIds.length === 0) return;
+    const keys = historyIds.map((id) => {
+      assertHistoryId(id);
+      return recoveredHtmlKey(id);
+    });
+    await rawRemove(keys);
   },
 };
 
@@ -419,6 +599,37 @@ export async function setHistoryAndBadge(
     ...buildBadgePatchItems(badgePatch),
   };
   await rawSet(items);
+}
+
+/**
+ * Outbox + history + a recovered_html_<historyId> row in one set. Used by
+ * spec 013's AI-fallback enqueue path so a SW teardown between the recovery
+ * write and the outbox write can't leave orphan recovered_html bytes that
+ * nothing references.
+ *
+ * Phase 2 exposes this even though no caller exists yet — pairing the helper
+ * with the recoveredHtmlStore API in the same phase keeps the atomicity
+ * contract close to the data and prevents spec 013 from accidentally writing
+ * them in two awaits.
+ */
+export async function setOutboxHistoryAndRecoveredHtml(
+  outbox: OutboxEntry[],
+  history: HistoryEntry[],
+  historyId: string,
+  html: string,
+): Promise<void> {
+  if (typeof historyId !== 'string' || historyId.length === 0) {
+    throw new TypeError('setOutboxHistoryAndRecoveredHtml: historyId must be a non-empty string');
+  }
+  const bytes = utf8ByteLength(html);
+  if (bytes > RECOVERED_HTML_MAX_BYTES) {
+    throw new RecoveredHtmlTooLargeError(historyId, bytes);
+  }
+  await rawSet({
+    [STORAGE_KEYS.OUTBOX]: outbox,
+    [STORAGE_KEYS.HISTORY]: history,
+    [recoveredHtmlKey(historyId)]: html,
+  });
 }
 
 // === Quota → history error row (D-rev-11a) ===

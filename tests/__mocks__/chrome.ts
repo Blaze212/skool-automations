@@ -9,6 +9,7 @@ import { vi } from 'vitest';
     local: {
       get: vi.fn().mockResolvedValue({}),
       set: vi.fn().mockResolvedValue(undefined),
+      remove: vi.fn().mockResolvedValue(undefined),
     },
   },
   runtime: {
