@@ -15,7 +15,19 @@ export const STORAGE_KEYS = {
   LAST_STATUS: 'last_status',
   HISTORY: 'history',
   OUTBOX: 'outbox',
+  // Spec 012 additions (Phase 1):
+  SETTINGS: 'settings',
+  LAST_SYNCED_AT: 'last_synced_at',
 } as const;
+
+// Spec 012 D5. ai_fallback_enabled + ai_model_downloaded are added by spec 013
+// when it lands; capture_message_bodies + first_run_completed are owned here.
+export interface Settings {
+  ai_fallback_enabled: boolean;
+  ai_model_downloaded: boolean;
+  capture_message_bodies: boolean;
+  first_run_completed: boolean;
+}
 
 // `Severity` describes the badge state machine; it is extension-specific
 // (popup colours + history rendering) so it stays here rather than moving

@@ -1,6 +1,6 @@
 # Pipeline Tracker — Publishable Chrome Extension
 
-**Status:** In progress (Phase 0 complete; Phase 1 next)
+**Status:** In progress (Phases 0–1 complete; Phase 2 next)
 **Owner:** Barton Holdridge
 **Last updated:** 2026-05-30
 
@@ -671,7 +671,7 @@ Confirm the working branch has the union of:
 Done when: `pipeline-tracker/dist-internal/` builds locally and the existing internal flow
 works end-to-end against a test sheet. No code change.
 
-### Phase 1 — Storage facade + Settings + ensureInitialized (~300 LoC)
+### Phase 1 — Storage facade + Settings + ensureInitialized (~300 LoC) ✅ COMPLETE (2026-05-30)
 
 - Create `pipeline-tracker/src/storage.ts` — typed facade over `chrome.storage.local`.
 - Add `SETTINGS`, `LAST_SYNCED_AT` keys with defaults.
@@ -681,6 +681,15 @@ works end-to-end against a test sheet. No code change.
 - Tests: facade get/set round-trip; quota-exceeded path emits `STORAGE_QUOTA` history row
   (D-rev-11a); shape-mismatch resets to default (D-rev-11b); `ensureInitialized()` idempotent
   across spin-ups.
+
+> Delivered as `worktree-spec-012-phase-1-storage`. The CI guard demanded
+> migrating every existing `chrome.storage.local.{get,set}` call site, so the
+> diff covers all stored state — `outbox`, `history`, `unread_count` /
+> `highest_severity` / `last_status`, `last_logged_at` / `last_error` —
+> through the facade in addition to the new `settings` + `last_synced_at`
+> keys. 21 new tests in `tests/unit/pipeline-tracker/storage.test.ts`;
+> 292/292 across the full suite. `chrome.storage.sync` (API_KEY,
+> DEBUG_MODE) is intentionally out of scope for the guard and unchanged.
 
 ### Phase 2 — Binding shape + per-id recoveredHtml store hooks (~250 LoC)
 

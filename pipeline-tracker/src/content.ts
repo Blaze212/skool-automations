@@ -7,6 +7,12 @@ import {
   type OutboxEntry,
   type PipelineEvent,
 } from './types.ts';
+import {
+  historyStore,
+  outboxStore,
+  recordStorageQuotaError,
+  StorageQuotaExceededError,
+} from './storage.ts';
 import { ts } from './logger.ts';
 import { ConnectionSearchCard } from '../../linkedin-tracker/src/connection-search-card.ts';
 import { ProfilePageCard } from '../../linkedin-tracker/src/profile-page-card.ts';
@@ -496,22 +502,14 @@ async function enqueuePendingEvent(
   outboxEntry: OutboxEntry,
   pendingHistoryEntry: HistoryEntry,
 ): Promise<void> {
-  const local = (await chrome.storage.local.get([
-    STORAGE_KEYS.OUTBOX,
-    STORAGE_KEYS.HISTORY,
-  ])) as Record<string, unknown>;
-
-  const prevOutbox = (local[STORAGE_KEYS.OUTBOX] as OutboxEntry[] | undefined) ?? [];
-  const prevHistory = (local[STORAGE_KEYS.HISTORY] as HistoryEntry[] | undefined) ?? [];
+  const [prevOutbox, prevHistory] = await Promise.all([outboxStore.get(), historyStore.get()]);
 
   // Outbox is FIFO with cap; drop oldest if at cap.
   const outbox = [...prevOutbox, outboxEntry].slice(-OUTBOX_CAP);
   const history = [pendingHistoryEntry, ...prevHistory].slice(0, HISTORY_CAP);
 
-  await chrome.storage.local.set({
-    [STORAGE_KEYS.OUTBOX]: outbox,
-    [STORAGE_KEYS.HISTORY]: history,
-  });
+  await outboxStore.set(outbox);
+  await historyStore.set(history);
 }
 
 /**
@@ -609,6 +607,17 @@ async function sendEvent(event: PipelineEvent): Promise<void> {
     if (isContextInvalidated(err)) {
       console.warn(tag(), 'extension context invalidated — showing reload banner');
       showContextInvalidatedBanner();
+    } else if (err instanceof StorageQuotaExceededError) {
+      // Spec 012 D-rev-11a: surface quota failure as a HistoryEntry so the user
+      // sees a red row in the popup. Further capture will keep failing here
+      // (and re-emitting) until they clear history to free space.
+      console.warn(tag(), 'chrome.storage.local quota exceeded — recording STORAGE_QUOTA row');
+      await recordStorageQuotaError({
+        id: historyId,
+        pageUrl: event.page_url,
+        name: event.name,
+        eventType: event.event_type,
+      });
     } else {
       console.error(tag(), 'failed to enqueue event:', err);
       // We can't even write to chrome.storage — something is badly wrong.

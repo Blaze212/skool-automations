@@ -13,10 +13,16 @@ import {
   OUTBOX_STALE_AFTER_MS,
   STORAGE_KEYS,
   type HistoryEntry,
-  type OutboxEntry,
   type PipelineEvent,
   type Severity,
 } from './types.ts';
+import {
+  badgeStore,
+  deliveryStore,
+  ensureInitialized,
+  historyStore,
+  outboxStore,
+} from './storage.ts';
 import { ts } from './logger.ts';
 
 const tag = () => `[Pipeline Tracker BG - ${ts()}]`;
@@ -90,11 +96,7 @@ async function applyBadge(severity: Severity): Promise<void> {
 }
 
 export async function restoreBadgeOnStartup(): Promise<void> {
-  const local = (await chrome.storage.local.get([STORAGE_KEYS.LAST_STATUS])) as Record<
-    string,
-    unknown
-  >;
-  const lastStatus = local[STORAGE_KEYS.LAST_STATUS] as Severity | undefined;
+  const { lastStatus } = await badgeStore.get();
   if (!lastStatus) {
     await chrome.action.setBadgeText({ text: '' });
   } else {
@@ -125,15 +127,9 @@ async function recordResolved(
   classified: Classified,
   historyId: string | null,
 ): Promise<void> {
-  const local = (await chrome.storage.local.get([
-    STORAGE_KEYS.HISTORY,
-    STORAGE_KEYS.UNREAD_COUNT,
-    STORAGE_KEYS.HIGHEST_SEVERITY,
-  ])) as Record<string, unknown>;
-
-  const prevHistory = (local[STORAGE_KEYS.HISTORY] as HistoryEntry[] | undefined) ?? [];
-  const prevUnread = (local[STORAGE_KEYS.UNREAD_COUNT] as number | undefined) ?? 0;
-  const prevSeverity = (local[STORAGE_KEYS.HIGHEST_SEVERITY] as Severity | undefined) ?? 'ok';
+  const [prevHistory, badge] = await Promise.all([historyStore.get(), badgeStore.get()]);
+  const prevUnread = badge.unreadCount;
+  const prevSeverity = badge.highestSeverity;
 
   const lastStatus = effectiveSeverity(event, classified);
   const ts = new Date().toISOString();
@@ -164,12 +160,8 @@ async function recordResolved(
   const unreadCount = isNoisy ? prevUnread + 1 : prevUnread;
   const highestSeverity = isNoisy ? pickHigherSeverity(prevSeverity, lastStatus) : prevSeverity;
 
-  await chrome.storage.local.set({
-    [STORAGE_KEYS.HISTORY]: history,
-    [STORAGE_KEYS.UNREAD_COUNT]: unreadCount,
-    [STORAGE_KEYS.HIGHEST_SEVERITY]: highestSeverity,
-    [STORAGE_KEYS.LAST_STATUS]: lastStatus,
-  });
+  await historyStore.set(history);
+  await badgeStore.setPartial({ unreadCount, highestSeverity, lastStatus });
 
   await applyBadge(lastStatus);
 }
@@ -231,7 +223,7 @@ async function deliverEvent(event: PipelineEvent): Promise<DeliveryOutcome> {
         // non-JSON body; ignore
       }
       console.error(tag(), `POST failed ${res.status}:`, bodyText);
-      await chrome.storage.local.set({ [STORAGE_KEYS.LAST_ERROR]: now });
+      await deliveryStore.setLastError(now);
 
       let message: string;
       if (res.status === 403) {
@@ -248,10 +240,8 @@ async function deliverEvent(event: PipelineEvent): Promise<DeliveryOutcome> {
     }
 
     console.log(tag(), 'POST succeeded');
-    await chrome.storage.local.set({
-      [STORAGE_KEYS.LAST_LOGGED_AT]: now,
-      [STORAGE_KEYS.LAST_ERROR]: null,
-    });
+    await deliveryStore.setLastLoggedAt(now);
+    await deliveryStore.setLastError(null);
 
     const bodyText = await res.text().catch(() => '');
     let warnings: string[] = [];
@@ -274,14 +264,14 @@ async function deliverEvent(event: PipelineEvent): Promise<DeliveryOutcome> {
     clearTimeout(timeout);
     if (err instanceof Error && err.name === 'AbortError') {
       console.warn(tag(), 'POST timed out');
-      await chrome.storage.local.set({ [STORAGE_KEYS.LAST_ERROR]: now });
+      await deliveryStore.setLastError(now);
       return {
         classified: { status: 'error', message: 'Connection timed out' },
         transientFailure: true,
       };
     }
     console.error(tag(), 'POST threw:', err);
-    await chrome.storage.local.set({ [STORAGE_KEYS.LAST_ERROR]: now });
+    await deliveryStore.setLastError(now);
     return {
       classified: { status: 'error', message: 'Connection failed' },
       transientFailure: true,
@@ -301,11 +291,7 @@ export async function drainOutbox(): Promise<void> {
   _draining = true;
   try {
     while (true) {
-      const local = (await chrome.storage.local.get(STORAGE_KEYS.OUTBOX)) as Record<
-        string,
-        unknown
-      >;
-      const outbox = (local[STORAGE_KEYS.OUTBOX] as OutboxEntry[] | undefined) ?? [];
+      const outbox = await outboxStore.get();
       if (outbox.length === 0) return;
 
       const entry = outbox[0];
@@ -357,22 +343,22 @@ export async function drainOutbox(): Promise<void> {
 }
 
 async function popOutboxHead(historyId: string): Promise<void> {
-  const local = (await chrome.storage.local.get(STORAGE_KEYS.OUTBOX)) as Record<string, unknown>;
-  const outbox = (local[STORAGE_KEYS.OUTBOX] as OutboxEntry[] | undefined) ?? [];
-  const next = outbox.filter((e) => e.history_id !== historyId);
-  await chrome.storage.local.set({ [STORAGE_KEYS.OUTBOX]: next });
+  const outbox = await outboxStore.get();
+  await outboxStore.set(outbox.filter((e) => e.history_id !== historyId));
 }
 
 async function bumpOutboxHeadAttempts(historyId: string, attempts: number): Promise<void> {
-  const local = (await chrome.storage.local.get(STORAGE_KEYS.OUTBOX)) as Record<string, unknown>;
-  const outbox = (local[STORAGE_KEYS.OUTBOX] as OutboxEntry[] | undefined) ?? [];
-  const next = outbox.map((e) => (e.history_id === historyId ? { ...e, attempts } : e));
-  await chrome.storage.local.set({ [STORAGE_KEYS.OUTBOX]: next });
+  const outbox = await outboxStore.get();
+  await outboxStore.set(outbox.map((e) => (e.history_id === historyId ? { ...e, attempts } : e)));
 }
 
 // --- Message handling ---
 
 export async function handleMessage(msg: BgMessage): Promise<BackgroundResult> {
+  // Spec 012 D-rev-11c: every SW spin-up fills missing storage keys with
+  // defaults before any handler logic touches them. Idempotent across spin-ups.
+  await ensureInitialized();
+
   if ('kind' in msg && msg.kind === 'drain_outbox') {
     console.log(tag(), 'drain_outbox requested');
     await drainOutbox();
