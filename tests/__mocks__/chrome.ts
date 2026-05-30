@@ -22,6 +22,15 @@ import { vi } from 'vitest';
     onMessageExternal: {
       addListener: vi.fn(),
     },
+    onInstalled: {
+      addListener: vi.fn(),
+    },
+    onStartup: {
+      addListener: vi.fn(),
+    },
+  },
+  sidePanel: {
+    setPanelBehavior: vi.fn().mockResolvedValue(undefined),
   },
   action: {
     setBadgeText: vi.fn().mockResolvedValue(undefined),
