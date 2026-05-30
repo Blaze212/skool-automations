@@ -14,11 +14,9 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  AppSyncStrategy,
-  WebhookAutoPushStrategy,
-  type Classified,
-} from '../../../pipeline-tracker/src/destination.ts';
+import type { Classified } from '../../../pipeline-tracker/src/destination.ts';
+import { AppSyncStrategy } from '../../../pipeline-tracker/src/destination-appsync.ts';
+import { WebhookAutoPushStrategy } from '../../../pipeline-tracker/src/destination-webhook.ts';
 import {
   _resetInitLatchForTests,
   setOutboxAndHistory,

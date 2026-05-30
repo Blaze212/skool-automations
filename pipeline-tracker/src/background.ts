@@ -1,4 +1,3 @@
-declare const PIPELINE_TRACKER_WEBHOOK_URL: string;
 declare const BUILD_TARGET: 'internal' | 'publishable';
 
 // Defensive fallback: BUILD_TARGET is injected by build.ts via esbuild's
@@ -26,21 +25,13 @@ import {
   type Severity,
 } from './types.ts';
 import { badgeStore, ensureInitialized, historyStore, setHistoryAndBadge } from './storage.ts';
-import {
-  AppSyncStrategy,
-  WebhookAutoPushStrategy,
-  type Classified,
-  type DestinationStrategy,
-} from './destination.ts';
+import type { Classified, DestinationStrategy } from './destination.ts';
+import { createDestination } from './destination-impl.ts';
 import { ts } from './logger.ts';
 
 const tag = () => `[Pipeline Tracker BG - ${ts()}]`;
 
-console.log(
-  tag(),
-  `service worker started, target=${RESOLVED_BUILD_TARGET}, webhook URL configured:`,
-  !!PIPELINE_TRACKER_WEBHOOK_URL,
-);
+console.log(tag(), `service worker started, target=${RESOLVED_BUILD_TARGET}`);
 
 interface BackgroundResult {
   ok: boolean;
@@ -196,18 +187,17 @@ export async function recordResolved(
 //
 // Constructed once per SW spin-up. Per spec 012 D-Architecture, internal builds
 // auto-drain to the webhook; publishable builds wait for app.cmcareersystems.com
-// to pull. BUILD_TARGET is injected by build.ts via esbuild `define`, so the
-// branch below collapses at build time and the publishable bundle contains
-// only the AppSyncStrategy path (CI guard #3 verifies no fetch leaks through).
+// to pull. The selection happens at bundle time — build.ts aliases
+// `./destination-impl.ts` to destination-impl.internal.ts or
+// destination-impl.publishable.ts, so the publishable graph never imports
+// destination-webhook.ts and the webhook class / fetch / POST strings are
+// absent from the publishable bundle. CI guard #3 backstops the alias.
 
-const destination: DestinationStrategy =
-  RESOLVED_BUILD_TARGET === 'publishable'
-    ? new AppSyncStrategy()
-    : new WebhookAutoPushStrategy({ resolveHistory: recordResolved });
+const destination: DestinationStrategy = createDestination({ resolveHistory: recordResolved });
 
 /** Test-only shim — delegates to the active strategy's reset hook. */
 export function _resetDrainingForTests(): void {
-  if (destination instanceof WebhookAutoPushStrategy) {
+  if (destination.kind === 'webhook') {
     destination._resetDrainingForTests();
   }
 }
@@ -243,7 +233,7 @@ export async function handleMessage(msg: BgMessage): Promise<BackgroundResult> {
   const event = msg as PipelineEvent;
   console.log(tag(), 'direct event received, type:', event.event_type, 'name:', event.name);
 
-  if (!(destination instanceof WebhookAutoPushStrategy)) {
+  if (destination.kind !== 'webhook') {
     return { ok: false, message: 'direct event delivery not supported in this build' };
   }
   const outcome = await destination.deliverEventDirect(event);

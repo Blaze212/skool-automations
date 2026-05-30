@@ -16,6 +16,7 @@
 
 import * as esbuild from 'esbuild';
 import { copyFileSync, mkdirSync, readdirSync } from 'fs';
+import * as path from 'path';
 
 type Target = 'internal' | 'publishable';
 
@@ -54,6 +55,24 @@ const define = {
   BUILD_TARGET: JSON.stringify(target),
 };
 
+// Rewrite imports of `./destination-impl.ts` to the per-target factory file.
+// This is the load-bearing mechanism that keeps the webhook code out of the
+// publishable bundle: destination-impl.publishable.ts only imports
+// destination-appsync.ts, so destination-webhook.ts (and the lone `fetch(`
+// in the codebase) is never reachable from the publishable graph. The default
+// re-export in destination-impl.ts targets the internal factory so vitest /
+// tsc / any unbundled tool path keeps working without this plugin.
+const destinationImplPlugin: esbuild.Plugin = {
+  name: 'destination-impl-target',
+  setup(build) {
+    build.onResolve({ filter: /(^|\/)destination-impl\.ts$/ }, (args) => {
+      const replacement =
+        target === 'internal' ? 'destination-impl.internal.ts' : 'destination-impl.publishable.ts';
+      return { path: path.resolve(args.resolveDir, replacement) };
+    });
+  },
+};
+
 await esbuild.build({
   entryPoints: ['pipeline-tracker/src/content.ts'],
   bundle: true,
@@ -68,11 +87,7 @@ await esbuild.build({
   format: 'esm',
   outfile: `${distDir}/background.js`,
   define,
-  // minifySyntax collapses `if (BUILD_TARGET === 'publishable')` branches at
-  // build time so the publishable bundle never contains webhook fetch code.
-  // Without this, esbuild keeps the dead branch and the CI guard #3 grep would
-  // trip on the residual fetch(...) call.
-  minifySyntax: target === 'publishable',
+  plugins: [destinationImplPlugin],
 });
 
 if (target === 'internal') {
