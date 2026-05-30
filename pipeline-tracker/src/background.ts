@@ -55,6 +55,7 @@ import {
 } from './storage.ts';
 import type { Classified, DestinationStrategy } from './destination.ts';
 import { createDestination } from './destination-impl.ts';
+import { acceptAppPort, beginBinding, clearBinding } from './binding.ts';
 import { ts } from './logger.ts';
 
 const tag = () => `[Pipeline Tracker BG - ${ts()}]`;
@@ -66,7 +67,20 @@ interface BackgroundResult {
   message?: string;
 }
 
-type BgMessage = { kind: 'drain_outbox' } | PipelineEvent;
+/**
+ * Side-panel → background messages for the binding handshake (Phase 7,
+ * publishable build). The side panel owns the 10-second rollback timer
+ * (D-rev-12 SW-lifecycle note); these messages only ask the SW to mutate
+ * persisted state and broadcast on its port registry.
+ */
+type BindingMessage = { kind: 'start_binding' } | { kind: 'clear_binding' };
+
+type BgMessage = { kind: 'drain_outbox' } | BindingMessage | PipelineEvent;
+
+interface StartBindingResult extends BackgroundResult {
+  /** Number of app tabs the bind-offer reached. 0 → side panel shows "Open CareerSystems first" (Phase 8). */
+  delivered?: number;
+}
 
 function severityRank(s: Severity): number {
   // 'pending' is intentionally lower than 'ok' for badge math — it doesn't nag.
@@ -319,6 +333,24 @@ export async function handleMessage(msg: BgMessage): Promise<BackgroundResult> {
     return { ok: true };
   }
 
+  // Binding handshake — publishable-only. Internal build has no
+  // externally_connectable, so a misrouted start_binding from a test or a
+  // future mistaken caller short-circuits here with a clear message rather
+  // than mutating storage. esbuild folds the RESOLVED_BUILD_TARGET branch
+  // for the publishable bundle.
+  if ('kind' in msg && (msg.kind === 'start_binding' || msg.kind === 'clear_binding')) {
+    if (RESOLVED_BUILD_TARGET !== 'publishable') {
+      return { ok: false, message: 'binding handshake not supported in this build' };
+    }
+    if (msg.kind === 'start_binding') {
+      const { offer } = await beginBinding();
+      const result: StartBindingResult = { ok: true, delivered: offer.delivered };
+      return result;
+    }
+    await clearBinding();
+    return { ok: true };
+  }
+
   // Legacy / popup-test path: caller sent a raw event and expects a synchronous
   // result. Internal builds deliver inline (no enqueue). Publishable builds have
   // no popup, so this path is unreachable in that bundle; the runtime guard
@@ -408,6 +440,31 @@ if (chrome.runtime.onInstalled && typeof chrome.runtime.onInstalled.addListener 
 restoreBadgeOnStartup().catch((err: unknown) => {
   console.error(tag(), 'restoreBadgeOnStartup threw:', err);
 });
+
+// --- Binding handshake port listener (publishable only) ---
+//
+// Spec 012 Phase 7 / D-rev-12. App page opens a long-lived port to us; we
+// validate the sender, key the port by sender.tab.id, and on subsequent
+// bind-offer broadcasts we postMessage over each one. The port listener is
+// registered at module top-level so it survives SW restarts (MV3 listener-
+// registration requirement). Internal build has no externally_connectable
+// in its manifest, so the listener never fires there even when registered,
+// but the BUILD_TARGET gate keeps the module-load side effect off entirely
+// for that bundle (defensive — also keeps the publishable-only `binding.ts`
+// import out of the internal bundle path graph).
+if (
+  RESOLVED_BUILD_TARGET === 'publishable' &&
+  chrome.runtime.onConnectExternal &&
+  typeof chrome.runtime.onConnectExternal.addListener === 'function'
+) {
+  chrome.runtime.onConnectExternal.addListener((port) => {
+    // acceptAppPort does its own sender + name validation, disconnects on
+    // rejection, and wires the per-port onMessage / onDisconnect listeners.
+    // Nothing more for us to do at this layer — defense in depth lives
+    // inside the binding module.
+    acceptAppPort(port);
+  });
+}
 
 // --- Service worker keep-alive (internal build only) ---
 //

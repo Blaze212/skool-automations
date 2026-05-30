@@ -12,9 +12,11 @@
 // for the backend / CSV export only. This module imports no symbol from
 // storage.ts that would let it call recoveredHtmlStore.* — defense in depth.
 
-import type { OutboxEntry, HistoryEntry, EventType, Settings } from '../types.ts';
+import type { ExtensionBinding, OutboxEntry, HistoryEntry, EventType, Settings } from '../types.ts';
+import { STORAGE_KEYS } from '../types.ts';
 import {
   DEFAULT_SETTINGS,
+  bindingStore,
   historyStore,
   outboxStore,
   badgeStore,
@@ -22,6 +24,7 @@ import {
 } from '../storage.ts';
 import { renderFirstRunModal } from './first-run-modal.ts';
 import { renderSettingsSection } from './settings-section.ts';
+import { renderBindingSection } from './binding-section.ts';
 
 const SIDE_PANEL_LIST_LIMIT = 500;
 
@@ -319,8 +322,101 @@ async function readSettingsOrDefault(): Promise<Settings> {
   }
 }
 
+/**
+ * Mount the binding section + subscribe to chrome.storage.onChanged so the
+ * SW's bind-ack handler (which writes status='confirmed' to bindingStore)
+ * drives a live re-render. Returns an unsubscribe; the caller usually never
+ * invokes it (the panel is GC'd when Chrome closes it) but tests use it to
+ * tear down between cases.
+ *
+ * The handle returned by renderBindingSection is STABLE — it mutates the
+ * body in place via setBinding(next). The storage listener used to call
+ * renderBindingSection(root, ...) again (rebuilding the section subtree),
+ * which detached the body element click handlers were closing over and
+ * silently swallowed error messages from delivered=0 / sendMessage failure
+ * paths. Code review for Phase 7 caught this across three angles — fix is
+ * to keep one handle for the life of the mount and update via setBinding.
+ *
+ * D-rev-12 SW lifecycle: the SW cannot push to the side panel directly
+ * (runtime message channel only opens for messages FROM the side panel TO
+ * the SW). Storage change events are the canonical cross-context signal
+ * Chrome guarantees here.
+ */
+function mountBinding(root: HTMLElement, binding: ExtensionBinding | null): () => void {
+  const handle = renderBindingSection(root, {
+    binding,
+    startBinding: async () => {
+      const resp = await chrome.runtime.sendMessage({ kind: 'start_binding' });
+      return (resp ?? { ok: false }) as {
+        ok: boolean;
+        message?: string;
+        delivered?: number;
+      };
+    },
+    clearBinding: async () => {
+      await chrome.runtime.sendMessage({ kind: 'clear_binding' });
+    },
+  });
+
+  const listener = (
+    changes: Record<string, chrome.storage.StorageChange>,
+    areaName: string,
+  ): void => {
+    if (areaName !== 'local') return;
+    if (!(STORAGE_KEYS.BINDING in changes)) return;
+    void bindingStore.get().then((next) => handle.setBinding(next));
+  };
+
+  // chrome.storage.onChanged is the Chrome-guaranteed cross-context signal
+  // between SW and side panel. It's not banned by guard #2 (which targets
+  // chrome.storage.local.{get,set,remove,clear} specifically); subscriptions
+  // are read-only and safe to use here.
+  chrome.storage.onChanged.addListener(listener);
+
+  return () => {
+    chrome.storage.onChanged.removeListener(listener);
+    handle.destroy();
+  };
+}
+
+/**
+ * Module-scoped unsubscribe handle — guarantees that re-entrant initSidePanel
+ * calls (e.g. DOMContentLoaded firing twice during dev reload, or a future
+ * re-init path) don't leak chrome.storage.onChanged listeners. Each new
+ * mount tears down the prior subscription before installing its own.
+ */
+let _bindingUnsubscribe: (() => void) | null = null;
+
+/**
+ * Best-effort wrapper around mountBinding so an exception in the binding
+ * subtree (e.g. bindingRoot is null after a template edit) cannot poison
+ * the Phase 6 invariant: events render + first-run modal still gets a
+ * chance to mount. We swallow + log; the user sees no binding section but
+ * the rest of the panel is intact.
+ */
+function safelyMountBinding(root: HTMLElement, binding: ExtensionBinding | null): void {
+  try {
+    if (_bindingUnsubscribe) {
+      _bindingUnsubscribe();
+      _bindingUnsubscribe = null;
+    }
+    _bindingUnsubscribe = mountBinding(root, binding);
+  } catch (err) {
+    console.error('[Pipeline Tracker side panel] mountBinding failed:', err);
+  }
+}
+
+/** Test-only — tear down the binding subscription between cases. */
+export function _resetBindingMountForTests(): void {
+  if (_bindingUnsubscribe) {
+    _bindingUnsubscribe();
+    _bindingUnsubscribe = null;
+  }
+}
+
 export async function initSidePanel(): Promise<void> {
   const settingsRoot = document.getElementById('settings-section') as HTMLElement;
+  const bindingRoot = document.getElementById('binding-section') as HTMLElement;
   const unsyncedList = document.getElementById('unsynced-list') as HTMLElement;
   const unsyncedCount = document.getElementById('unsynced-count') as HTMLElement;
   const activityList = document.getElementById('activity-list') as HTMLElement;
@@ -328,10 +424,11 @@ export async function initSidePanel(): Promise<void> {
 
   // Parallel storage gather. Settings read is best-effort (default-fallback);
   // a corrupted SETTINGS key must not block the events view from rendering.
-  const [settings, outbox, history] = await Promise.all([
+  const [settings, outbox, history, binding] = await Promise.all([
     readSettingsOrDefault(),
     outboxStore.get(),
     historyStore.get(),
+    bindingStore.get(),
   ]);
 
   // Render events + clear the unread badge BEFORE the modal. Two reasons:
@@ -344,6 +441,15 @@ export async function initSidePanel(): Promise<void> {
   renderUnsynced(unsyncedList, unsyncedCount, outbox);
   renderActivity(activityList, history);
   await clearUnreadCounter();
+
+  // Binding section mounts independently of the first-run modal: a user
+  // can read the disclosure with the section visible behind it (the
+  // overlay catches clicks so they cannot interact until the modal is
+  // closed). Subscribing to storage.onChanged here means bind-ack flips
+  // from the SW reach the panel without any polling. Wrapped in a
+  // best-effort to preserve Phase 6's "modal/events must still render
+  // even if a subtree fails" invariant.
+  safelyMountBinding(bindingRoot, binding);
 
   // Mount the modal asynchronously. We deliberately do NOT await it inside
   // initSidePanel — see (2) above. The settings section is mounted only
