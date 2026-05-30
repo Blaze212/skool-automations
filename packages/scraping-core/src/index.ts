@@ -23,4 +23,13 @@ export {
   FOLLOWER_COUNT_RE,
 } from './validate.js';
 
+export {
+  extract,
+  type AiRecoveryOptions,
+  type ExtractEventHint,
+  type ExtractInput,
+  type ExtractionSource,
+  type ExtractResult,
+} from './extract.js';
+
 export type { DebugPayload, EventType, PipelineEvent } from './types.js';
