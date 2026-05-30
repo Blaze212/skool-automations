@@ -1,6 +1,6 @@
 # Pipeline Tracker — Publishable Chrome Extension
 
-**Status:** In progress (Phases 0–1 complete; Phase 2 next)
+**Status:** In progress (Phases 0–2 complete; Phase 3 next)
 **Owner:** Barton Holdridge
 **Last updated:** 2026-05-30
 
@@ -691,7 +691,7 @@ works end-to-end against a test sheet. No code change.
 > 292/292 across the full suite. `chrome.storage.sync` (API_KEY,
 > DEBUG_MODE) is intentionally out of scope for the guard and unchanged.
 
-### Phase 2 — Binding shape + per-id recoveredHtml store hooks (~250 LoC)
+### Phase 2 — Binding shape + per-id recoveredHtml store hooks (~250 LoC) ✅ COMPLETE (2026-05-30)
 
 - Add `BINDING` storage key + `ExtensionBinding` type with `status: 'pending' | 'confirmed'`.
 - Storage facade gains `binding.get()`, `binding.set()`, `binding.clear()`.
@@ -701,6 +701,15 @@ works end-to-end against a test sheet. No code change.
 - No callers yet; spec 013 writes via these helpers, this spec's sync-pull/sync-ack reads via
   them in Phases 9-10.
 - Tests: round-trip; 16 KB rejection; missing-key returns `null` cleanly.
+
+> Delivered as `worktree-spec-012-phase-2-binding`. `bindingStore` (get/set/
+> clear) uses `chrome.storage.local.remove` for `clear()` so unbound state
+> takes zero quota; `recoveredHtmlStore` keys are `recovered_html_<historyId>`
+> and the 16 KB cap is measured in UTF-8 bytes via TextEncoder. New
+> `RecoveredHtmlTooLargeError` for over-cap rejections; `set()` also defends
+> caller-side `ExtensionBinding` shape with a TypeError. CI guard `guard:no-
+> raw-storage-local` extended to cover `chrome.storage.local.remove`. 17 new
+> tests; full suite 314/314.
 
 ### Phase 3 — Internal-build e2e regression test (~350 LoC)
 

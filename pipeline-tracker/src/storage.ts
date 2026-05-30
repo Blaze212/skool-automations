@@ -27,6 +27,7 @@
 import {
   HISTORY_CAP,
   STORAGE_KEYS,
+  type ExtensionBinding,
   type HistoryEntry,
   type OutboxEntry,
   type Severity,
@@ -52,6 +53,32 @@ export class StorageQuotaExceededError extends Error {
     super(message);
     this.name = 'StorageQuotaExceededError';
   }
+}
+
+/**
+ * Thrown by recoveredHtmlStore.set when the HTML payload exceeds the 16 KB
+ * cap. Spec 013 enforces the same cap at strip time; the facade enforces it
+ * again at the persist boundary so a single misbehaving caller can't poison
+ * chrome.storage.local with a massive value.
+ */
+export class RecoveredHtmlTooLargeError extends Error {
+  readonly historyId: string;
+  readonly bytes: number;
+  constructor(historyId: string, bytes: number) {
+    super(`recovered_html for ${historyId} is ${bytes} bytes, exceeds 16 KB cap`);
+    this.name = 'RecoveredHtmlTooLargeError';
+    this.historyId = historyId;
+    this.bytes = bytes;
+  }
+}
+
+/** Spec 012 D-rev-28 / D-AI-4 — 16 KB cap on recovered_html at persist boundary. */
+export const RECOVERED_HTML_MAX_BYTES = 16 * 1024;
+
+const RECOVERED_HTML_KEY_PREFIX = 'recovered_html_';
+
+function recoveredHtmlKey(historyId: string): string {
+  return `${RECOVERED_HTML_KEY_PREFIX}${historyId}`;
 }
 
 // Quota detection uses the error itself only. We deliberately do NOT consult
@@ -83,6 +110,10 @@ async function rawSet(items: Record<string, unknown>): Promise<void> {
     }
     throw err;
   }
+}
+
+async function rawRemove(keys: string | string[]): Promise<void> {
+  await chrome.storage.local.remove(keys);
 }
 
 // === Validators (D-rev-11b) ===
@@ -143,6 +174,19 @@ function isOutboxEntry(e: unknown): e is OutboxEntry {
     isNumber(o.attempts) &&
     o.event !== null &&
     typeof o.event === 'object'
+  );
+}
+
+const BINDING_STATUS_SET = new Set<ExtensionBinding['status']>(['pending', 'confirmed']);
+function isExtensionBinding(v: unknown): v is ExtensionBinding {
+  if (!v || typeof v !== 'object') return false;
+  const b = v as Record<string, unknown>;
+  return (
+    typeof b.token === 'string' &&
+    b.token.length > 0 &&
+    typeof b.bound_at === 'string' &&
+    typeof b.status === 'string' &&
+    BINDING_STATUS_SET.has(b.status as ExtensionBinding['status'])
   );
 }
 
@@ -262,6 +306,43 @@ export const settingsStore = {
   },
 };
 
+/**
+ * Spec 012 Phase 2 — D-rev-8 two-phase binding handshake. The token + status
+ * live on a single key; clear() removes the key entirely rather than writing
+ * null so storage stays minimal when the user is unbound.
+ *
+ * Phase 2 only exposes the API; Phase 7 wires the side-panel handshake to it.
+ */
+export const bindingStore = {
+  async get(): Promise<ExtensionBinding | null> {
+    const r = await rawGet(STORAGE_KEYS.BINDING);
+    const raw = r[STORAGE_KEYS.BINDING];
+    if (raw === undefined || raw === null) return null;
+    if (!isExtensionBinding(raw)) {
+      console.warn(tag(), `${STORAGE_KEYS.BINDING} shape mismatch — clearing`);
+      try {
+        await rawRemove(STORAGE_KEYS.BINDING);
+      } catch (err) {
+        console.warn(tag(), `failed to clear ${STORAGE_KEYS.BINDING} (best-effort):`, err);
+      }
+      return null;
+    }
+    return raw;
+  },
+  async set(b: ExtensionBinding): Promise<void> {
+    if (!isExtensionBinding(b)) {
+      // Catch caller-side mistakes (e.g. forgetting to populate status) before
+      // they reach storage as bad shapes that bindingStore.get would later
+      // silently clear.
+      throw new TypeError('bindingStore.set called with invalid ExtensionBinding shape');
+    }
+    await rawSet({ [STORAGE_KEYS.BINDING]: b });
+  },
+  async clear(): Promise<void> {
+    await rawRemove(STORAGE_KEYS.BINDING);
+  },
+};
+
 export const lastSyncedAtStore = {
   async get(): Promise<string | null> {
     return getValidated(STORAGE_KEYS.LAST_SYNCED_AT, isStringOrNull, null);
@@ -293,6 +374,50 @@ export const historyStore = {
     const next = [entry, ...prev].slice(0, HISTORY_CAP);
     await historyStore.set(next);
     return next;
+  },
+};
+
+/**
+ * Spec 012 Phase 2 / D-rev-28 — per-id recovered_html storage.
+ *
+ * Each history_id gets its own key (`recovered_html_<historyId>`) so the hot
+ * OutboxEntry payload stays ~2 KB and we never load all recovered HTML at
+ * once. Spec 013 populates these keys during AI fallback; this spec's
+ * sync-pull (Phase 9) and CSV export (Phase 11) read them per-row.
+ *
+ * 16 KB cap is enforced at set() — defense in depth alongside spec 013's
+ * strip-time cap. UTF-8 byte length, not character count.
+ */
+function utf8ByteLength(s: string): number {
+  return new TextEncoder().encode(s).length;
+}
+
+export const recoveredHtmlStore = {
+  async set(historyId: string, html: string): Promise<void> {
+    const bytes = utf8ByteLength(html);
+    if (bytes > RECOVERED_HTML_MAX_BYTES) {
+      throw new RecoveredHtmlTooLargeError(historyId, bytes);
+    }
+    await rawSet({ [recoveredHtmlKey(historyId)]: html });
+  },
+  async get(historyId: string): Promise<string | null> {
+    const key = recoveredHtmlKey(historyId);
+    const r = await rawGet(key);
+    const raw = r[key];
+    if (raw === undefined || raw === null) return null;
+    if (typeof raw !== 'string') {
+      console.warn(tag(), `${key} shape mismatch — removing`);
+      try {
+        await rawRemove(key);
+      } catch (err) {
+        console.warn(tag(), `failed to remove ${key} (best-effort):`, err);
+      }
+      return null;
+    }
+    return raw;
+  },
+  async remove(historyId: string): Promise<void> {
+    await rawRemove(recoveredHtmlKey(historyId));
   },
 };
 
