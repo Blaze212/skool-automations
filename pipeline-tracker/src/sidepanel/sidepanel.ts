@@ -12,8 +12,16 @@
 // for the backend / CSV export only. This module imports no symbol from
 // storage.ts that would let it call recoveredHtmlStore.* — defense in depth.
 
-import type { OutboxEntry, HistoryEntry, EventType } from '../types.ts';
-import { historyStore, outboxStore, badgeStore } from '../storage.ts';
+import type { OutboxEntry, HistoryEntry, EventType, Settings } from '../types.ts';
+import {
+  DEFAULT_SETTINGS,
+  historyStore,
+  outboxStore,
+  badgeStore,
+  settingsStore,
+} from '../storage.ts';
+import { renderFirstRunModal } from './first-run-modal.ts';
+import { renderSettingsSection } from './settings-section.ts';
 
 const SIDE_PANEL_LIST_LIMIT = 500;
 
@@ -260,17 +268,94 @@ async function clearUnreadCounter(): Promise<void> {
   }
 }
 
+/**
+ * Mount the settings section + bind the capture-bodies toggle to the
+ * settingsStore. Re-rendered after the first-run modal closes so the section
+ * reflects the freshly-committed `capture_message_bodies` value.
+ */
+function mountSettings(root: HTMLElement, settings: Settings): void {
+  renderSettingsSection(root, {
+    settings,
+    update: (patch) => settingsStore.update(patch),
+  });
+}
+
+/**
+ * Mount the first-run modal if `first_run_completed === false` and resolve
+ * with the post-commit settings. The modal can either commit (resolves with
+ * the freshly-persisted snapshot) or skip-without-saving (resolves with the
+ * input snapshot, first_run_completed unchanged — modal returns next open).
+ *
+ * Already-completed first-run is a no-op; the original snapshot returns.
+ *
+ * Caller (`initSidePanel`) treats this as best-effort: if it throws or never
+ * resolves, the rest of the panel has already rendered, so the user is not
+ * blocked from seeing their events.
+ */
+async function maybeShowFirstRunModal(root: HTMLElement, settings: Settings): Promise<Settings> {
+  if (settings.first_run_completed) return settings;
+  let committed: Settings = settings;
+  await renderFirstRunModal(root, {
+    settings,
+    commit: async (patch) => {
+      committed = await settingsStore.update(patch);
+    },
+  });
+  return committed;
+}
+
+/**
+ * Best-effort settings read with a default-fallback. A corrupted or
+ * unreadable SETTINGS key must not brick the events surface — the unsynced
+ * list and recent-activity strip are the load-bearing user value, and they
+ * are independent of any settings field.
+ */
+async function readSettingsOrDefault(): Promise<Settings> {
+  try {
+    return await settingsStore.get();
+  } catch (err) {
+    console.warn('[Pipeline Tracker side panel] settings read failed; using defaults:', err);
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
 export async function initSidePanel(): Promise<void> {
+  const settingsRoot = document.getElementById('settings-section') as HTMLElement;
   const unsyncedList = document.getElementById('unsynced-list') as HTMLElement;
   const unsyncedCount = document.getElementById('unsynced-count') as HTMLElement;
   const activityList = document.getElementById('activity-list') as HTMLElement;
+  const modalRoot = document.getElementById('modal-root') as HTMLElement;
 
-  const [outbox, history] = await Promise.all([outboxStore.get(), historyStore.get()]);
+  // Parallel storage gather. Settings read is best-effort (default-fallback);
+  // a corrupted SETTINGS key must not block the events view from rendering.
+  const [settings, outbox, history] = await Promise.all([
+    readSettingsOrDefault(),
+    outboxStore.get(),
+    historyStore.get(),
+  ]);
 
+  // Render events + clear the unread badge BEFORE the modal. Two reasons:
+  //   (1) Phase 5 invariant — opening the panel always repaints the toolbar
+  //       badge. Deferring this behind the modal would mean a user reading the
+  //       disclosure sees the badge still painted as unread.
+  //   (2) If the modal hangs (commit keeps failing AND user never clicks
+  //       Skip), initSidePanel must still resolve with a usable surface —
+  //       events visible, badge cleared.
   renderUnsynced(unsyncedList, unsyncedCount, outbox);
   renderActivity(activityList, history);
-
   await clearUnreadCounter();
+
+  // Mount the modal asynchronously. We deliberately do NOT await it inside
+  // initSidePanel — see (2) above. The settings section is mounted only
+  // AFTER the modal commits (or is skipped), so the user can't toggle
+  // capture_message_bodies via the settings UI before they've seen the
+  // disclosure. A modal mount error logs + drops the settings section for
+  // this open; the user will see the modal again next session.
+  void maybeShowFirstRunModal(modalRoot, settings)
+    .then((finalSettings) => mountSettings(settingsRoot, finalSettings))
+    .catch((err) => {
+      console.warn('[Pipeline Tracker side panel] first-run flow failed:', err);
+    });
 }
 
 /**
