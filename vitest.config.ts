@@ -9,7 +9,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['tests/unit/**/*.test.ts'],
+    include: ['tests/unit/**/*.test.ts', 'packages/*/tests/**/*.test.ts'],
     setupFiles: ['tests/__mocks__/chrome.ts'],
     coverage: {
       provider: 'v8',
