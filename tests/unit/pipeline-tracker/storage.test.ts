@@ -564,12 +564,48 @@ describe('pipeline-tracker storage facade', () => {
     });
 
     it('quota error on set() bubbles as StorageQuotaExceededError (not TooLargeError)', async () => {
-      stores = installStatefulStorage(() => {
+      // Scoped install so the throwing storage stays inside this test —
+      // subsequent it()s in this describe get the normal stateful mock from
+      // beforeEach.
+      installStatefulStorage(() => {
         throw new Error('QuotaExceededError: storage');
       });
       await expect(recoveredHtmlStore.set('hist-1', '<small>')).rejects.toBeInstanceOf(
         StorageQuotaExceededError,
       );
+    });
+
+    it('set/get/remove reject empty historyId (collision-domain defense)', async () => {
+      await expect(recoveredHtmlStore.set('', '<x>')).rejects.toBeInstanceOf(TypeError);
+      await expect(recoveredHtmlStore.get('')).rejects.toBeInstanceOf(TypeError);
+      await expect(recoveredHtmlStore.remove('')).rejects.toBeInstanceOf(TypeError);
+    });
+
+    it('removeMany clears multiple per-id keys in one chrome.storage.local.remove call', async () => {
+      await recoveredHtmlStore.set('a', '<a>');
+      await recoveredHtmlStore.set('b', '<b>');
+      await recoveredHtmlStore.set('c', '<c>');
+
+      const removeSpy = chrome.storage.local.remove as ReturnType<typeof vi.fn>;
+      removeSpy.mockClear();
+
+      await recoveredHtmlStore.removeMany(['a', 'c']);
+
+      expect(removeSpy).toHaveBeenCalledTimes(1);
+      // Single batch call with both keys, not one call per id.
+      const passedKeys = removeSpy.mock.calls[0][0] as string[];
+      expect(passedKeys).toEqual(['recovered_html_a', 'recovered_html_c']);
+
+      expect('recovered_html_a' in stores.local).toBe(false);
+      expect('recovered_html_c' in stores.local).toBe(false);
+      expect(stores.local['recovered_html_b']).toBe('<b>'); // untouched
+    });
+
+    it('removeMany is a no-op on empty input (no storage call)', async () => {
+      const removeSpy = chrome.storage.local.remove as ReturnType<typeof vi.fn>;
+      removeSpy.mockClear();
+      await recoveredHtmlStore.removeMany([]);
+      expect(removeSpy).not.toHaveBeenCalled();
     });
 
     it('get() returns null + clears the key on shape mismatch', async () => {
@@ -578,6 +614,77 @@ describe('pipeline-tracker storage facade', () => {
       expect(await recoveredHtmlStore.get('hist-1')).toBeNull();
       expect('recovered_html_hist-1' in stores.local).toBe(false);
       expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+  });
+
+  // ----- Phase 2: atomic helper for spec 013 -----
+
+  describe('setOutboxHistoryAndRecoveredHtml', () => {
+    it('writes outbox + history + recovered_html_<id> in a single set() call', async () => {
+      const setSpy = chrome.storage.local.set as ReturnType<typeof vi.fn>;
+      setSpy.mockClear();
+
+      const { setOutboxHistoryAndRecoveredHtml } =
+        await import('../../../pipeline-tracker/src/storage.ts');
+      await setOutboxHistoryAndRecoveredHtml([], [], 'hist-1', '<recovered>');
+
+      expect(setSpy).toHaveBeenCalledTimes(1);
+      const items = setSpy.mock.calls[0][0] as Record<string, unknown>;
+      expect(items[STORAGE_KEYS.OUTBOX]).toEqual([]);
+      expect(items[STORAGE_KEYS.HISTORY]).toEqual([]);
+      expect(items['recovered_html_hist-1']).toBe('<recovered>');
+    });
+
+    it('rejects empty historyId before touching storage', async () => {
+      const setSpy = chrome.storage.local.set as ReturnType<typeof vi.fn>;
+      setSpy.mockClear();
+
+      const { setOutboxHistoryAndRecoveredHtml } =
+        await import('../../../pipeline-tracker/src/storage.ts');
+      await expect(setOutboxHistoryAndRecoveredHtml([], [], '', '<x>')).rejects.toBeInstanceOf(
+        TypeError,
+      );
+      expect(setSpy).not.toHaveBeenCalled();
+    });
+
+    it('rejects oversize HTML before touching storage', async () => {
+      const setSpy = chrome.storage.local.set as ReturnType<typeof vi.fn>;
+      setSpy.mockClear();
+
+      const { setOutboxHistoryAndRecoveredHtml } =
+        await import('../../../pipeline-tracker/src/storage.ts');
+      const tooBig = 'a'.repeat(RECOVERED_HTML_MAX_BYTES + 1);
+      await expect(
+        setOutboxHistoryAndRecoveredHtml([], [], 'hist-1', tooBig),
+      ).rejects.toBeInstanceOf(RecoveredHtmlTooLargeError);
+      expect(setSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ----- Phase 2 review fixups: bindingStore shape-mismatch logs structure -----
+
+  describe('bindingStore shape-mismatch debuggability', () => {
+    it('logs the bad value’s key/type shape (but not the token value) before clearing', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      stores.local[STORAGE_KEYS.BINDING] = {
+        token: 'SECRET-TOKEN-VALUE',
+        bound_at: '2026-05-30T00:00:00Z',
+        status: 'pending',
+        extra_field_from_future_phase: 42,
+      };
+      // Missing required validation — say status was changed to enum that
+      // doesn't include 'pending'. Force shape mismatch:
+      stores.local[STORAGE_KEYS.BINDING] = {
+        token: 'SECRET-TOKEN-VALUE',
+        weird_field: 'x',
+      };
+      await bindingStore.get();
+      // The warn call should include the SHAPE fingerprint (key -> typeof),
+      // never the token value itself.
+      const seenArgs = warnSpy.mock.calls.flat().map(String).join(' | ');
+      expect(seenArgs).toContain('shape mismatch');
+      expect(seenArgs).not.toContain('SECRET-TOKEN-VALUE');
       warnSpy.mockRestore();
     });
   });
