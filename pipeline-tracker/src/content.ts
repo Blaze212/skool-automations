@@ -14,6 +14,7 @@ import { ProfilePageOwnerCard } from '../../linkedin-tracker/src/profile-page-ow
 import {
   AcceptInvitationCard,
   ChatOverlayCard,
+  extract,
   MessengerPageCard,
   ProfilePageAcceptCard,
   validate,
@@ -765,54 +766,56 @@ export async function handleConnectionRequest(
 // =============================================================================
 
 async function handleAcceptConnection(button: HTMLElement): Promise<void> {
-  // My Network / invitation-manager page: button lives inside [role="listitem"]/li.
-  // Profile page (where Connect normally sits): no listitem ancestor — use the
-  // profile header section, anchored on /in/{vanity}/ from the URL.
-  const inviteCard =
-    AcceptInvitationCard.fromAcceptButton(button) ?? ProfilePageAcceptCard.fromAcceptButton(button);
+  // Card routing + extraction + validation all live in @cs/scraping-core's
+  // extract() now (spec 011 phase 4). content.ts owns only the chrome-side
+  // wiring: debug-payload assembly, dedup, and the sendEvent dispatch.
+  const result = extract({
+    document,
+    target: button,
+    pageUrl: window.location.href,
+    eventType: 'accepted_connection',
+  });
+
+  // Card type diagnostics — useful for unblocking selector regressions in
+  // the wild. Reconstructed from the same probes extract() uses so the log
+  // line matches the orchestrator's actual routing decision.
+  const cardType = ProfilePageAcceptCard.fromAcceptButton(button)
+    ? 'profile-page'
+    : AcceptInvitationCard.fromAcceptButton(button)
+      ? 'my-network'
+      : 'none';
   console.log(
     tag(),
     'accept: ariaLabel=',
     JSON.stringify(button.getAttribute('aria-label') ?? ''),
     'card type=',
-    inviteCard instanceof ProfilePageAcceptCard
-      ? 'profile-page'
-      : inviteCard
-        ? 'my-network'
-        : 'none',
+    cardType,
   );
 
-  const name = inviteCard?.name ?? '';
-  const title = inviteCard?.title ?? '';
-  const linkedin_url = inviteCard?.profileUrl ?? '';
-  const messageText = inviteCard?.messageText ?? '';
-
-  if (!name) console.warn(tag(), 'accept: could not find name');
-  if (!title) console.warn(tag(), 'accept: could not find title');
+  const { event } = result;
+  if (!event.name) console.warn(tag(), 'accept: could not find name');
+  if (!event.title) console.warn(tag(), 'accept: could not find title');
 
   const debugMode = await getDebugMode();
+  // Container probing for the debug payload still needs the card instance
+  // (orchestrator returns plain fields, not the DOM scope). Cheap re-probe.
+  const containerCard =
+    AcceptInvitationCard.fromAcceptButton(button) ?? ProfilePageAcceptCard.fromAcceptButton(button);
   const debug = debugMode
-    ? buildDebugPayload(button, inviteCard?.container ?? findDebugContainer(button))
+    ? buildDebugPayload(button, containerCard?.container ?? findDebugContainer(button))
     : undefined;
 
-  if (isDuplicate(name)) return;
-  recordSent(name);
+  if (isDuplicate(event.name)) return;
+  recordSent(event.name);
 
-  console.log(tag(), 'captured (accept click):', { name, title, linkedin_url });
+  console.log(tag(), 'captured (accept click):', {
+    name: event.name,
+    title: event.title,
+    linkedin_url: event.linkedin_url,
+  });
 
-  const event: PipelineEvent = {
-    api_key: '',
-    event_type: 'accepted_connection',
-    date: new Date().toISOString().slice(0, 10),
-    name,
-    title,
-    linkedin_url,
-    page_url: window.location.href,
-    message_text: messageText,
-    ...(debug ? { debug } : {}),
-  };
-
-  await sendEvent(event);
+  const finalEvent: PipelineEvent = debug ? { ...event, debug } : event;
+  await sendEvent(finalEvent);
 }
 
 // =============================================================================
