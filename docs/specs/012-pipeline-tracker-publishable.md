@@ -1,8 +1,8 @@
 # Pipeline Tracker — Publishable Chrome Extension
 
-**Status:** Draft
+**Status:** In progress (Phase 0 complete; Phase 1 next)
 **Owner:** Barton Holdridge
-**Last updated:** 2026-05-29
+**Last updated:** 2026-05-30
 
 **Related (must be read first):**
 
@@ -648,7 +648,14 @@ Before opening a PR for any phase:
 Established by spec 011 — see that spec's per-PR workflow note for the rationale (real
 issues caught locally that would have shipped through PR review otherwise).
 
-### Phase 0 — Branch sync + baseline sanity (no LoC; checklist PR)
+### Phase 0 — Branch sync + baseline sanity (no LoC; checklist PR) ✅ COMPLETE (2026-05-30)
+
+> Verified on `chrome-plugin-specs` after merging `origin/main`:
+> `packages/scraping-core/` resolves; `pipeline-tracker/src/content.ts` imports
+> `@cs/scraping-core`; CI guard `guard:no-cards-in-pipeline-tracker` passes;
+> `pnpm typecheck:packages` + `pnpm typecheck:pipeline-tracker` + `pnpm test` (271/271)
+> green. Deno typecheck (network/cert) and `TODOS.md` prettier warning are
+> pre-existing and unrelated.
 
 Confirm the working branch has the union of:
 
