@@ -127,6 +127,42 @@ describe('validate — noise patterns', () => {
     expect(found).not.toContain('name:noise-premium-badge');
   });
 
+  it('does NOT flag a legit title containing "Premium" as part of a phrase', () => {
+    // Tightened PREMIUM_BADGE_RE only matches "Premium" as a standalone
+    // badge token (surrounded by whitespace/"·"/"|"/start/end), not embedded
+    // in a real headline like "Premium Tech Account Manager".
+    const result = validate(makeEvent({ title: 'Premium Tech Account Manager' }));
+    expect(codes(result.gaps)).not.toContain('title:noise-premium-badge');
+  });
+
+  it('does NOT flag a company name containing "Premium"', () => {
+    const result = validate(makeEvent({ title: 'VP of Sales at Premium Partner LLC' }));
+    expect(codes(result.gaps)).not.toContain('title:noise-premium-badge');
+  });
+
+  it('DOES still flag "Premium" as a standalone badge token surrounded by separators', () => {
+    // The realistic LinkedIn shape: "Jane Doe · Premium · 1st"
+    const result = validate(makeEvent({ name: 'Jane Doe · Premium' }));
+    expect(codes(result.gaps)).toContain('name:noise-premium-badge');
+  });
+
+  it('does NOT flag a legit title containing the word "Follower"', () => {
+    // Tightened FOLLOWER_COUNT_RE requires a leading number. "Follower Growth
+    // Lead" is a real headline; "Follower" alone is a real surname.
+    const result = validate(makeEvent({ title: 'Director of Follower Growth' }));
+    expect(codes(result.gaps)).not.toContain('title:noise-follower-count');
+  });
+
+  it('DOES still flag follower-count formats including abbreviations', () => {
+    const cases = ['1,234 followers', '12K followers', '5M+ followers', '500 follower'];
+    for (const title of cases) {
+      const result = validate(makeEvent({ title }));
+      expect(codes(result.gaps), `expected ${title} to be flagged`).toContain(
+        'title:noise-follower-count',
+      );
+    }
+  });
+
   it('reports both required and noise gaps when both apply', () => {
     const result = validate(
       makeEvent({

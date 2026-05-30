@@ -69,14 +69,26 @@ export const DEGREE_MARKER_RE = /(^|\s|·)(1st|2nd|3rd)(\s|·|$)/i;
 /** "23 mutual connections", "Mutual connection", etc. */
 export const MUTUAL_CONNECTION_RE = /\bmutual\s+connection(s)?\b/i;
 
-/** "Premium" membership badge text. */
-export const PREMIUM_BADGE_RE = /\bpremium\b/i;
+/**
+ * "Premium" badge text — appears at end-of-string or immediately before a
+ * "·" / "|" separator. Tightened from `\bpremium\b/i` (which false-positived
+ * on legitimate titles like "Premium Tech Account Manager" and company names
+ * like "Premium Partner LLC"). The distinguishing feature: when "Premium" is
+ * followed by another regular word it's a real headline; when it's at
+ * end-of-string or followed by a separator it's a badge.
+ */
+export const PREMIUM_BADGE_RE = /\bpremium\b\s*(?:·|\||$)/i;
 
 /** "Open to work" status overlay text. */
 export const OPEN_TO_WORK_RE = /\bopen\s+to\s+work\b/i;
 
-/** "1234 followers" / "Follower" counts. */
-export const FOLLOWER_COUNT_RE = /\bfollower(s)?\b/i;
+/**
+ * "1234 followers" / "1.2K followers" counts. Tightened from `\bfollower(s)?\b/i`
+ * to require a leading number — the noise pattern is the count, not the word
+ * "follower" itself. The old form false-positived on titles like
+ * "Director of Follower Growth" or the surname "Anna Follower".
+ */
+export const FOLLOWER_COUNT_RE = /\b[\d,.]+\s*[KMB]?\+?\s+follower(s)?\b/i;
 
 interface NoiseRule {
   pattern: RegExp;
