@@ -341,3 +341,203 @@ describe('handleExternalMessage — sync-pull', () => {
     expect(second.syncedIds).toEqual(['h-2']);
   });
 });
+
+// ─── sync-ack ───────────────────────────────────────────────────────────────
+
+describe('handleExternalMessage — sync-ack', () => {
+  it('no binding → {error: NOT_BOUND}', async () => {
+    installStatefulStorage();
+    const result = await handleExternalMessage(
+      { type: 'sync-ack', bindingToken: 'any', syncedIds: ['h-1'] },
+      validSender,
+    );
+    expect(result).toEqual({ error: 'NOT_BOUND' });
+  });
+
+  it('pending binding → {error: NOT_BOUND}', async () => {
+    installStatefulStorage({
+      [STORAGE_KEYS.BINDING]: makeBinding({ status: 'pending' }),
+    });
+    const result = await handleExternalMessage(
+      { type: 'sync-ack', bindingToken: 'test-token-abc', syncedIds: ['h-1'] },
+      validSender,
+    );
+    expect(result).toEqual({ error: 'NOT_BOUND' });
+  });
+
+  it('confirmed + wrong token → {error: NOT_BOUND}', async () => {
+    installStatefulStorage({
+      [STORAGE_KEYS.BINDING]: makeBinding(),
+    });
+    const result = await handleExternalMessage(
+      { type: 'sync-ack', bindingToken: 'wrong-token', syncedIds: ['h-1'] },
+      validSender,
+    );
+    expect(result).toEqual({ error: 'NOT_BOUND' });
+  });
+
+  it('confirmed + correct token, empty syncedIds → {ackedCount: 0}', async () => {
+    installStatefulStorage({
+      [STORAGE_KEYS.BINDING]: makeBinding(),
+      [STORAGE_KEYS.OUTBOX]: [makeOutboxEntry('h-1')],
+    });
+    const result = await handleExternalMessage(
+      { type: 'sync-ack', bindingToken: 'test-token-abc', syncedIds: [] },
+      validSender,
+    );
+    expect(result).toEqual({ ackedCount: 0 });
+  });
+
+  it('confirmed + correct token → ackedCount equals ids found in outbox', async () => {
+    installStatefulStorage({
+      [STORAGE_KEYS.BINDING]: makeBinding(),
+      [STORAGE_KEYS.OUTBOX]: [makeOutboxEntry('h-1'), makeOutboxEntry('h-2')],
+      [STORAGE_KEYS.HISTORY]: [makeHistoryEntry('h-1'), makeHistoryEntry('h-2')],
+    });
+    const result = await handleExternalMessage(
+      { type: 'sync-ack', bindingToken: 'test-token-abc', syncedIds: ['h-1', 'h-2'] },
+      validSender,
+    );
+    expect(result).toEqual({ ackedCount: 2 });
+  });
+
+  it('unknown syncedIds silently ignored → {ackedCount: 0}', async () => {
+    installStatefulStorage({
+      [STORAGE_KEYS.BINDING]: makeBinding(),
+      [STORAGE_KEYS.OUTBOX]: [makeOutboxEntry('h-1')],
+      [STORAGE_KEYS.HISTORY]: [makeHistoryEntry('h-1')],
+    });
+    const result = await handleExternalMessage(
+      { type: 'sync-ack', bindingToken: 'test-token-abc', syncedIds: ['h-unknown'] },
+      validSender,
+    );
+    expect(result).toEqual({ ackedCount: 0 });
+  });
+
+  it('partial match: some known, some unknown → ackedCount reflects only known', async () => {
+    installStatefulStorage({
+      [STORAGE_KEYS.BINDING]: makeBinding(),
+      [STORAGE_KEYS.OUTBOX]: [makeOutboxEntry('h-1'), makeOutboxEntry('h-2')],
+      [STORAGE_KEYS.HISTORY]: [makeHistoryEntry('h-1'), makeHistoryEntry('h-2')],
+    });
+    const result = await handleExternalMessage(
+      { type: 'sync-ack', bindingToken: 'test-token-abc', syncedIds: ['h-1', 'h-unknown'] },
+      validSender,
+    );
+    expect(result).toEqual({ ackedCount: 1 });
+  });
+
+  it('removes matched outbox entries from storage', async () => {
+    const local = installStatefulStorage({
+      [STORAGE_KEYS.BINDING]: makeBinding(),
+      [STORAGE_KEYS.OUTBOX]: [makeOutboxEntry('h-1'), makeOutboxEntry('h-2')],
+      [STORAGE_KEYS.HISTORY]: [makeHistoryEntry('h-1'), makeHistoryEntry('h-2')],
+    });
+    await handleExternalMessage(
+      { type: 'sync-ack', bindingToken: 'test-token-abc', syncedIds: ['h-1'] },
+      validSender,
+    );
+    const outbox = local[STORAGE_KEYS.OUTBOX] as OutboxEntry[];
+    expect(outbox).toHaveLength(1);
+    expect(outbox[0].history_id).toBe('h-2');
+  });
+
+  it('updates history entry to status:ok and message:Synced via app', async () => {
+    const local = installStatefulStorage({
+      [STORAGE_KEYS.BINDING]: makeBinding(),
+      [STORAGE_KEYS.OUTBOX]: [makeOutboxEntry('h-1'), makeOutboxEntry('h-2')],
+      [STORAGE_KEYS.HISTORY]: [makeHistoryEntry('h-1'), makeHistoryEntry('h-2')],
+    });
+    await handleExternalMessage(
+      { type: 'sync-ack', bindingToken: 'test-token-abc', syncedIds: ['h-1'] },
+      validSender,
+    );
+    const history = local[STORAGE_KEYS.HISTORY] as HistoryEntry[];
+    const h1 = history.find((e) => e.id === 'h-1');
+    expect(h1?.status).toBe('ok');
+    expect(h1?.message).toBe('Synced via app');
+    // h-2 should be unchanged
+    const h2 = history.find((e) => e.id === 'h-2');
+    expect(h2?.status).toBe('pending');
+  });
+
+  it('removes recovered_html key for acked entry', async () => {
+    const local = installStatefulStorage({
+      [STORAGE_KEYS.BINDING]: makeBinding(),
+      [STORAGE_KEYS.OUTBOX]: [makeOutboxEntry('h-1')],
+      [STORAGE_KEYS.HISTORY]: [makeHistoryEntry('h-1')],
+      'recovered_html_h-1': '<div>html</div>',
+    });
+    await handleExternalMessage(
+      { type: 'sync-ack', bindingToken: 'test-token-abc', syncedIds: ['h-1'] },
+      validSender,
+    );
+    expect(local['recovered_html_h-1']).toBeUndefined();
+  });
+
+  it('idempotent — second ack with same ids returns ackedCount: 0', async () => {
+    installStatefulStorage({
+      [STORAGE_KEYS.BINDING]: makeBinding(),
+      [STORAGE_KEYS.OUTBOX]: [makeOutboxEntry('h-1')],
+      [STORAGE_KEYS.HISTORY]: [makeHistoryEntry('h-1')],
+    });
+    const msg = { type: 'sync-ack' as const, bindingToken: 'test-token-abc', syncedIds: ['h-1'] };
+    const first = await handleExternalMessage(msg, validSender);
+    expect(first).toEqual({ ackedCount: 1 });
+    // Second ack — h-1 is already gone from the outbox.
+    const second = await handleExternalMessage(msg, validSender);
+    expect(second).toEqual({ ackedCount: 0 });
+  });
+
+  it('refreshBadge dep is called on successful ack', async () => {
+    installStatefulStorage({
+      [STORAGE_KEYS.BINDING]: makeBinding(),
+      [STORAGE_KEYS.OUTBOX]: [makeOutboxEntry('h-1')],
+      [STORAGE_KEYS.HISTORY]: [makeHistoryEntry('h-1')],
+    });
+    const refreshBadge = vi.fn().mockResolvedValue(undefined);
+    await handleExternalMessage(
+      { type: 'sync-ack', bindingToken: 'test-token-abc', syncedIds: ['h-1'] },
+      validSender,
+      { refreshBadge },
+    );
+    expect(refreshBadge).toHaveBeenCalledOnce();
+  });
+
+  it('refreshBadge NOT called when NOT_BOUND is returned', async () => {
+    installStatefulStorage();
+    const refreshBadge = vi.fn().mockResolvedValue(undefined);
+    await handleExternalMessage(
+      { type: 'sync-ack', bindingToken: 'any', syncedIds: ['h-1'] },
+      validSender,
+      { refreshBadge },
+    );
+    expect(refreshBadge).not.toHaveBeenCalled();
+  });
+
+  it('mid-flight capture (D-rev-23): new event added after pull is not in syncedIds, survives ack', async () => {
+    const local = installStatefulStorage({
+      [STORAGE_KEYS.BINDING]: makeBinding(),
+      [STORAGE_KEYS.OUTBOX]: [makeOutboxEntry('h-1'), makeOutboxEntry('h-2')],
+      [STORAGE_KEYS.HISTORY]: [makeHistoryEntry('h-1'), makeHistoryEntry('h-2')],
+    });
+
+    // App pulled h-1 and h-2, then h-3 was captured mid-flight.
+    // App only acks h-1 and h-2 — h-3 should survive.
+    local[STORAGE_KEYS.OUTBOX] = [
+      makeOutboxEntry('h-1'),
+      makeOutboxEntry('h-2'),
+      makeOutboxEntry('h-3'),
+    ];
+    (local[STORAGE_KEYS.HISTORY] as HistoryEntry[]).push(makeHistoryEntry('h-3'));
+
+    await handleExternalMessage(
+      { type: 'sync-ack', bindingToken: 'test-token-abc', syncedIds: ['h-1', 'h-2'] },
+      validSender,
+    );
+
+    const outbox = local[STORAGE_KEYS.OUTBOX] as OutboxEntry[];
+    expect(outbox).toHaveLength(1);
+    expect(outbox[0].history_id).toBe('h-3');
+  });
+});
