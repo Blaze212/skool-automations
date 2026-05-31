@@ -51,6 +51,7 @@ import {
   ensureInitialized,
   historyStore,
   outboxStore,
+  recoveredHtmlStore,
   setHistoryAndBadge,
 } from './storage.ts';
 import type { Classified, DestinationStrategy } from './destination.ts';
@@ -73,13 +74,25 @@ interface BackgroundResult {
  * (D-rev-12 SW-lifecycle note); these messages only ask the SW to mutate
  * persisted state and broadcast on its port registry.
  */
-type BindingMessage = { kind: 'start_binding' } | { kind: 'clear_binding' };
+type BindingMessage =
+  | { kind: 'start_binding' }
+  | { kind: 'clear_binding' }
+  | { kind: 'wipe_unsynced' };
 
 type BgMessage = { kind: 'drain_outbox' } | BindingMessage | PipelineEvent;
 
 interface StartBindingResult extends BackgroundResult {
   /** Number of app tabs the bind-offer reached. 0 → side panel shows "Open CareerSystems first" (Phase 8). */
   delivered?: number;
+}
+
+interface WipeUnsyncedResult extends BackgroundResult {
+  /** How many outbox entries were destroyed (for UX confirmation logs). */
+  wipedOutbox?: number;
+  /** How many recovered_html_* keys were destroyed (includes orphans). */
+  wipedRecoveredHtml?: number;
+  /** How many pending HistoryEntry rows were removed. */
+  wipedHistoryPending?: number;
 }
 
 function severityRank(s: Severity): number {
@@ -309,6 +322,71 @@ export function _resetDrainingForTests(): void {
  * background.test.ts both import it, (b) the keep-alive alarm / onStartup /
  * onInstalled fire-and-forget callers below stay readable.
  */
+/**
+ * Spec 012 Phase 8 / D-rev-19 — handles the side panel's "delete the
+ * unsynced events" choice from the rebind 3-choice modal. Routes the wipe
+ * through the SW so:
+ *
+ *   (a) the snapshot is read FRESH inside the SW — a content-script
+ *       capture racing the user's modal interaction can't drop into the
+ *       wipe-gap and survive (Phase 8 review angle A/B finding).
+ *   (b) recovered_html_* keys are enumerated globally — including orphans
+ *       that no longer have a matching outbox entry — so a prior user's
+ *       HTML bytes can't leak to a different CareerSystems user signing
+ *       in on the same Chrome profile.
+ *   (c) pending HistoryEntry rows that point at the wiped outbox entries
+ *       are also removed, so the Recent activity strip doesn't show
+ *       sticky "pending" rows forever (no other writer ever resolves
+ *       them in publishable build).
+ *   (d) the side panel doesn't need to import recoveredHtmlStore — the
+ *       sidepanel.ts header invariant (D-rev-30: side panel never touches
+ *       recovered_html) stays intact.
+ */
+async function handleWipeUnsynced(): Promise<WipeUnsyncedResult> {
+  const outboxSnapshot = await outboxStore.get();
+  const wipedOutbox = outboxSnapshot.length;
+  const pendingIds = new Set(outboxSnapshot.map((e) => e.history_id));
+
+  // Order matters: filter+write history BEFORE outbox so a SW crash between
+  // can't leave pending history rows pointing at a missing outbox. Then
+  // outbox. Then recovered_html — orphan cleanup is safe last because by
+  // then both outbox and history are already consistent.
+  const history = await historyStore.get();
+  const survivingHistory = history.filter((h) => !(h.status === 'pending' && pendingIds.has(h.id)));
+  const wipedHistoryPending = history.length - survivingHistory.length;
+  if (wipedHistoryPending > 0) {
+    await historyStore.set(survivingHistory);
+  }
+
+  if (wipedOutbox > 0) {
+    await outboxStore.set([]);
+  }
+
+  // Enumerate + remove every recovered_html_* key, not just the ones whose
+  // history_id appears in the outbox snapshot. Orphan keys from prior
+  // partial syncs (SW evicted between setOutboxHistoryAndRecoveredHtml and
+  // a follow-up outbox write) live here too.
+  const wipedRecoveredHtml = await recoveredHtmlStore.removeAll();
+
+  console.log(
+    tag(),
+    `wipe_unsynced complete: outbox=${wipedOutbox}, recovered_html=${wipedRecoveredHtml}, history_pending=${wipedHistoryPending}`,
+  );
+
+  // Repaint the publishable badge so the toolbar reflects the empty outbox
+  // immediately, without waiting for the next user action.
+  if (RESOLVED_BUILD_TARGET === 'publishable') {
+    await refreshPublishableBadge();
+  }
+
+  return {
+    ok: true,
+    wipedOutbox,
+    wipedRecoveredHtml,
+    wipedHistoryPending,
+  };
+}
+
 export async function drainOutbox(): Promise<void> {
   await destination.drainNow();
 }
@@ -338,7 +416,10 @@ export async function handleMessage(msg: BgMessage): Promise<BackgroundResult> {
   // future mistaken caller short-circuits here with a clear message rather
   // than mutating storage. esbuild folds the RESOLVED_BUILD_TARGET branch
   // for the publishable bundle.
-  if ('kind' in msg && (msg.kind === 'start_binding' || msg.kind === 'clear_binding')) {
+  if (
+    'kind' in msg &&
+    (msg.kind === 'start_binding' || msg.kind === 'clear_binding' || msg.kind === 'wipe_unsynced')
+  ) {
     if (RESOLVED_BUILD_TARGET !== 'publishable') {
       return { ok: false, message: 'binding handshake not supported in this build' };
     }
@@ -346,6 +427,9 @@ export async function handleMessage(msg: BgMessage): Promise<BackgroundResult> {
       const { offer } = await beginBinding();
       const result: StartBindingResult = { ok: true, delivered: offer.delivered };
       return result;
+    }
+    if (msg.kind === 'wipe_unsynced') {
+      return handleWipeUnsynced();
     }
     await clearBinding();
     return { ok: true };

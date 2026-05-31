@@ -393,6 +393,49 @@
       .binding-secondary:hover {
         background: #f1f5f9;
       }
+
+      /* ── Rebind 3-choice modal (Phase 8 / D-rev-19) ──────────────────── */
+      .rebind-choices {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 8px;
+      }
+      .rebind-choice {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .rebind-choice-btn {
+        appearance: none;
+        color: #ffffff;
+        border: 0;
+        border-radius: 4px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        text-align: left;
+      }
+      .rebind-choice-btn:disabled {
+        background: #cbd5e1;
+        cursor: not-allowed;
+      }
+      .rebind-choice-primary {
+        background: #2563eb;
+      }
+      .rebind-choice-secondary {
+        background: #475569;
+      }
+      .rebind-choice-danger {
+        background: #b91c1c;
+      }
+      .rebind-choice-desc {
+        font-size: 11px;
+        color: #475569;
+        line-height: 1.4;
+        padding-left: 2px;
+      }
     </style>
   </head>
   <body>

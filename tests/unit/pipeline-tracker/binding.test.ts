@@ -307,6 +307,77 @@ describe('binding — beginBinding + clearBinding', () => {
   });
 });
 
+describe('binding — Phase 8 multi-tab broadcast (first ack wins)', () => {
+  it('beginBinding broadcasts the offer to every connected app tab', async () => {
+    installStatefulStorage();
+    const p1 = makePort({ sender: appSender(1) });
+    const p2 = makePort({ sender: appSender(2) });
+    const p3 = makePort({ sender: appSender(3) });
+    acceptAppPort(p1 as unknown as chrome.runtime.Port);
+    acceptAppPort(p2 as unknown as chrome.runtime.Port);
+    acceptAppPort(p3 as unknown as chrome.runtime.Port);
+
+    const { binding, offer } = await beginBinding();
+    expect(offer.delivered).toBe(3);
+    for (const p of [p1, p2, p3]) {
+      expect(p.postMessage).toHaveBeenCalledWith({
+        type: 'bind-offer',
+        bindingToken: binding.token,
+      });
+    }
+  });
+
+  it('first ack wins; subsequent acks for the same token are idempotent no-ops', async () => {
+    installStatefulStorage();
+    const p1 = makePort({ sender: appSender(1) });
+    const p2 = makePort({ sender: appSender(2) });
+    acceptAppPort(p1 as unknown as chrome.runtime.Port);
+    acceptAppPort(p2 as unknown as chrome.runtime.Port);
+
+    const { binding } = await beginBinding();
+    p1._fireMessage({ type: 'bind-ack', bindingToken: binding.token });
+    await new Promise((r) => setTimeout(r, 0));
+
+    const afterFirst = await bindingStore.get();
+    expect(afterFirst?.status).toBe('confirmed');
+    const boundAtAfterFirst = afterFirst?.bound_at;
+
+    // Second ack from a different tab with the SAME token — idempotent.
+    p2._fireMessage({ type: 'bind-ack', bindingToken: binding.token });
+    await new Promise((r) => setTimeout(r, 0));
+
+    const afterSecond = await bindingStore.get();
+    expect(afterSecond?.status).toBe('confirmed');
+    expect(afterSecond?.bound_at).toBe(boundAtAfterFirst);
+    expect(afterSecond?.token).toBe(binding.token);
+  });
+
+  it('late ack from a tab racing a rebind with a NEW token is rejected', async () => {
+    installStatefulStorage();
+    const p1 = makePort({ sender: appSender(1) });
+    const p2 = makePort({ sender: appSender(2) });
+    acceptAppPort(p1 as unknown as chrome.runtime.Port);
+    acceptAppPort(p2 as unknown as chrome.runtime.Port);
+
+    const first = await beginBinding();
+    const second = await beginBinding();
+    expect(second.binding.token).not.toBe(first.binding.token);
+
+    // p2 acks the OLD token after a rebind already overwrote.
+    p2._fireMessage({ type: 'bind-ack', bindingToken: first.binding.token });
+    await new Promise((r) => setTimeout(r, 0));
+
+    const persisted = await bindingStore.get();
+    expect(persisted?.status).toBe('pending');
+    expect(persisted?.token).toBe(second.binding.token);
+
+    // p1 acks the new token — confirms cleanly.
+    p1._fireMessage({ type: 'bind-ack', bindingToken: second.binding.token });
+    await new Promise((r) => setTimeout(r, 0));
+    expect((await bindingStore.get())?.status).toBe('confirmed');
+  });
+});
+
 describe('binding — generateBindingToken', () => {
   it('returns a non-empty string', () => {
     const t = generateBindingToken();
