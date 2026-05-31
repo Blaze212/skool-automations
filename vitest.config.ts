@@ -5,6 +5,11 @@ export default defineConfig({
   define: {
     LINKEDIN_TRACKER_WEBHOOK_URL: JSON.stringify('http://localhost/test-webhook'),
     PIPELINE_TRACKER_WEBHOOK_URL: JSON.stringify('http://localhost/test-pipeline-webhook'),
+    // Spec 012 Phase 4 — destination strategy is selected per-build via
+    // BUILD_TARGET. Tests default to the internal target so the existing
+    // webhook + drain + alarm behavior keeps running. Publishable-target
+    // tests can override locally via vi.stubGlobal or a per-file define.
+    BUILD_TARGET: JSON.stringify('internal'),
   },
   test: {
     globals: true,

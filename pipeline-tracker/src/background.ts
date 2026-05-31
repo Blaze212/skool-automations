@@ -1,4 +1,15 @@
-declare const PIPELINE_TRACKER_WEBHOOK_URL: string;
+declare const BUILD_TARGET: 'internal' | 'publishable';
+
+// Defensive fallback: BUILD_TARGET is injected by build.ts via esbuild's
+// `define`, and by vitest.config.ts for tests. If a future tool path imports
+// this module without that define (raw module loader, ad-hoc REPL, a new
+// vitest config split that misses the define), accessing the bare identifier
+// throws ReferenceError at module load and kills the SW before any listener
+// registers. The typeof guard turns that into a safe internal-default so the
+// runtime stays alive; the CI guards (#3 fetch grep + manifest split) still
+// catch real misconfiguration before publish.
+const RESOLVED_BUILD_TARGET: 'internal' | 'publishable' =
+  typeof BUILD_TARGET === 'undefined' ? 'internal' : BUILD_TARGET;
 
 import {
   BADGE_COLOR_ERROR,
@@ -9,42 +20,22 @@ import {
   BADGE_TEXT_OK,
   BADGE_TEXT_PARTIAL,
   HISTORY_CAP,
-  OUTBOX_MAX_ATTEMPTS,
-  OUTBOX_STALE_AFTER_MS,
-  STORAGE_KEYS,
   type HistoryEntry,
   type PipelineEvent,
   type Severity,
 } from './types.ts';
-import {
-  badgeStore,
-  deliveryStore,
-  ensureInitialized,
-  historyStore,
-  outboxStore,
-  setHistoryAndBadge,
-} from './storage.ts';
+import { badgeStore, ensureInitialized, historyStore, setHistoryAndBadge } from './storage.ts';
+import type { Classified, DestinationStrategy } from './destination.ts';
+import { createDestination } from './destination-impl.ts';
 import { ts } from './logger.ts';
 
 const tag = () => `[Pipeline Tracker BG - ${ts()}]`;
 
-console.log(
-  tag(),
-  'service worker started, webhook URL configured:',
-  !!PIPELINE_TRACKER_WEBHOOK_URL,
-);
+console.log(tag(), `service worker started, target=${RESOLVED_BUILD_TARGET}`);
 
 interface BackgroundResult {
   ok: boolean;
   message?: string;
-}
-
-interface Classified {
-  status: Severity;
-  message: string;
-  code?: string;
-  http_status?: number;
-  warnings?: string[];
 }
 
 type BgMessage = { kind: 'drain_outbox' } | PipelineEvent;
@@ -138,8 +129,13 @@ function newId(): string {
 /**
  * Resolve a previously-pending history row in place, or prepend a fresh row if
  * no matching pending row is found (e.g. popup's Test connection path).
+ *
+ * Exported so the WebhookAutoPushStrategy can call back into it during drain
+ * (passed in as `resolveHistory` dep). Publishable's sync-ack handler (Phase
+ * 10) will use the same function to mark synced rows resolved, so it stays in
+ * background.ts rather than moving into one of the strategy classes.
  */
-async function recordResolved(
+export async function recordResolved(
   event: PipelineEvent,
   classified: Classified,
   historyId: string | null,
@@ -187,201 +183,33 @@ async function recordResolved(
   await applyBadge(lastStatus);
 }
 
-// --- Delivery ---
+// --- DestinationStrategy wiring ---
+//
+// Constructed once per SW spin-up. Per spec 012 D-Architecture, internal builds
+// auto-drain to the webhook; publishable builds wait for app.cmcareersystems.com
+// to pull. The selection happens at bundle time — build.ts aliases
+// `./destination-impl.ts` to destination-impl.internal.ts or
+// destination-impl.publishable.ts, so the publishable graph never imports
+// destination-webhook.ts and the webhook class / fetch / POST strings are
+// absent from the publishable bundle. CI guard #3 backstops the alias.
 
-interface DeliveryOutcome {
-  classified: Classified;
-  /** true if this was a network/timeout failure — leave the outbox entry for retry. */
-  transientFailure: boolean;
-}
+const destination: DestinationStrategy = createDestination({ resolveHistory: recordResolved });
 
-async function deliverEvent(event: PipelineEvent): Promise<DeliveryOutcome> {
-  const now = new Date().toISOString();
-
-  if (!PIPELINE_TRACKER_WEBHOOK_URL) {
-    console.error(tag(), 'PIPELINE_TRACKER_WEBHOOK_URL is not set');
-    return {
-      classified: { status: 'error', message: 'Webhook URL not configured' },
-      transientFailure: false,
-    };
-  }
-
-  const syncData = await chrome.storage.sync.get(STORAGE_KEYS.API_KEY);
-  const apiKey = (syncData as Record<string, unknown>)[STORAGE_KEYS.API_KEY] as string | undefined;
-
-  if (!apiKey) {
-    console.warn(tag(), 'No api_key configured; skipping POST');
-    return {
-      classified: { status: 'error', message: 'No api_key configured' },
-      transientFailure: false,
-    };
-  }
-
-  const payload: PipelineEvent = { ...event, api_key: apiKey };
-  console.log(tag(), 'POSTing to webhook:', JSON.stringify(payload));
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
-
-  try {
-    const res = await fetch(PIPELINE_TRACKER_WEBHOOK_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      const bodyText = await res.text().catch(() => '');
-      let code: string | undefined;
-      let serverMessage: string | undefined;
-      try {
-        const parsed = JSON.parse(bodyText) as { error?: string; code?: string };
-        code = parsed.code;
-        serverMessage = parsed.error;
-      } catch {
-        // non-JSON body; ignore
-      }
-      console.error(tag(), `POST failed ${res.status}:`, bodyText);
-      await deliveryStore.setLastError(now);
-
-      let message: string;
-      if (res.status === 403) {
-        message = 'Sheet not shared or invalid API key';
-      } else if (serverMessage) {
-        message = serverMessage;
-      } else {
-        message = 'Connection failed. Check your key.';
-      }
-      return {
-        classified: { status: 'error', message, code, http_status: res.status },
-        transientFailure: false,
-      };
-    }
-
-    console.log(tag(), 'POST succeeded');
-    // Atomic — clear any prior lastError alongside writing the new
-    // lastLoggedAt so the popup never shows contradictory "Last logged" +
-    // "Last POST failed" lines if the second write fails.
-    await deliveryStore.setLastLoggedAndClearError(now);
-
-    const bodyText = await res.text().catch(() => '');
-    let warnings: string[] = [];
-    try {
-      const parsed = JSON.parse(bodyText) as { warnings?: unknown };
-      if (Array.isArray(parsed.warnings)) {
-        warnings = parsed.warnings.filter((w): w is string => typeof w === 'string');
-      }
-    } catch {
-      // non-JSON body; ignore
-    }
-
-    const status: Severity = warnings.length > 0 ? 'partial' : 'ok';
-    const message = warnings.length > 0 ? `Logged with warnings: ${warnings.join(', ')}` : 'Logged';
-    return {
-      classified: { status, message, http_status: res.status, warnings },
-      transientFailure: false,
-    };
-  } catch (err) {
-    clearTimeout(timeout);
-    if (err instanceof Error && err.name === 'AbortError') {
-      console.warn(tag(), 'POST timed out');
-      await deliveryStore.setLastError(now);
-      return {
-        classified: { status: 'error', message: 'Connection timed out' },
-        transientFailure: true,
-      };
-    }
-    console.error(tag(), 'POST threw:', err);
-    await deliveryStore.setLastError(now);
-    return {
-      classified: { status: 'error', message: 'Connection failed' },
-      transientFailure: true,
-    };
-  }
-}
-
-// --- Outbox drain ---
-
-let _draining = false;
-
-/** Test-only — drop the in-progress latch so a fresh drainOutbox() runs.
- *  Tests that import background.ts inherit the module-load
- *  restoreBadgeOnStartup() chain's fire-and-forget drainOutbox call; without
- *  this reset a stale `_draining=true` can leak across tests and silently
- *  short-circuit later drains. */
+/** Test-only shim — delegates to the active strategy's reset hook. */
 export function _resetDrainingForTests(): void {
-  _draining = false;
+  if (destination.kind === 'webhook') {
+    destination._resetDrainingForTests();
+  }
 }
 
+/**
+ * Backwards-compatible wrapper around the strategy's drain trigger. Kept as a
+ * named export because (a) the Phase 3 e2e test and the existing
+ * background.test.ts both import it, (b) the keep-alive alarm / onStartup /
+ * onInstalled fire-and-forget callers below stay readable.
+ */
 export async function drainOutbox(): Promise<void> {
-  if (_draining) {
-    console.log(tag(), 'drain already in progress, skipping');
-    return;
-  }
-  _draining = true;
-  try {
-    while (true) {
-      const outbox = await outboxStore.get();
-      if (outbox.length === 0) return;
-
-      const entry = outbox[0];
-      const ageMs = Date.now() - new Date(entry.enqueued_at).getTime();
-      const stale = ageMs > OUTBOX_STALE_AFTER_MS;
-
-      if (stale) {
-        await recordResolved(
-          entry.event,
-          {
-            status: 'error',
-            message: 'Dropped — event was queued more than 7 days ago',
-          },
-          entry.history_id,
-        );
-        await popOutboxHead(entry.history_id);
-        continue;
-      }
-
-      const updatedAttempts = entry.attempts + 1;
-      const outcome = await deliverEvent(entry.event);
-
-      if (outcome.transientFailure && updatedAttempts <= OUTBOX_MAX_ATTEMPTS) {
-        // Leave at head with incremented attempts; stop draining so we don't hammer.
-        await bumpOutboxHeadAttempts(entry.history_id, updatedAttempts);
-        return;
-      }
-
-      if (outcome.transientFailure && updatedAttempts > OUTBOX_MAX_ATTEMPTS) {
-        await recordResolved(
-          entry.event,
-          {
-            status: 'error',
-            message: `Dropped after ${OUTBOX_MAX_ATTEMPTS} retries — check connection`,
-          },
-          entry.history_id,
-        );
-        await popOutboxHead(entry.history_id);
-        continue;
-      }
-
-      // Non-transient: success, partial, or hard failure. Resolve and remove.
-      await recordResolved(entry.event, outcome.classified, entry.history_id);
-      await popOutboxHead(entry.history_id);
-    }
-  } finally {
-    _draining = false;
-  }
-}
-
-async function popOutboxHead(historyId: string): Promise<void> {
-  const outbox = await outboxStore.get();
-  await outboxStore.set(outbox.filter((e) => e.history_id !== historyId));
-}
-
-async function bumpOutboxHeadAttempts(historyId: string, attempts: number): Promise<void> {
-  const outbox = await outboxStore.get();
-  await outboxStore.set(outbox.map((e) => (e.history_id === historyId ? { ...e, attempts } : e)));
+  await destination.drainNow();
 }
 
 // --- Message handling ---
@@ -397,12 +225,18 @@ export async function handleMessage(msg: BgMessage): Promise<BackgroundResult> {
     return { ok: true };
   }
 
-  // Legacy / popup-test path: caller sent a raw event and expects a synchronous result.
-  // Don't enqueue — just deliver and record directly so the popup's Test button gets
-  // the ok/message back inline.
+  // Legacy / popup-test path: caller sent a raw event and expects a synchronous
+  // result. Internal builds deliver inline (no enqueue). Publishable builds have
+  // no popup, so this path is unreachable in that bundle; the runtime guard
+  // below catches accidental fan-out (e.g. a misconfigured externally_connectable
+  // message that lands here).
   const event = msg as PipelineEvent;
   console.log(tag(), 'direct event received, type:', event.event_type, 'name:', event.name);
-  const outcome = await deliverEvent(event);
+
+  if (destination.kind !== 'webhook') {
+    return { ok: false, message: 'direct event delivery not supported in this build' };
+  }
+  const outcome = await destination.deliverEventDirect(event);
   await recordResolved(event, outcome.classified, null);
   return outcome.classified.status === 'ok' || outcome.classified.status === 'partial'
     ? { ok: true }
@@ -464,7 +298,7 @@ restoreBadgeOnStartup().catch((err: unknown) => {
   console.error(tag(), 'restoreBadgeOnStartup threw:', err);
 });
 
-// --- Service worker keep-alive ---
+// --- Service worker keep-alive (internal build only) ---
 //
 // MV3 terminates the SW after ~30s of idle. That alone isn't catastrophic
 // (Chrome restarts the SW on the next event), but the wake can race or fail
@@ -473,12 +307,9 @@ restoreBadgeOnStartup().catch((err: unknown) => {
 // next user action. We narrow that window with an alarm that wakes the SW and
 // opportunistically drains the outbox.
 //
-// Chrome enforces a 1-minute minimum periodInMinutes for installed extensions
-// (https://developer.chrome.com/docs/extensions/reference/api/alarms):
-//   "For installed extensions, anything less than 1 minute is treated as 1 minute."
-// So we set the minimum value the API will actually honor; the 30-second
-// residual gap between alarm fires and SW idle timeout is covered by the
-// content-script's sendMessage retry-with-backoff (defense in depth).
+// Publishable builds don't carry the `alarms` permission and don't auto-drain
+// (events sit until the app pulls), so the alarm registration is gated on
+// BUILD_TARGET. esbuild collapses the `if` branch in the publishable bundle.
 //
 // chrome.alarms.create is documented to "cancel and replace" an existing alarm
 // with the same name, so calling it at module top-level on every SW startup
@@ -489,24 +320,26 @@ restoreBadgeOnStartup().catch((err: unknown) => {
 // restarts (MV3 listener-registration requirement).
 const KEEP_ALIVE_ALARM = 'pipeline-tracker-keep-alive';
 
-if (chrome.alarms && typeof chrome.alarms.create === 'function') {
-  try {
-    chrome.alarms.create(KEEP_ALIVE_ALARM, {
-      // 1-minute minimum per Chrome docs; smaller values are silently clamped.
-      delayInMinutes: 1,
-      periodInMinutes: 1,
-    });
-  } catch (err) {
-    console.error(tag(), 'failed to register keep-alive alarm:', err);
+if (RESOLVED_BUILD_TARGET === 'internal') {
+  if (chrome.alarms && typeof chrome.alarms.create === 'function') {
+    try {
+      chrome.alarms.create(KEEP_ALIVE_ALARM, {
+        // 1-minute minimum per Chrome docs; smaller values are silently clamped.
+        delayInMinutes: 1,
+        periodInMinutes: 1,
+      });
+    } catch (err) {
+      console.error(tag(), 'failed to register keep-alive alarm:', err);
+    }
   }
-}
 
-if (chrome.alarms?.onAlarm && typeof chrome.alarms.onAlarm.addListener === 'function') {
-  chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name !== KEEP_ALIVE_ALARM) return;
-    // Receiving the alarm itself wakes the SW — even a no-op listener body
-    // would be enough. We additionally drain the outbox so events that hit a
-    // dead-SW window get flushed without waiting for the user.
-    void initThenDrain('keep-alive');
-  });
+  if (chrome.alarms?.onAlarm && typeof chrome.alarms.onAlarm.addListener === 'function') {
+    chrome.alarms.onAlarm.addListener((alarm) => {
+      if (alarm.name !== KEEP_ALIVE_ALARM) return;
+      // Receiving the alarm itself wakes the SW — even a no-op listener body
+      // would be enough. We additionally drain the outbox so events that hit a
+      // dead-SW window get flushed without waiting for the user.
+      void initThenDrain('keep-alive');
+    });
+  }
 }
