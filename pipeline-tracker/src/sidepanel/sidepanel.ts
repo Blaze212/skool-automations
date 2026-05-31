@@ -57,9 +57,20 @@ function formatRelative(iso: string, now: number = Date.now()): string {
 function sourceBadge(source: 'selectors' | 'ai-recovered' | undefined): {
   label: string;
   className: string;
-} {
+} | null {
   if (source === 'ai-recovered') return { label: 'AI', className: 'badge badge-ai' };
-  return { label: 'selectors', className: 'badge badge-selectors' };
+  return null;
+}
+
+function eventTypeBadge(eventType: EventType): { label: string; className: string } {
+  switch (eventType) {
+    case 'direct_message':
+      return { label: 'DM', className: 'badge badge-dm' };
+    case 'connection_request':
+      return { label: 'Connect', className: 'badge badge-connect' };
+    case 'accepted_connection':
+      return { label: 'Accepted', className: 'badge badge-accepted' };
+  }
 }
 
 function statusBadge(status: HistoryEntry['status']): { label: string; className: string } {
@@ -151,17 +162,14 @@ export function renderUnsynced(
     summary.append(name, time);
 
     const src = sourceBadge(entry.event.source);
-    appendBadge(summary, src.label, src.className);
-    appendBadge(summary, 'pending', 'badge badge-pending');
+    if (src) appendBadge(summary, src.label, src.className);
+    const evtBadge = eventTypeBadge(entry.event.event_type);
+    appendBadge(summary, evtBadge.label, evtBadge.className);
 
     wrap.appendChild(summary);
 
     const meta = document.createElement('div');
     meta.className = 'meta';
-
-    const eventTypeLine = document.createElement('div');
-    eventTypeLine.textContent = prettyEventType(entry.event.event_type);
-    meta.appendChild(eventTypeLine);
 
     if (entry.event.title) {
       const titleLine = document.createElement('div');
