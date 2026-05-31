@@ -56,7 +56,8 @@ import {
 } from './storage.ts';
 import type { Classified, DestinationStrategy } from './destination.ts';
 import { createDestination } from './destination-impl.ts';
-import { acceptAppPort, beginBinding, clearBinding } from './binding.ts';
+import { APP_ORIGIN, acceptAppPort, beginBinding, clearBinding } from './binding.ts';
+import { handleExternalMessage } from './background-external.ts';
 import { ts } from './logger.ts';
 
 const tag = () => `[Pipeline Tracker BG - ${ts()}]`;
@@ -548,6 +549,48 @@ if (
     // inside the binding module.
     acceptAppPort(port);
   });
+}
+
+// --- External message handler (publishable only) ---
+//
+// Spec 012 Phase 9. App page calls chrome.runtime.sendMessage (NOT a port) for
+// ping + sync-pull — short-lived one-shot calls, not the long-lived port used
+// for the binding handshake. The listener validates origin synchronously and
+// returns false (close channel) on mismatch; valid messages are dispatched to
+// handleExternalMessage which re-validates origin (defense in depth) before
+// routing.
+if (
+  RESOLVED_BUILD_TARGET === 'publishable' &&
+  chrome.runtime.onMessageExternal &&
+  typeof chrome.runtime.onMessageExternal.addListener === 'function'
+) {
+  chrome.runtime.onMessageExternal.addListener(
+    (msg: unknown, sender: chrome.runtime.MessageSender, sendResponse: (r: unknown) => void) => {
+      // Reject invalid origins synchronously so Chrome closes the channel
+      // immediately rather than leaving a dead async channel open.
+      if (sender.origin !== APP_ORIGIN) {
+        console.warn(
+          tag(),
+          `external message rejected — wrong origin: ${sender.origin ?? 'undefined'}`,
+        );
+        return false;
+      }
+      handleExternalMessage(msg, sender).then(
+        (result) => {
+          if (result === null) return; // unknown type — no response
+          try {
+            sendResponse(result);
+          } catch (err) {
+            console.error(tag(), 'sendResponse threw on external message path:', err);
+          }
+        },
+        (err) => {
+          console.error(tag(), 'handleExternalMessage rejected:', err);
+        },
+      );
+      return true; // will respond asynchronously
+    },
+  );
 }
 
 // --- Service worker keep-alive (internal build only) ---
