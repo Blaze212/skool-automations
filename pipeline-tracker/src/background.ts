@@ -8,13 +8,35 @@ declare const BUILD_TARGET: 'internal' | 'publishable';
 // registers. The typeof guard turns that into a safe internal-default so the
 // runtime stays alive; the CI guards (#3 fetch grep + manifest split) still
 // catch real misconfiguration before publish.
-const RESOLVED_BUILD_TARGET: 'internal' | 'publishable' =
+// `let` rather than `const` so _setBuildTargetForTests can flip it inside the
+// vitest process — vitest defines BUILD_TARGET='internal' globally, so without
+// the override the publishable branches (refreshPublishableBadge wiring,
+// onInstalled setPanelBehavior, handleMessage drain_outbox publishable path)
+// would never execute in tests. Production bundles never see the setter.
+let RESOLVED_BUILD_TARGET: 'internal' | 'publishable' =
   typeof BUILD_TARGET === 'undefined' ? 'internal' : BUILD_TARGET;
+
+/**
+ * Test-only — pin the runtime build target for a single test. esbuild folds
+ * the literal-equality check below into `if (true) return;` for the
+ * publishable bundle (BUILD_TARGET inlines to `'publishable'`), neutralizing
+ * the export at runtime so the shipped Web Store bundle cannot be coerced
+ * into the internal-build strategy by anyone who reaches the SW global. The
+ * function is still present in the bundle as a no-op shell, which is fine —
+ * the gate it protects is now load-bearing.
+ */
+export function _setBuildTargetForTests(target: 'internal' | 'publishable'): void {
+  if (typeof BUILD_TARGET !== 'undefined' && BUILD_TARGET === 'publishable') {
+    return;
+  }
+  RESOLVED_BUILD_TARGET = target;
+}
 
 import {
   BADGE_COLOR_ERROR,
   BADGE_COLOR_OK,
   BADGE_COLOR_PARTIAL,
+  BADGE_COLOR_PENDING,
   BADGE_TEXT_COLOR,
   BADGE_TEXT_ERROR,
   BADGE_TEXT_OK,
@@ -24,7 +46,13 @@ import {
   type PipelineEvent,
   type Severity,
 } from './types.ts';
-import { badgeStore, ensureInitialized, historyStore, setHistoryAndBadge } from './storage.ts';
+import {
+  badgeStore,
+  ensureInitialized,
+  historyStore,
+  outboxStore,
+  setHistoryAndBadge,
+} from './storage.ts';
 import type { Classified, DestinationStrategy } from './destination.ts';
 import { createDestination } from './destination-impl.ts';
 import { ts } from './logger.ts';
@@ -87,10 +115,69 @@ async function applyBadge(severity: Severity): Promise<void> {
   }
 }
 
+/**
+ * Spec 012 Phase 5 / D-rev-26 — publishable badge.
+ *
+ * Internal build's `applyBadge` paints the badge with the latest event's
+ * severity (✓ / ! / ✕). The publishable build's user-gestured drain means
+ * "captured locally, not yet synced" needs a toolbar-level cue — without one
+ * the user has no signal that anything is waiting for them in the app. The
+ * unsynced count answers that.
+ *
+ * Precedence (spec 007 still wins for noisy states):
+ *   - highestSeverity === 'error'   → ✕ in BADGE_COLOR_ERROR (storage quota,
+ *                                       extraction blow-up, etc.)
+ *   - highestSeverity === 'partial' → ! in BADGE_COLOR_PARTIAL
+ *   - otherwise                     → unsyncedCount (text) in BADGE_COLOR_PENDING,
+ *                                       blank when zero
+ */
+async function applyPublishableBadge(
+  unsyncedCount: number,
+  highestSeverity: Severity,
+): Promise<void> {
+  if (highestSeverity === 'error' || highestSeverity === 'partial') {
+    const text = highestSeverity === 'error' ? BADGE_TEXT_ERROR : BADGE_TEXT_PARTIAL;
+    const color = highestSeverity === 'error' ? BADGE_COLOR_ERROR : BADGE_COLOR_PARTIAL;
+    await chrome.action.setBadgeText({ text });
+    await chrome.action.setBadgeBackgroundColor({ color });
+    if (typeof chrome.action.setBadgeTextColor === 'function') {
+      await chrome.action.setBadgeTextColor({ color: BADGE_TEXT_COLOR });
+    }
+    return;
+  }
+  if (unsyncedCount <= 0) {
+    await chrome.action.setBadgeText({ text: '' });
+    return;
+  }
+  await chrome.action.setBadgeText({ text: String(unsyncedCount) });
+  await chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR_PENDING });
+  if (typeof chrome.action.setBadgeTextColor === 'function') {
+    await chrome.action.setBadgeTextColor({ color: BADGE_TEXT_COLOR });
+  }
+}
+
+/**
+ * Read outbox length + badge state and repaint the publishable badge. Called
+ * after every signal that may have changed the unsynced count: SW spin-up,
+ * `drain_outbox` messages from content (= a new capture just landed), and
+ * later Phase 10's `sync-ack` removal.
+ */
+export async function refreshPublishableBadge(): Promise<void> {
+  const [outbox, badge] = await Promise.all([outboxStore.get(), badgeStore.get()]);
+  await applyPublishableBadge(outbox.length, badge.highestSeverity);
+}
+
 export async function restoreBadgeOnStartup(): Promise<void> {
   // Spec 012 D-rev-11c — every SW entry point that touches the facade must
   // await ensureInitialized first, not just handleMessage.
   await ensureInitialized();
+
+  if (RESOLVED_BUILD_TARGET === 'publishable') {
+    await refreshPublishableBadge();
+    // Publishable doesn't drain — outbox sits until app.cmcareersystems.com pulls.
+    return;
+  }
+
   const { lastStatus } = await badgeStore.get();
   if (!lastStatus) {
     await chrome.action.setBadgeText({ text: '' });
@@ -221,6 +308,13 @@ export async function handleMessage(msg: BgMessage): Promise<BackgroundResult> {
 
   if ('kind' in msg && msg.kind === 'drain_outbox') {
     console.log(tag(), 'drain_outbox requested');
+    if (RESOLVED_BUILD_TARGET === 'publishable') {
+      // Publishable: drain is a no-op (AppSyncStrategy), but content sent this
+      // because the outbox just grew. Repaint the badge so the count reflects
+      // the new entry without waiting for the next SW respawn.
+      await refreshPublishableBadge();
+      return { ok: true };
+    }
     await drainOutbox();
     return { ok: true };
   }
@@ -291,6 +385,23 @@ if (chrome.runtime.onInstalled && typeof chrome.runtime.onInstalled.addListener 
   chrome.runtime.onInstalled.addListener(() => {
     console.log(tag(), 'onInstalled — draining outbox');
     void initThenDrain('onInstalled');
+
+    // Spec 012 Phase 5 — publishable build requires setPanelBehavior to be
+    // called from code, not the manifest, for the toolbar icon to open the
+    // side panel (Chrome docs note older `openPanelOnActionClick` manifest
+    // field never shipped). Without this the toolbar icon does nothing in
+    // the publishable build. Internal build has no sidePanel permission and
+    // uses a popup, so the guard skips it (and the property is undefined
+    // anyway under that manifest, which would throw without the typeof
+    // check).
+    if (
+      RESOLVED_BUILD_TARGET === 'publishable' &&
+      typeof chrome.sidePanel?.setPanelBehavior === 'function'
+    ) {
+      chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err: unknown) => {
+        console.error(tag(), 'setPanelBehavior failed:', err);
+      });
+    }
   });
 }
 

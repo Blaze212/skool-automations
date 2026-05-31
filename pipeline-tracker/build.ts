@@ -48,6 +48,8 @@ const distDir =
 mkdirSync(`${distDir}/icons`, { recursive: true });
 if (target === 'internal') {
   mkdirSync(`${distDir}/popup`, { recursive: true });
+} else {
+  mkdirSync(`${distDir}/sidepanel`, { recursive: true });
 }
 
 const define = {
@@ -99,6 +101,15 @@ if (target === 'internal') {
     define,
   });
   copyFileSync('pipeline-tracker/src/popup/popup.html', `${distDir}/popup/popup.html`);
+} else {
+  await esbuild.build({
+    entryPoints: ['pipeline-tracker/src/sidepanel/sidepanel.ts'],
+    bundle: true,
+    format: 'iife',
+    outfile: `${distDir}/sidepanel/sidepanel.js`,
+    define,
+  });
+  copyFileSync('pipeline-tracker/src/sidepanel/index.html', `${distDir}/sidepanel/index.html`);
 }
 
 copyFileSync(

@@ -13,11 +13,14 @@
 export type EventType = 'connection_request' | 'accepted_connection' | 'direct_message';
 
 /**
- * Source of the extracted PipelineEvent fields. Today only the selector chain
- * produces values; spec 013 broadens this to `'ai-recovered'` for values the
- * on-device LanguageModel repaired after validate() flagged a gap.
+ * Source of the extracted PipelineEvent fields. The selector chain produces
+ * `'selectors'`; spec 013's on-device LanguageModel fallback populates
+ * `'ai-recovered'` for rows where validate() flagged a gap and the model
+ * repaired it. Spec 012 widens the union here (Phase 5) so the publishable
+ * side panel and CSV export can render the badge without a type cast; spec
+ * 013 wires the actual model invocation.
  */
-export type ExtractionSource = 'selectors';
+export type ExtractionSource = 'selectors' | 'ai-recovered';
 
 export interface DebugPayload {
   button_aria_label: string;
@@ -36,4 +39,15 @@ export interface PipelineEvent {
   page_url: string;
   message_text: string;
   debug?: DebugPayload;
+  // Spec 012 D5 — optional augmentations. Neither field is populated today;
+  // content.ts does NOT copy extract()'s `source` onto the wire event in this
+  // phase, so consumers MUST treat absence as equivalent to `'selectors'`
+  // (the side-panel `sourceBadge()` does exactly that). Spec 013 wires
+  // content.ts to start emitting `'ai-recovered'` for repaired rows and to
+  // populate `recovered_html` via the per-id keyed store. `recovered_html`
+  // is NEVER persisted inline on OutboxEntry — it lives in per-id keys
+  // (`recovered_html_<history_id>`) and is attached to the wire-format
+  // PipelineEvent only at sync-pull / CSV export time (D-rev-28).
+  source?: ExtractionSource;
+  recovered_html?: string;
 }
