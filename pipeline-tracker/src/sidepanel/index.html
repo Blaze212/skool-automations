@@ -6,20 +6,29 @@
     <title>Pipeline Tracker</title>
     <style>
       :root {
-        color-scheme: light dark;
+        --cs-brand: #2EA3F2;
+        --cs-brand-dark: #273D5C;
+        --cs-surface: #FFFFFF;
+        --cs-surface-muted: #F5F5F5;
+        --cs-text: #333333;
+        --cs-muted: #666666;
+        --cs-border: #E2E2E2;
+        color-scheme: light;
       }
       body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-family: 'Open Sans', 'Segoe UI', Arial, sans-serif;
         margin: 0;
         padding: 12px;
         font-size: 13px;
         line-height: 1.4;
+        color: var(--cs-text);
+        background: var(--cs-surface);
       }
       h2 {
         font-size: 11px;
         text-transform: uppercase;
         letter-spacing: 0.05em;
-        color: #666;
+        color: var(--cs-muted);
         margin: 0 0 6px 0;
         font-weight: 600;
       }
@@ -49,16 +58,32 @@
         font-size: 11px;
         color: #888;
         padding: 6px 4px;
-        border-top: 1px dashed #ddd;
+        border-top: 1px dashed var(--cs-border);
         margin-top: 4px;
       }
-      .row {
+
+      /* ── Activity list rows (simple border-bottom style) ─────────────── */
+      #activity-list .row {
         padding: 8px 4px;
         border-bottom: 1px solid #f0f0f0;
       }
-      .row:last-of-type {
+      #activity-list .row:last-of-type {
         border-bottom: none;
       }
+
+      /* ── Unsynced events — card layout ───────────────────────────────── */
+      #unsynced-list .row {
+        padding: 10px 12px;
+        margin-bottom: 8px;
+        background: var(--cs-surface);
+        border: 1px solid var(--cs-border);
+        border-radius: 6px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+      }
+      #unsynced-list .row:last-of-type {
+        margin-bottom: 0;
+      }
+
       .row-head {
         display: flex;
         align-items: baseline;
@@ -72,6 +97,7 @@
       .name {
         font-weight: 600;
         flex: 1;
+        color: var(--cs-text);
       }
       .time {
         color: #888;
@@ -84,18 +110,23 @@
         border-radius: 3px;
         text-transform: uppercase;
         letter-spacing: 0.03em;
-      }
-      .badge-pending {
-        background: #ede9fe;
-        color: #6b21a8;
-      }
-      .badge-selectors {
-        background: #f3f4f6;
-        color: #4b5563;
+        white-space: nowrap;
       }
       .badge-ai {
         background: #dbeafe;
         color: #1e40af;
+      }
+      .badge-dm {
+        background: rgba(46, 163, 242, 0.15);
+        color: #0369a1;
+      }
+      .badge-connect {
+        background: rgba(39, 61, 92, 0.1);
+        color: var(--cs-brand-dark);
+      }
+      .badge-accepted {
+        background: #dcfce7;
+        color: #166534;
       }
       .badge-error {
         background: #fee2e2;
@@ -109,17 +140,21 @@
         background: #dcfce7;
         color: #166534;
       }
+      .badge-pending {
+        background: #ede9fe;
+        color: #6b21a8;
+      }
       .meta {
-        margin-top: 4px;
+        margin-top: 6px;
         margin-left: 0;
         font-size: 12px;
-        color: #555;
+        color: var(--cs-muted);
       }
       .meta div {
         margin-top: 2px;
       }
       .meta a {
-        color: #2563eb;
+        color: var(--cs-brand);
         text-decoration: none;
         word-break: break-all;
       }
@@ -136,15 +171,15 @@
       /* ── Settings section (Phase 6) ───────────────────────────────────── */
       .settings-details {
         margin-bottom: 16px;
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--cs-border);
         border-radius: 4px;
-        background: rgba(243, 244, 246, 0.4);
+        background: rgba(245, 245, 245, 0.6);
       }
       .settings-summary {
         font-size: 11px;
         text-transform: uppercase;
         letter-spacing: 0.05em;
-        color: #666;
+        color: var(--cs-muted);
         padding: 8px 10px;
         cursor: pointer;
         font-weight: 600;
@@ -173,6 +208,7 @@
       .settings-row input[type='checkbox'] {
         margin-top: 2px;
         flex: 0 0 auto;
+        accent-color: var(--cs-brand);
       }
       .settings-row-text {
         flex: 1;
@@ -180,10 +216,11 @@
       .settings-row-label {
         font-weight: 600;
         font-size: 12px;
+        color: var(--cs-text);
       }
       .settings-row-help {
         font-size: 11px;
-        color: #666;
+        color: var(--cs-muted);
         margin-top: 2px;
         line-height: 1.4;
       }
@@ -208,7 +245,7 @@
       .first-run-overlay {
         position: fixed;
         inset: 0;
-        background: rgba(15, 23, 42, 0.55);
+        background: rgba(39, 61, 92, 0.5);
         display: flex;
         align-items: flex-start;
         justify-content: center;
@@ -217,21 +254,23 @@
         overflow-y: auto;
       }
       .first-run-dialog {
-        background: #ffffff;
-        color: #0f172a;
+        background: var(--cs-surface);
+        color: var(--cs-text);
         border-radius: 6px;
         max-width: 420px;
         width: 100%;
         padding: 18px 18px 14px;
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
       }
       .first-run-title {
         font-size: 15px;
         margin: 0 0 6px;
+        color: var(--cs-brand-dark);
+        font-weight: 700;
       }
       .first-run-intro {
         font-size: 12px;
-        color: #475569;
+        color: var(--cs-muted);
         margin: 0 0 10px;
         line-height: 1.4;
       }
@@ -240,6 +279,7 @@
         padding-left: 18px;
         font-size: 12px;
         line-height: 1.45;
+        color: var(--cs-text);
       }
       .first-run-points li {
         margin-bottom: 6px;
@@ -249,15 +289,16 @@
         gap: 10px;
         align-items: flex-start;
         padding: 10px;
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--cs-border);
         border-radius: 4px;
-        background: rgba(243, 244, 246, 0.5);
+        background: var(--cs-surface-muted);
         cursor: pointer;
         margin-bottom: 12px;
       }
       .first-run-toggle input[type='checkbox'] {
         margin-top: 2px;
         flex: 0 0 auto;
+        accent-color: var(--cs-brand);
       }
       .first-run-toggle-text {
         flex: 1;
@@ -265,10 +306,11 @@
       .first-run-toggle-label {
         font-weight: 600;
         font-size: 12px;
+        color: var(--cs-text);
       }
       .first-run-toggle-help {
         font-size: 11px;
-        color: #475569;
+        color: var(--cs-muted);
         margin-top: 2px;
         line-height: 1.4;
       }
@@ -284,7 +326,7 @@
       }
       .first-run-close {
         appearance: none;
-        background: #2563eb;
+        background: var(--cs-brand);
         color: #ffffff;
         border: 0;
         border-radius: 4px;
@@ -293,6 +335,9 @@
         font-weight: 600;
         cursor: pointer;
       }
+      .first-run-close:hover {
+        background: #1a8fd6;
+      }
       .first-run-close:disabled {
         background: #cbd5e1;
         cursor: not-allowed;
@@ -300,15 +345,15 @@
       .first-run-skip {
         appearance: none;
         background: transparent;
-        color: #475569;
-        border: 1px solid #cbd5e1;
+        color: var(--cs-muted);
+        border: 1px solid var(--cs-border);
         border-radius: 4px;
         padding: 6px 10px;
         font-size: 12px;
         cursor: pointer;
       }
       .first-run-skip:hover {
-        background: #f1f5f9;
+        background: var(--cs-surface-muted);
       }
       .first-run-error {
         margin-top: 10px;
@@ -322,23 +367,23 @@
       /* ── Binding section (Phase 7) ────────────────────────────────────── */
       .binding-section {
         margin-bottom: 16px;
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--cs-border);
         border-radius: 4px;
         padding: 10px;
-        background: #f9fafb;
+        background: var(--cs-surface-muted);
       }
       .binding-section .section-header {
         margin-bottom: 6px;
       }
       .binding-explain {
         font-size: 12px;
-        color: #475569;
+        color: var(--cs-muted);
         line-height: 1.4;
         margin-bottom: 8px;
       }
       .binding-help {
         font-size: 11px;
-        color: #64748b;
+        color: var(--cs-muted);
         line-height: 1.4;
         margin: 4px 0 8px;
       }
@@ -367,7 +412,7 @@
       }
       .binding-primary {
         appearance: none;
-        background: #2563eb;
+        background: var(--cs-brand);
         color: #ffffff;
         border: 0;
         border-radius: 4px;
@@ -376,6 +421,9 @@
         font-weight: 600;
         cursor: pointer;
       }
+      .binding-primary:hover {
+        background: #1a8fd6;
+      }
       .binding-primary:disabled {
         background: #cbd5e1;
         cursor: not-allowed;
@@ -383,15 +431,15 @@
       .binding-secondary {
         appearance: none;
         background: transparent;
-        color: #475569;
-        border: 1px solid #cbd5e1;
+        color: var(--cs-muted);
+        border: 1px solid var(--cs-border);
         border-radius: 4px;
         padding: 5px 10px;
         font-size: 12px;
         cursor: pointer;
       }
       .binding-secondary:hover {
-        background: #f1f5f9;
+        background: var(--cs-surface-muted);
       }
 
       /* ── Rebind 3-choice modal (Phase 8 / D-rev-19) ──────────────────── */
@@ -422,17 +470,23 @@
         cursor: not-allowed;
       }
       .rebind-choice-primary {
-        background: #2563eb;
+        background: var(--cs-brand);
+      }
+      .rebind-choice-primary:hover {
+        background: #1a8fd6;
       }
       .rebind-choice-secondary {
-        background: #475569;
+        background: var(--cs-brand-dark);
+      }
+      .rebind-choice-secondary:hover {
+        background: #1c2d45;
       }
       .rebind-choice-danger {
         background: #b91c1c;
       }
       .rebind-choice-desc {
         font-size: 11px;
-        color: #475569;
+        color: var(--cs-muted);
         line-height: 1.4;
         padding-left: 2px;
       }
@@ -441,8 +495,8 @@
       .export-csv-btn {
         appearance: none;
         background: transparent;
-        color: #475569;
-        border: 1px solid #cbd5e1;
+        color: var(--cs-muted);
+        border: 1px solid var(--cs-border);
         border-radius: 3px;
         padding: 2px 7px;
         font-size: 11px;
@@ -450,11 +504,11 @@
         white-space: nowrap;
       }
       .export-csv-btn:hover {
-        background: #f1f5f9;
+        background: var(--cs-surface-muted);
       }
       .export-csv-btn:disabled {
         color: #94a3b8;
-        border-color: #e2e8f0;
+        border-color: var(--cs-border);
         cursor: not-allowed;
       }
 
@@ -462,7 +516,7 @@
       .meta-message {
         margin-top: 4px;
         font-size: 12px;
-        color: #374151;
+        color: var(--cs-text);
         font-style: italic;
         word-break: break-word;
       }

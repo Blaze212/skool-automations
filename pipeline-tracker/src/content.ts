@@ -594,7 +594,7 @@ async function sendEvent(event: PipelineEvent): Promise<void> {
     event_type: event.event_type,
     name: event.name,
     page_url: event.page_url,
-    message: 'Queued — waiting to send',
+    message: 'Queued - waiting to sync',
     warnings: [],
   };
 
