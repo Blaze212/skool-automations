@@ -53,7 +53,9 @@ import {
   outboxStore,
   recoveredHtmlStore,
   setHistoryAndBadge,
+  settingsStore,
 } from './storage.ts';
+import { buildCsv, getCsvFilename } from './csv.ts';
 import type { Classified, DestinationStrategy } from './destination.ts';
 import { createDestination } from './destination-impl.ts';
 import { APP_ORIGIN, acceptAppPort, beginBinding, clearBinding } from './binding.ts';
@@ -80,7 +82,7 @@ type BindingMessage =
   | { kind: 'clear_binding' }
   | { kind: 'wipe_unsynced' };
 
-type BgMessage = { kind: 'drain_outbox' } | BindingMessage | PipelineEvent;
+type BgMessage = { kind: 'drain_outbox' } | { kind: 'export_csv' } | BindingMessage | PipelineEvent;
 
 interface StartBindingResult extends BackgroundResult {
   /** Number of app tabs the bind-offer reached. 0 → side panel shows "Open CareerSystems first" (Phase 8). */
@@ -392,6 +394,37 @@ export async function drainOutbox(): Promise<void> {
   await destination.drainNow();
 }
 
+/**
+ * Spec 012 Phase 11 — CSV export (D7).
+ *
+ * Reads outbox + settings, fetches recovered_html for ai-recovered rows,
+ * builds a CSV string, and triggers a chrome.downloads.download via a
+ * data: URL. Both builds support this.
+ *
+ * D-rev-30: this handler is the ONLY place that reads recovered_html for
+ * export — the side panel never touches it.
+ */
+async function handleExportCsv(): Promise<BackgroundResult> {
+  const [outbox, settings] = await Promise.all([outboxStore.get(), settingsStore.get()]);
+
+  const recoveredHtmlMap: Record<string, string | null> = {};
+  const aiRows = outbox.filter((e) => (e.event.source ?? 'selectors') === 'ai-recovered');
+  if (aiRows.length > 0) {
+    await Promise.all(
+      aiRows.map(async (entry) => {
+        recoveredHtmlMap[entry.history_id] = await recoveredHtmlStore.get(entry.history_id);
+      }),
+    );
+  }
+
+  const csv = buildCsv(outbox, recoveredHtmlMap, settings.capture_message_bodies);
+  const dataUrl = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
+  const filename = getCsvFilename(new Date());
+
+  await chrome.downloads.download({ url: dataUrl, filename });
+  return { ok: true };
+}
+
 // --- Message handling ---
 
 export async function handleMessage(msg: BgMessage): Promise<BackgroundResult> {
@@ -410,6 +443,11 @@ export async function handleMessage(msg: BgMessage): Promise<BackgroundResult> {
     }
     await drainOutbox();
     return { ok: true };
+  }
+
+  if ('kind' in msg && msg.kind === 'export_csv') {
+    console.log(tag(), 'export_csv requested');
+    return handleExportCsv();
   }
 
   // Binding handshake — publishable-only. Internal build has no
