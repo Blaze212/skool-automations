@@ -699,3 +699,42 @@ export async function recordStorageQuotaError(params: {
     console.error(tag(), 'failed to record STORAGE_QUOTA history row:', err);
   }
 }
+
+/**
+ * Phase 10 — atomic sync-ack batch. Removes each matched outbox entry by
+ * history_id, flips its history row to status:'ok', and removes the per-id
+ * recovered_html key. Outbox + history + last_synced_at land in a single
+ * rawSet call (D-rev-29). recovered_html keys are removed in a separate
+ * rawRemove call — crash-safe last step; orphan keys are cleaned up by
+ * wipe_unsynced on next rebind. Unknown ids are silently skipped.
+ */
+export async function resolveOutboxBatch(syncedIds: string[]): Promise<{ ackedCount: number }> {
+  if (syncedIds.length === 0) return { ackedCount: 0 };
+
+  const idSet = new Set(syncedIds);
+  const [outbox, history] = await Promise.all([outboxStore.get(), historyStore.get()]);
+
+  const newOutbox = outbox.filter((entry) => !idSet.has(entry.history_id));
+  const ackedCount = outbox.length - newOutbox.length;
+
+  if (ackedCount === 0) return { ackedCount: 0 };
+
+  const now = new Date().toISOString();
+  const newHistory = history.map((entry) => {
+    if (!idSet.has(entry.id)) return entry;
+    return { ...entry, status: 'ok' as Severity, message: 'Synced via app', ts: now };
+  });
+
+  await rawSet({
+    [STORAGE_KEYS.OUTBOX]: newOutbox,
+    [STORAGE_KEYS.HISTORY]: newHistory,
+    [STORAGE_KEYS.LAST_SYNCED_AT]: now,
+  });
+
+  const ackedIds = outbox
+    .filter((entry) => idSet.has(entry.history_id))
+    .map((entry) => entry.history_id);
+  await recoveredHtmlStore.removeMany(ackedIds);
+
+  return { ackedCount };
+}

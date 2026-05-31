@@ -575,7 +575,7 @@ if (
         );
         return false;
       }
-      handleExternalMessage(msg, sender).then(
+      handleExternalMessage(msg, sender, { refreshBadge: refreshPublishableBadge }).then(
         (result) => {
           if (result === null) return; // unknown type — no response
           try {

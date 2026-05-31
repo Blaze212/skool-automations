@@ -20,6 +20,7 @@ import {
   historyStore,
   outboxStore,
   recoveredHtmlStore,
+  resolveOutboxBatch,
 } from './storage.ts';
 import type { PipelineEvent } from './types.ts';
 import { APP_ORIGIN } from './binding.ts';
@@ -72,7 +73,32 @@ export interface SyncPullRows {
 }
 export type SyncPullResponse = SyncPullNotBound | SyncPullRows;
 
-export type ExternalMessageResponse = PingResponse | SyncPullResponse;
+export interface SyncAckExternalMessage {
+  type: 'sync-ack';
+  bindingToken: string;
+  syncedIds: string[];
+}
+
+function isSyncAckMessage(msg: unknown): msg is SyncAckExternalMessage {
+  if (!msg || typeof msg !== 'object') return false;
+  const m = msg as Record<string, unknown>;
+  return (
+    m.type === 'sync-ack' &&
+    typeof m.bindingToken === 'string' &&
+    Array.isArray(m.syncedIds) &&
+    (m.syncedIds as unknown[]).every((id) => typeof id === 'string')
+  );
+}
+
+export interface SyncAckNotBound {
+  error: 'NOT_BOUND';
+}
+export interface SyncAckSuccess {
+  ackedCount: number;
+}
+export type SyncAckResponse = SyncAckNotBound | SyncAckSuccess;
+
+export type ExternalMessageResponse = PingResponse | SyncPullResponse | SyncAckResponse;
 
 // --- Handlers ---
 
@@ -127,6 +153,26 @@ async function handleSyncPull(msg: SyncPullExternalMessage): Promise<SyncPullRes
   return { rows, syncedIds };
 }
 
+async function handleSyncAck(
+  msg: SyncAckExternalMessage,
+  deps: { refreshBadge?: () => Promise<void> },
+): Promise<SyncAckResponse> {
+  const binding = await bindingStore.get();
+  if (!binding || binding.status !== 'confirmed' || binding.token !== msg.bindingToken) {
+    return { error: 'NOT_BOUND' };
+  }
+
+  const { ackedCount } = await resolveOutboxBatch(msg.syncedIds);
+
+  console.log(tag(), `sync-ack: syncedIds=${msg.syncedIds.length}, ackedCount=${ackedCount}`);
+
+  if (deps.refreshBadge) {
+    await deps.refreshBadge();
+  }
+
+  return { ackedCount };
+}
+
 /**
  * Dispatch an external message from app.cmcareersystems.com.
  *
@@ -138,6 +184,7 @@ async function handleSyncPull(msg: SyncPullExternalMessage): Promise<SyncPullRes
 export async function handleExternalMessage(
   msg: unknown,
   sender: chrome.runtime.MessageSender,
+  deps: { refreshBadge?: () => Promise<void> } = {},
 ): Promise<ExternalMessageResponse | null> {
   if (sender.origin !== APP_ORIGIN) {
     console.warn(
@@ -155,6 +202,9 @@ export async function handleExternalMessage(
   }
   if (isSyncPullMessage(msg)) {
     return handleSyncPull(msg);
+  }
+  if (isSyncAckMessage(msg)) {
+    return handleSyncAck(msg, deps);
   }
 
   console.warn(tag(), 'unknown external message type:', msg);
