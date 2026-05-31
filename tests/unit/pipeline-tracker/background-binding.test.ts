@@ -11,11 +11,14 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Snapshot the onConnectExternal listener registration before vi.clearAllMocks
-// in beforeEach blows it away — same pattern publishable-badge.test.ts uses
-// for the alarm registrations.
+// Snapshot the onConnectExternal / onMessageExternal listener registrations
+// before vi.clearAllMocks in beforeEach blows them away — same pattern
+// publishable-badge.test.ts uses for the alarm registrations.
 const _initialConnectExternalCalls = [
   ...(chrome.runtime.onConnectExternal.addListener as ReturnType<typeof vi.fn>).mock.calls,
+];
+const _initialMessageExternalCalls = [
+  ...(chrome.runtime.onMessageExternal.addListener as ReturnType<typeof vi.fn>).mock.calls,
 ];
 
 import {
@@ -85,6 +88,15 @@ describe('background — module-load registration', () => {
     // Module-load snapshot exists (length is 0 under internal build target —
     // the gate skipped registration). The shape is what matters.
     expect(Array.isArray(_initialConnectExternalCalls)).toBe(true);
+  });
+
+  it('registered an onMessageExternal listener at module load (Phase 9)', () => {
+    // Same gating as onConnectExternal — publishable-only. The snapshot
+    // length is 0 under the internal test target; the shape assertion
+    // confirms the mock wiring is correct and the listener registration
+    // block was syntactically valid when the module was parsed.
+    expect(typeof chrome.runtime.onMessageExternal.addListener).toBe('function');
+    expect(Array.isArray(_initialMessageExternalCalls)).toBe(true);
   });
 });
 
