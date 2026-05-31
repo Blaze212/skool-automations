@@ -24,7 +24,12 @@ import {
 } from '../../../pipeline-tracker/src/background.ts';
 import { _resetInitLatchForTests } from '../../../pipeline-tracker/src/storage.ts';
 import { _clearAppPortsForTests } from '../../../pipeline-tracker/src/binding.ts';
-import { STORAGE_KEYS, type ExtensionBinding } from '../../../pipeline-tracker/src/types.ts';
+import {
+  STORAGE_KEYS,
+  type ExtensionBinding,
+  type HistoryEntry,
+  type OutboxEntry,
+} from '../../../pipeline-tracker/src/types.ts';
 
 interface LocalStore {
   [key: string]: unknown;
@@ -33,8 +38,8 @@ interface LocalStore {
 function installStatefulStorage(initial: LocalStore = {}): LocalStore {
   const local: LocalStore = { ...initial };
   (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockImplementation(
-    async (keys?: string | string[]) => {
-      if (keys === undefined) return { ...local };
+    async (keys?: string | string[] | null) => {
+      if (keys === undefined || keys === null) return { ...local };
       const list = Array.isArray(keys) ? keys : [keys];
       const out: LocalStore = {};
       for (const k of list) if (k in local) out[k] = local[k];
@@ -110,6 +115,37 @@ describe('background — start_binding routing', () => {
   });
 });
 
+function makeOutboxEntry(historyId: string): OutboxEntry {
+  return {
+    history_id: historyId,
+    enqueued_at: '2026-05-31T00:00:00Z',
+    attempts: 0,
+    event: {
+      api_key: 'pk_test',
+      event_type: 'connection_request',
+      date: '2026-05-31',
+      name: 'Jane Doe',
+      title: '',
+      linkedin_url: 'https://www.linkedin.com/in/jane',
+      page_url: 'https://www.linkedin.com/in/jane/',
+      message_text: '',
+    },
+  };
+}
+
+function makeHistoryEntry(id: string, status: HistoryEntry['status'] = 'pending'): HistoryEntry {
+  return {
+    id,
+    ts: '2026-05-31T00:00:00Z',
+    status,
+    event_type: 'connection_request',
+    name: 'Jane Doe',
+    page_url: 'https://www.linkedin.com/in/jane/',
+    message: 'Queued — waiting to send',
+    warnings: [],
+  };
+}
+
 describe('background — clear_binding routing', () => {
   it('publishable target: removes the persisted binding', async () => {
     const local = installStatefulStorage({
@@ -142,5 +178,111 @@ describe('background — clear_binding routing', () => {
     expect(result.ok).toBe(false);
     // Persisted binding stays intact since we refused.
     expect(local[STORAGE_KEYS.BINDING]).toBeDefined();
+  });
+});
+
+describe('background — wipe_unsynced routing', () => {
+  it('internal target: refuses, returns ok:false', async () => {
+    installStatefulStorage();
+    _setBuildTargetForTests('internal');
+
+    const result = await handleMessage({ kind: 'wipe_unsynced' });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/not supported/i);
+  });
+
+  it('full wipe: clears outbox, matching pending history, and all recovered_html keys', async () => {
+    const local = installStatefulStorage({
+      [STORAGE_KEYS.OUTBOX]: [makeOutboxEntry('h-1'), makeOutboxEntry('h-2')],
+      [STORAGE_KEYS.HISTORY]: [
+        makeHistoryEntry('h-1', 'pending'),
+        makeHistoryEntry('h-2', 'pending'),
+        makeHistoryEntry('h-3', 'ok'),
+      ],
+      'recovered_html_h-1': '<div>a</div>',
+      'recovered_html_h-2': '<div>b</div>',
+    });
+    _setBuildTargetForTests('publishable');
+
+    const result = await handleMessage({ kind: 'wipe_unsynced' });
+
+    expect(result).toMatchObject({
+      ok: true,
+      wipedOutbox: 2,
+      wipedRecoveredHtml: 2,
+      wipedHistoryPending: 2,
+    });
+    expect(local[STORAGE_KEYS.OUTBOX]).toEqual([]);
+    const remaining = local[STORAGE_KEYS.HISTORY] as HistoryEntry[];
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].id).toBe('h-3');
+    expect(local['recovered_html_h-1']).toBeUndefined();
+    expect(local['recovered_html_h-2']).toBeUndefined();
+  });
+
+  it('orphan recovered_html is wiped even when outbox is empty', async () => {
+    const local = installStatefulStorage({
+      recovered_html_orphan: '<div>leftover</div>',
+    });
+    _setBuildTargetForTests('publishable');
+
+    const result = await handleMessage({ kind: 'wipe_unsynced' });
+
+    expect(result).toMatchObject({
+      ok: true,
+      wipedOutbox: 0,
+      wipedRecoveredHtml: 1,
+      wipedHistoryPending: 0,
+    });
+    expect(local['recovered_html_orphan']).toBeUndefined();
+    // No outbox write when outbox was already empty.
+    expect(chrome.storage.local.set).not.toHaveBeenCalledWith(
+      expect.objectContaining({ [STORAGE_KEYS.OUTBOX]: expect.anything() }),
+    );
+    // No history write when nothing was removed.
+    expect(chrome.storage.local.set).not.toHaveBeenCalledWith(
+      expect.objectContaining({ [STORAGE_KEYS.HISTORY]: expect.anything() }),
+    );
+  });
+
+  it('non-pending history rows survive even when their id matches an outbox entry', async () => {
+    const local = installStatefulStorage({
+      [STORAGE_KEYS.OUTBOX]: [makeOutboxEntry('h-1')],
+      [STORAGE_KEYS.HISTORY]: [
+        makeHistoryEntry('h-1', 'pending'), // matches outbox — removed
+        makeHistoryEntry('h-1', 'ok'), // same id but status=ok — survives
+        makeHistoryEntry('h-2', 'pending'), // pending, no outbox entry — survives
+      ],
+    });
+    _setBuildTargetForTests('publishable');
+
+    const result = await handleMessage({ kind: 'wipe_unsynced' });
+
+    expect(result).toMatchObject({ ok: true, wipedHistoryPending: 1 });
+    const remaining = local[STORAGE_KEYS.HISTORY] as HistoryEntry[];
+    expect(remaining).toHaveLength(2);
+    expect(remaining.some((h) => h.id === 'h-1' && h.status === 'ok')).toBe(true);
+    expect(remaining.some((h) => h.id === 'h-2' && h.status === 'pending')).toBe(true);
+  });
+
+  it('empty store: returns all-zero counts, does not write outbox or history', async () => {
+    installStatefulStorage();
+    _setBuildTargetForTests('publishable');
+
+    const result = await handleMessage({ kind: 'wipe_unsynced' });
+
+    expect(result).toMatchObject({
+      ok: true,
+      wipedOutbox: 0,
+      wipedRecoveredHtml: 0,
+      wipedHistoryPending: 0,
+    });
+    expect(chrome.storage.local.set).not.toHaveBeenCalledWith(
+      expect.objectContaining({ [STORAGE_KEYS.OUTBOX]: expect.anything() }),
+    );
+    expect(chrome.storage.local.set).not.toHaveBeenCalledWith(
+      expect.objectContaining({ [STORAGE_KEYS.HISTORY]: expect.anything() }),
+    );
   });
 });

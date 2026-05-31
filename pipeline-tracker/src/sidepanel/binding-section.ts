@@ -50,6 +50,12 @@ export interface BindingSectionOptions {
   startBinding: () => Promise<{ ok: boolean; message?: string; delivered?: number }>;
   /** Ask the SW to clear the persisted binding (Disconnect or rollback). */
   clearBinding: () => Promise<void>;
+  /**
+   * Open app.cmcareersystems.com in a new tab. Optional — when supplied,
+   * the zero-tab error ("No CareerSystems tab is open…") renders an
+   * actionable button alongside it (Phase 8 / D-rev-9).
+   */
+  openAppTab?: () => void;
   /** Inject a clock for tests. Defaults to Date.now / setTimeout / clearTimeout. */
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => unknown;
@@ -143,11 +149,37 @@ export function renderBindingSection(
   }
 
   function setError(message: string): void {
+    errorRegion.replaceChildren();
     errorRegion.textContent = message;
     errorRegion.hidden = false;
   }
 
+  /**
+   * Same as setError but appends an action button after the message. Used
+   * by the zero-tab delivered=0 branch (Phase 8 D-rev-9) to render an
+   * "Open CareerSystems" CTA that calls chrome.tabs.create.
+   */
+  function setErrorWithAction(message: string, actionLabel: string, onClick: () => void): void {
+    errorRegion.replaceChildren();
+    const msg = document.createElement('span');
+    msg.textContent = message + ' ';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'binding-secondary';
+    btn.textContent = actionLabel;
+    btn.addEventListener('click', () => {
+      try {
+        onClick();
+      } catch (err) {
+        console.warn('[Pipeline Tracker binding-section] action handler threw:', err);
+      }
+    });
+    errorRegion.append(msg, btn);
+    errorRegion.hidden = false;
+  }
+
   function clearError(): void {
+    errorRegion.replaceChildren();
     errorRegion.textContent = '';
     errorRegion.hidden = true;
   }
@@ -262,16 +294,16 @@ export function renderBindingSection(
       }
       if ((result.delivered ?? 0) === 0) {
         // SW persisted a pending binding but no app tab listened. Spec
-        // D-rev-9 ("Open CareerSystems first" — Phase 8 will add the
-        // tabs.create CTA). Clear the persisted pending so we don't trip
-        // the panel's 10-s rollback on a different reload, then surface
-        // the explanation. setError writes to the LIVE body, so the
-        // storage-driven re-render from clearBinding's persist won't
-        // clobber it.
+        // D-rev-9: surface "Open CareerSystems first" with a CTA that
+        // opens the app in a new tab. Clear the persisted pending so we
+        // don't trip the panel's 10-s rollback on a different reload.
         await opts.clearBinding();
-        setError(
-          'No CareerSystems tab is open. Open app.cmcareersystems.com first, then try again.',
-        );
+        const msg = 'No CareerSystems tab is open. Open one and try again.';
+        if (opts.openAppTab) {
+          setErrorWithAction(msg, 'Open CareerSystems', opts.openAppTab);
+        } else {
+          setError(msg);
+        }
         return;
       }
       // Happy path: storage.onChanged listener drives the re-render to
@@ -290,12 +322,22 @@ export function renderBindingSection(
     clearError();
     try {
       await opts.clearBinding();
-      // Wait for storage.onChanged to drive the unbound render.
+      // Wait for storage.onChanged to drive the unbound render. If the
+      // clearBinding turned out to be a no-op (Phase 8 'sync-first'
+      // rebind-modal choice — opts.clearBinding resolves without writing
+      // storage), the button stays in the same Connected DOM and we
+      // must re-enable it here. setBinding(confirmed) would also re-
+      // enable, but that doesn't fire when storage didn't change. The
+      // unconditional re-enable in finally below covers both paths.
     } catch (err) {
       console.error('[Pipeline Tracker binding-section] clearBinding threw:', err);
       setError('Could not disconnect: ' + (err instanceof Error ? err.message : String(err)));
-      button.disabled = false;
     } finally {
+      // Always re-enable the button. The Phase 7 design left this in the
+      // catch path only; Phase 8 review caught the 'sync-first' case
+      // where neither catch nor a fresh setBinding(...) fires, stranding
+      // the button disabled forever.
+      button.disabled = false;
       inFlight = false;
     }
   }

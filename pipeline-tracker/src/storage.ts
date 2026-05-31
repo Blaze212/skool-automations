@@ -474,6 +474,30 @@ export const recoveredHtmlStore = {
     });
     await rawRemove(keys);
   },
+  /**
+   * Spec 012 Phase 8 — wipes EVERY recovered_html_* key, regardless of
+   * whether a matching OutboxEntry currently exists. Used by the SW's
+   * `wipe_unsynced` handler during the rebind 3-choice modal's
+   * delete-outbox path so orphan recovered_html bytes (from prior partial
+   * syncs / SW teardowns mid-write) don't leak to a different
+   * CareerSystems user signing in on the same Chrome profile.
+   *
+   * Enumerates by querying chrome.storage.local for all keys (which is
+   * what rawGet() with no arg does) and filtering by the
+   * RECOVERED_HTML_KEY_PREFIX. The prefix is reserved (storage.ts comment
+   * on STORAGE_KEYS pins this), so no other key shape can collide.
+   */
+  async removeAll(): Promise<number> {
+    // chrome.storage.local.get(null) returns the entire store as one map.
+    // We then filter by the reserved RECOVERED_HTML_KEY_PREFIX. Inside the
+    // facade so guard #2 (no raw chrome.storage.local outside this file)
+    // stays clean.
+    const everything = (await chrome.storage.local.get(null)) as Record<string, unknown>;
+    const keys = Object.keys(everything).filter((k) => k.startsWith(RECOVERED_HTML_KEY_PREFIX));
+    if (keys.length === 0) return 0;
+    await rawRemove(keys);
+    return keys.length;
+  },
 };
 
 // Badge state (unread + highest severity + last status) is read together as a

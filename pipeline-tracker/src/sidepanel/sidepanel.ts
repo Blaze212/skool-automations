@@ -25,6 +25,7 @@ import {
 import { renderFirstRunModal } from './first-run-modal.ts';
 import { renderSettingsSection } from './settings-section.ts';
 import { renderBindingSection } from './binding-section.ts';
+import { renderRebindModal, type RebindChoice } from './rebind-modal.ts';
 
 const SIDE_PANEL_LIST_LIMIT = 500;
 
@@ -342,7 +343,18 @@ async function readSettingsOrDefault(): Promise<Settings> {
  * the SW). Storage change events are the canonical cross-context signal
  * Chrome guarantees here.
  */
-function mountBinding(root: HTMLElement, binding: ExtensionBinding | null): () => void {
+interface MountBindingOpts {
+  /** Override the Disconnect path so sidepanel.ts can interpose the rebind 3-choice modal. */
+  clearBinding?: () => Promise<void>;
+  /** Phase 8 D-rev-9 — opens app.cmcareersystems.com in a new tab. */
+  openAppTab?: () => void;
+}
+
+function mountBinding(
+  root: HTMLElement,
+  binding: ExtensionBinding | null,
+  overrides: MountBindingOpts = {},
+): () => void {
   const handle = renderBindingSection(root, {
     binding,
     startBinding: async () => {
@@ -353,9 +365,12 @@ function mountBinding(root: HTMLElement, binding: ExtensionBinding | null): () =
         delivered?: number;
       };
     },
-    clearBinding: async () => {
-      await chrome.runtime.sendMessage({ kind: 'clear_binding' });
-    },
+    clearBinding:
+      overrides.clearBinding ??
+      (async () => {
+        await chrome.runtime.sendMessage({ kind: 'clear_binding' });
+      }),
+    openAppTab: overrides.openAppTab,
   });
 
   const listener = (
@@ -388,19 +403,97 @@ function mountBinding(root: HTMLElement, binding: ExtensionBinding | null): () =
 let _bindingUnsubscribe: (() => void) | null = null;
 
 /**
+ * Phase 8 D-rev-19 — wraps the Disconnect path in a rebind 3-choice modal
+ * when the prior binding is `confirmed` AND the outbox still holds unsynced
+ * events. Without this, a different CareerSystems user logging in on the
+ * same Chrome profile could silently inherit the prior user's outbox. The
+ * three choices are mutually exclusive; the modal has no default.
+ *
+ * - 'sync-first'     → cancel disconnect, do not clear anything. The user
+ *                       opens the app, syncs, then disconnects cleanly.
+ * - 'move-events'    → clear binding only; outbox preserved. Re-binding
+ *                       to a different account routes those events there.
+ * - 'delete-outbox'  → clear outbox (and per-id recovered_html) THEN clear
+ *                       binding. Fresh start.
+ */
+async function rebindAwareClearBinding(modalRoot: HTMLElement): Promise<void> {
+  const cur = await bindingStore.get();
+  if (cur?.status === 'confirmed') {
+    const outbox = await outboxStore.get();
+    if (outbox.length > 0) {
+      const choice: RebindChoice = await renderRebindModal(modalRoot, {
+        unsyncedCount: outbox.length,
+      });
+      if (choice === 'sync-first') {
+        // Cancel disconnect. Leave binding + outbox intact.
+        return;
+      }
+      if (choice === 'delete-outbox') {
+        // Route through the SW (Phase 8 review fix). The SW takes a fresh
+        // snapshot inside its handler — events captured during the modal
+        // are wiped consistently — enumerates ALL recovered_html_* keys
+        // (orphan cleanup), and filters matching pending HistoryEntry
+        // rows so the Recent activity strip doesn't end up with sticky
+        // pending entries forever. Doing this in the SW also preserves
+        // sidepanel.ts's D-rev-30 invariant: this module imports no
+        // symbol that would let it touch recovered_html.
+        const result = (await chrome.runtime.sendMessage({ kind: 'wipe_unsynced' })) as
+          | {
+              ok?: boolean;
+              message?: string;
+            }
+          | undefined;
+        if (!result?.ok) {
+          throw new Error(result?.message ?? 'wipe_unsynced failed');
+        }
+      }
+      // 'move-events' falls through — keep outbox, just clear binding.
+    }
+  }
+  await chrome.runtime.sendMessage({ kind: 'clear_binding' });
+}
+
+function defaultOpenAppTab(): void {
+  // chrome.tabs.create in MV3 returns a Promise; the synchronous try/catch
+  // would miss async rejections (no `tabs` permission required for the call
+  // itself, but policy / popup-blocker can still reject). Use .catch so
+  // failures land in the warn log instead of becoming unhandled rejections.
+  try {
+    const ret = chrome.tabs.create({ url: 'https://app.cmcareersystems.com/' });
+    if (ret && typeof (ret as Promise<unknown>).catch === 'function') {
+      void (ret as Promise<unknown>).catch((err: unknown) => {
+        console.warn('[Pipeline Tracker side panel] chrome.tabs.create rejected:', err);
+      });
+    }
+  } catch (err) {
+    console.warn('[Pipeline Tracker side panel] chrome.tabs.create threw:', err);
+  }
+}
+
+/**
  * Best-effort wrapper around mountBinding so an exception in the binding
  * subtree (e.g. bindingRoot is null after a template edit) cannot poison
  * the Phase 6 invariant: events render + first-run modal still gets a
  * chance to mount. We swallow + log; the user sees no binding section but
  * the rest of the panel is intact.
+ *
+ * Phase 8 — passes the rebind-aware clearBinding and the chrome.tabs.create
+ * openAppTab into the binding section.
  */
-function safelyMountBinding(root: HTMLElement, binding: ExtensionBinding | null): void {
+function safelyMountBinding(
+  root: HTMLElement,
+  binding: ExtensionBinding | null,
+  modalRoot: HTMLElement,
+): void {
   try {
     if (_bindingUnsubscribe) {
       _bindingUnsubscribe();
       _bindingUnsubscribe = null;
     }
-    _bindingUnsubscribe = mountBinding(root, binding);
+    _bindingUnsubscribe = mountBinding(root, binding, {
+      clearBinding: () => rebindAwareClearBinding(modalRoot),
+      openAppTab: defaultOpenAppTab,
+    });
   } catch (err) {
     console.error('[Pipeline Tracker side panel] mountBinding failed:', err);
   }
@@ -411,6 +504,44 @@ export function _resetBindingMountForTests(): void {
   if (_bindingUnsubscribe) {
     _bindingUnsubscribe();
     _bindingUnsubscribe = null;
+  }
+  if (_unsyncedListUnsubscribe) {
+    _unsyncedListUnsubscribe();
+    _unsyncedListUnsubscribe = null;
+  }
+}
+
+/**
+ * Phase 8 — keep the unsynced events list + count badge in sync with
+ * chrome.storage when OUTBOX changes. The SW's wipe_unsynced handler
+ * writes to OUTBOX, and the user expects the panel's events list to
+ * reflect that immediately (Phase 8 review angle C/4 finding). Mirrors
+ * the binding section's storage.onChanged wiring.
+ */
+let _unsyncedListUnsubscribe: (() => void) | null = null;
+
+function mountUnsyncedListListener(list: HTMLElement, countEl: HTMLElement): () => void {
+  const listener = (
+    changes: Record<string, chrome.storage.StorageChange>,
+    areaName: string,
+  ): void => {
+    if (areaName !== 'local') return;
+    if (!(STORAGE_KEYS.OUTBOX in changes)) return;
+    void outboxStore.get().then((next) => renderUnsynced(list, countEl, next));
+  };
+  chrome.storage.onChanged.addListener(listener);
+  return () => chrome.storage.onChanged.removeListener(listener);
+}
+
+function safelyMountUnsyncedListener(list: HTMLElement, countEl: HTMLElement): void {
+  if (_unsyncedListUnsubscribe) {
+    _unsyncedListUnsubscribe();
+    _unsyncedListUnsubscribe = null;
+  }
+  try {
+    _unsyncedListUnsubscribe = mountUnsyncedListListener(list, countEl);
+  } catch (err) {
+    console.error('[Pipeline Tracker side panel] mountUnsyncedListListener failed:', err);
   }
 }
 
@@ -442,14 +573,20 @@ export async function initSidePanel(): Promise<void> {
   renderActivity(activityList, history);
   await clearUnreadCounter();
 
+  // Phase 8 — keep the unsynced events list in sync when the SW wipes the
+  // outbox (delete-outbox rebind choice) or any other code mutates OUTBOX.
+  // Without this listener the panel shows stale rows until next open.
+  safelyMountUnsyncedListener(unsyncedList, unsyncedCount);
+
   // Binding section mounts independently of the first-run modal: a user
   // can read the disclosure with the section visible behind it (the
   // overlay catches clicks so they cannot interact until the modal is
   // closed). Subscribing to storage.onChanged here means bind-ack flips
   // from the SW reach the panel without any polling. Wrapped in a
   // best-effort to preserve Phase 6's "modal/events must still render
-  // even if a subtree fails" invariant.
-  safelyMountBinding(bindingRoot, binding);
+  // even if a subtree fails" invariant. modalRoot is passed in for the
+  // Phase 8 rebind 3-choice modal (D-rev-19).
+  safelyMountBinding(bindingRoot, binding, modalRoot);
 
   // Mount the modal asynchronously. We deliberately do NOT await it inside
   // initSidePanel — see (2) above. The settings section is mounted only

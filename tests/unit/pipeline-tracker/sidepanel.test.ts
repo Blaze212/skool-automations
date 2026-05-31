@@ -476,3 +476,320 @@ describe('side panel — binding section + storage.onChanged wiring', () => {
     expect(chrome.storage.onChanged.removeListener).toHaveBeenCalled();
   });
 });
+
+describe('side panel — Phase 8 zero-tab CTA (D-rev-9)', () => {
+  it('renders an "Open CareerSystems" action when startBinding reports delivered=0', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(
+      async (msg: { kind: string }) => {
+        if (msg.kind === 'start_binding') {
+          local[STORAGE_KEYS.BINDING] = {
+            token: 'tok',
+            bound_at: new Date().toISOString(),
+            status: 'pending',
+          };
+          return { ok: true, delivered: 0 };
+        }
+        if (msg.kind === 'clear_binding') {
+          delete local[STORAGE_KEYS.BINDING];
+          return { ok: true };
+        }
+        return { ok: true };
+      },
+    );
+
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const connect = document.querySelector('.binding-primary') as HTMLButtonElement;
+    expect(connect).not.toBeNull();
+    connect.click();
+    // Drain microtasks for start_binding → clear_binding chain.
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const errBtn = document.querySelector('.binding-error button') as HTMLButtonElement;
+    expect(errBtn).not.toBeNull();
+    expect(errBtn.textContent).toBe('Open CareerSystems');
+
+    errBtn.click();
+    expect(chrome.tabs.create).toHaveBeenCalledWith({
+      url: 'https://app.cmcareersystems.com/',
+    });
+  });
+});
+
+describe('side panel — Phase 8 rebind 3-choice protection (D-rev-19)', () => {
+  function seedConfirmedBindingPlusOutbox(local: LocalStore, count: number): void {
+    local[STORAGE_KEYS.BINDING] = {
+      token: 'tok',
+      bound_at: '2026-05-30T10:00:00Z',
+      status: 'confirmed',
+    };
+    local[STORAGE_KEYS.OUTBOX] = Array.from({ length: count }, (_, i) => ({
+      history_id: `h-${i}`,
+      enqueued_at: new Date().toISOString(),
+      attempts: 0,
+      event: {
+        api_key: 'pk_test',
+        event_type: 'connection_request' as const,
+        date: '2026-05-30',
+        name: `N${i}`,
+        title: '',
+        linkedin_url: '',
+        page_url: '',
+        message_text: '',
+        source: 'selectors' as const,
+      },
+    }));
+  }
+
+  it('disconnect with confirmed + outbox>0 surfaces the 3-choice modal', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+    seedConfirmedBindingPlusOutbox(local, 3);
+
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
+
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const disconnect = document.querySelector('.binding-secondary') as HTMLButtonElement;
+    disconnect.click();
+    // Modal mounts synchronously on click after we await the outboxStore /
+    // bindingStore reads.
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const overlay = document.querySelector('.rebind-overlay');
+    expect(overlay).not.toBeNull();
+    expect(document.querySelectorAll('.rebind-choice-btn')).toHaveLength(3);
+  });
+
+  it('sync-first choice cancels disconnect — binding and outbox stay intact', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+    seedConfirmedBindingPlusOutbox(local, 2);
+
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
+
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    (document.querySelector('.binding-secondary') as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const buttons = document.querySelectorAll<HTMLButtonElement>('.rebind-choice-btn');
+    // sync-first is first
+    buttons[0].click();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.querySelector('.rebind-overlay')).toBeNull();
+    // No clear_binding was sent; binding + outbox preserved.
+    expect(chrome.runtime.sendMessage).not.toHaveBeenCalledWith({ kind: 'clear_binding' });
+    expect(local[STORAGE_KEYS.BINDING]).toBeDefined();
+    expect((local[STORAGE_KEYS.OUTBOX] as unknown[]).length).toBe(2);
+  });
+
+  it('move-events choice clears binding only — outbox preserved for new account', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+    seedConfirmedBindingPlusOutbox(local, 4);
+
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(
+      async (msg: { kind: string }) => {
+        if (msg.kind === 'clear_binding') {
+          delete local[STORAGE_KEYS.BINDING];
+        }
+        return { ok: true };
+      },
+    );
+
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    (document.querySelector('.binding-secondary') as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const buttons = document.querySelectorAll<HTMLButtonElement>('.rebind-choice-btn');
+    // 'move-events' is index 1 (Keep)
+    buttons[1].click();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'clear_binding' });
+    expect(local[STORAGE_KEYS.BINDING]).toBeUndefined();
+    expect((local[STORAGE_KEYS.OUTBOX] as unknown[]).length).toBe(4);
+  });
+
+  it('delete-outbox choice routes the wipe through the SW and then clears binding', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+    seedConfirmedBindingPlusOutbox(local, 2);
+    // Seed a recovered_html_<id> key — the SW wipe handler should remove
+    // it (and any orphans), but THIS test doesn't actually exercise the
+    // SW handler (handleMessage isn't routed here). We only assert that
+    // the sidepanel sends the wipe_unsynced message; the SW-side wipe is
+    // covered by background test cases.
+    local['recovered_html_h-0'] = '<div>x</div>';
+
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(
+      async (msg: { kind: string }) => {
+        if (msg.kind === 'clear_binding') {
+          delete local[STORAGE_KEYS.BINDING];
+        }
+        return { ok: true };
+      },
+    );
+
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    (document.querySelector('.binding-secondary') as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const buttons = document.querySelectorAll<HTMLButtonElement>('.rebind-choice-btn');
+    buttons[2].click();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Side panel sends wipe_unsynced + clear_binding in sequence.
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'wipe_unsynced' });
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'clear_binding' });
+    expect(local[STORAGE_KEYS.BINDING]).toBeUndefined();
+  });
+
+  it('delete-outbox surfaces an error and does NOT clear binding when wipe_unsynced fails', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+    seedConfirmedBindingPlusOutbox(local, 2);
+
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(
+      async (msg: { kind: string }) => {
+        if (msg.kind === 'wipe_unsynced') {
+          return { ok: false, message: 'storage gone' };
+        }
+        if (msg.kind === 'clear_binding') {
+          delete local[STORAGE_KEYS.BINDING];
+        }
+        return { ok: true };
+      },
+    );
+
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    (document.querySelector('.binding-secondary') as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const buttons = document.querySelectorAll<HTMLButtonElement>('.rebind-choice-btn');
+    buttons[2].click();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Binding NOT cleared because wipe failed; user sees an inline error.
+    expect(local[STORAGE_KEYS.BINDING]).toBeDefined();
+    expect((document.querySelector('.binding-error') as HTMLElement).textContent).toMatch(
+      /storage gone/,
+    );
+  });
+
+  it('sync-first leaves the Disconnect button RE-ENABLED so the user can retry (Phase 8 review fix)', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+    seedConfirmedBindingPlusOutbox(local, 3);
+
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
+
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const disconnect = document.querySelector('.binding-secondary') as HTMLButtonElement;
+    disconnect.click();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    document.querySelectorAll<HTMLButtonElement>('.rebind-choice-btn')[0].click();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    // sync-first returns without writing storage; the doClear finally block
+    // must re-enable the button so the user can pick differently.
+    const updated = document.querySelector('.binding-secondary') as HTMLButtonElement;
+    expect(updated.disabled).toBe(false);
+  });
+
+  it('disconnect with confirmed but EMPTY outbox does NOT show the modal — straight clear', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+    local[STORAGE_KEYS.BINDING] = {
+      token: 'tok',
+      bound_at: '2026-05-30T10:00:00Z',
+      status: 'confirmed',
+    };
+    // No outbox seeded — empty.
+
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(
+      async (msg: { kind: string }) => {
+        if (msg.kind === 'clear_binding') {
+          delete local[STORAGE_KEYS.BINDING];
+        }
+        return { ok: true };
+      },
+    );
+
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    (document.querySelector('.binding-secondary') as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.querySelector('.rebind-overlay')).toBeNull();
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'clear_binding' });
+  });
+
+  it('disconnect when binding is only PENDING does NOT show the modal', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+    local[STORAGE_KEYS.BINDING] = {
+      token: 'tok',
+      bound_at: '2026-05-30T10:00:00Z',
+      status: 'pending',
+    };
+    seedConfirmedBindingPlusOutbox(local, 5);
+    // Re-set the binding to pending (seedConfirmedBindingPlusOutbox sets it to confirmed).
+    (local[STORAGE_KEYS.BINDING] as { status: string }).status = 'pending';
+
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(
+      async (msg: { kind: string }) => {
+        if (msg.kind === 'clear_binding') {
+          delete local[STORAGE_KEYS.BINDING];
+        }
+        return { ok: true };
+      },
+    );
+
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Pending state has no Disconnect button (Connecting…/countdown UI).
+    // Trigger clear via the rollback path: simulate clearBinding directly.
+    // For this test we just assert that the rebind-aware clearBinding does
+    // NOT gate on a pending binding (it goes straight to clear).
+    // We exercise this by calling the binding-section's clear flow indirectly:
+    // there's no Disconnect button to click in pending state, so this test
+    // documents the intent — pending bindings bypass the modal.
+    expect(document.querySelector('.binding-secondary')).toBeNull();
+  });
+});

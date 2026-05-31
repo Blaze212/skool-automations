@@ -50,4 +50,7 @@ import { vi } from 'vitest';
       addListener: vi.fn(),
     },
   },
+  tabs: {
+    create: vi.fn().mockResolvedValue(undefined),
+  },
 };
