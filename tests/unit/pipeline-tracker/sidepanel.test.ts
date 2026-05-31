@@ -99,7 +99,13 @@ beforeEach(() => {
   document.body.innerHTML = `
     <div id="settings-section"></div>
     <div id="binding-section"></div>
-    <section id="unsynced-section"><div id="unsynced-list"></div><span id="unsynced-count"></span></section>
+    <section id="unsynced-section">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span id="unsynced-count"></span>
+        <button id="export-csv-btn" type="button">Export CSV</button>
+      </div>
+      <div id="unsynced-list"></div>
+    </section>
     <section id="activity-section"><div id="activity-list"></div></section>
     <div id="modal-root"></div>
   `;
@@ -174,6 +180,38 @@ describe('side panel — renderUnsynced', () => {
     renderUnsynced(list, count, [makeOutboxEntry(1, { source: 'ai-recovered' })]);
     const labels = Array.from(list.querySelectorAll('.badge')).map((b) => b.textContent);
     expect(labels).toContain('AI');
+  });
+
+  it('row expand shows captured_at timestamp (Phase 11)', () => {
+    const list = document.getElementById('unsynced-list') as HTMLElement;
+    const count = document.getElementById('unsynced-count') as HTMLElement;
+    const entry = makeOutboxEntry(1);
+    renderUnsynced(list, count, [entry]);
+    const details = list.querySelector('details') as HTMLDetailsElement;
+    const tsEl = details.querySelector('.meta-timestamp');
+    expect(tsEl).not.toBeNull();
+    expect(tsEl?.textContent).toContain(entry.enqueued_at);
+  });
+
+  it('row expand shows message_text when captureMessageBodies is true (Phase 11)', () => {
+    const list = document.getElementById('unsynced-list') as HTMLElement;
+    const count = document.getElementById('unsynced-count') as HTMLElement;
+    renderUnsynced(list, count, [makeOutboxEntry(1, { message_text: 'Hi there!' })], {
+      captureMessageBodies: true,
+    });
+    const details = list.querySelector('details') as HTMLDetailsElement;
+    expect(details.querySelector('.meta-message')?.textContent).toBe('Hi there!');
+  });
+
+  it('row expand does NOT show message_text when captureMessageBodies is false (Phase 11)', () => {
+    const list = document.getElementById('unsynced-list') as HTMLElement;
+    const count = document.getElementById('unsynced-count') as HTMLElement;
+    renderUnsynced(list, count, [makeOutboxEntry(1, { message_text: 'secret message' })], {
+      captureMessageBodies: false,
+    });
+    const details = list.querySelector('details') as HTMLDetailsElement;
+    expect(details.querySelector('.meta-message')).toBeNull();
+    expect(details.textContent).not.toContain('secret message');
   });
 
   it('refuses to render a clickable anchor for non-https/non-linkedin URLs (XSS guard)', () => {
@@ -256,6 +294,28 @@ describe('side panel — initSidePanel', () => {
     await initSidePanel();
 
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'drain_outbox' });
+  });
+
+  it('Export CSV button sends export_csv to the SW (Phase 11)', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
+
+    // The button must be present in the DOM (added by the HTML template in beforeEach).
+    const btn = document.getElementById('export-csv-btn') as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+
+    await initSidePanel();
+
+    vi.clearAllMocks();
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
+
+    btn.click();
+
+    // Allow the microtask/Promise to flush.
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'export_csv' });
   });
 
   it('renders the settings section above the events when first_run_completed is true', async () => {

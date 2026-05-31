@@ -112,8 +112,11 @@ export function renderUnsynced(
   list: HTMLElement,
   countEl: HTMLElement,
   outbox: OutboxEntry[],
-  now: number = Date.now(),
+  opts: { captureMessageBodies?: boolean; now?: number } = {},
 ): number {
+  const now = opts.now ?? Date.now();
+  const captureMessageBodies = opts.captureMessageBodies ?? false;
+
   list.replaceChildren();
 
   const total = outbox.length;
@@ -182,6 +185,21 @@ export function renderUnsynced(
         urlLine.textContent = entry.event.linkedin_url;
       }
       meta.appendChild(urlLine);
+    }
+
+    // Spec 012 Phase 11 — captured timestamp in row expand.
+    const tsLine = document.createElement('div');
+    tsLine.className = 'meta-timestamp';
+    tsLine.textContent = `Captured: ${entry.enqueued_at}`;
+    meta.appendChild(tsLine);
+
+    // Spec 012 Phase 11 — message_text shown only when capture_message_bodies
+    // is on and the field is non-empty. D-rev-30: recovered_html is never shown.
+    if (captureMessageBodies && entry.event.message_text) {
+      const msgLine = document.createElement('div');
+      msgLine.className = 'meta-message';
+      msgLine.textContent = entry.event.message_text;
+      meta.appendChild(msgLine);
     }
 
     const sync = document.createElement('div');
@@ -520,26 +538,36 @@ export function _resetBindingMountForTests(): void {
  */
 let _unsyncedListUnsubscribe: (() => void) | null = null;
 
-function mountUnsyncedListListener(list: HTMLElement, countEl: HTMLElement): () => void {
+function mountUnsyncedListListener(
+  list: HTMLElement,
+  countEl: HTMLElement,
+  captureMessageBodies: boolean,
+): () => void {
   const listener = (
     changes: Record<string, chrome.storage.StorageChange>,
     areaName: string,
   ): void => {
     if (areaName !== 'local') return;
     if (!(STORAGE_KEYS.OUTBOX in changes)) return;
-    void outboxStore.get().then((next) => renderUnsynced(list, countEl, next));
+    void outboxStore
+      .get()
+      .then((next) => renderUnsynced(list, countEl, next, { captureMessageBodies }));
   };
   chrome.storage.onChanged.addListener(listener);
   return () => chrome.storage.onChanged.removeListener(listener);
 }
 
-function safelyMountUnsyncedListener(list: HTMLElement, countEl: HTMLElement): void {
+function safelyMountUnsyncedListener(
+  list: HTMLElement,
+  countEl: HTMLElement,
+  captureMessageBodies: boolean,
+): void {
   if (_unsyncedListUnsubscribe) {
     _unsyncedListUnsubscribe();
     _unsyncedListUnsubscribe = null;
   }
   try {
-    _unsyncedListUnsubscribe = mountUnsyncedListListener(list, countEl);
+    _unsyncedListUnsubscribe = mountUnsyncedListListener(list, countEl, captureMessageBodies);
   } catch (err) {
     console.error('[Pipeline Tracker side panel] mountUnsyncedListListener failed:', err);
   }
@@ -552,6 +580,7 @@ export async function initSidePanel(): Promise<void> {
   const unsyncedCount = document.getElementById('unsynced-count') as HTMLElement;
   const activityList = document.getElementById('activity-list') as HTMLElement;
   const modalRoot = document.getElementById('modal-root') as HTMLElement;
+  const exportCsvBtn = document.getElementById('export-csv-btn') as HTMLButtonElement | null;
 
   // Parallel storage gather. Settings read is best-effort (default-fallback);
   // a corrupted SETTINGS key must not block the events view from rendering.
@@ -562,6 +591,8 @@ export async function initSidePanel(): Promise<void> {
     bindingStore.get(),
   ]);
 
+  const captureMessageBodies = settings.capture_message_bodies;
+
   // Render events + clear the unread badge BEFORE the modal. Two reasons:
   //   (1) Phase 5 invariant — opening the panel always repaints the toolbar
   //       badge. Deferring this behind the modal would mean a user reading the
@@ -569,14 +600,31 @@ export async function initSidePanel(): Promise<void> {
   //   (2) If the modal hangs (commit keeps failing AND user never clicks
   //       Skip), initSidePanel must still resolve with a usable surface —
   //       events visible, badge cleared.
-  renderUnsynced(unsyncedList, unsyncedCount, outbox);
+  renderUnsynced(unsyncedList, unsyncedCount, outbox, { captureMessageBodies });
   renderActivity(activityList, history);
   await clearUnreadCounter();
+
+  // Phase 11 — Export CSV button. Delegates to the SW (background handles
+  // the chrome.downloads.download call so sidepanel.ts never touches
+  // recoveredHtmlStore — D-rev-30 invariant maintained).
+  if (exportCsvBtn) {
+    exportCsvBtn.addEventListener('click', () => {
+      exportCsvBtn.disabled = true;
+      chrome.runtime
+        .sendMessage({ kind: 'export_csv' })
+        .catch((err: Error) =>
+          console.warn('[Pipeline Tracker side panel] export_csv failed:', err),
+        )
+        .finally(() => {
+          exportCsvBtn.disabled = false;
+        });
+    });
+  }
 
   // Phase 8 — keep the unsynced events list in sync when the SW wipes the
   // outbox (delete-outbox rebind choice) or any other code mutates OUTBOX.
   // Without this listener the panel shows stale rows until next open.
-  safelyMountUnsyncedListener(unsyncedList, unsyncedCount);
+  safelyMountUnsyncedListener(unsyncedList, unsyncedCount, captureMessageBodies);
 
   // Binding section mounts independently of the first-run modal: a user
   // can read the disclosure with the section visible behind it (the

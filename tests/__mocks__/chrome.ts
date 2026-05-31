@@ -53,4 +53,7 @@ import { vi } from 'vitest';
   tabs: {
     create: vi.fn().mockResolvedValue(undefined),
   },
+  downloads: {
+    download: vi.fn().mockResolvedValue(1),
+  },
 };
