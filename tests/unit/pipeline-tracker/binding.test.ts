@@ -16,10 +16,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   APP_ORIGIN,
   APP_PORT_NAME,
+  ALLOWED_ORIGINS,
   _clearAppPortsForTests,
   acceptAppPort,
   beginBinding,
   broadcastBindOffer,
+  broadcastNewEvents,
   clearBinding,
   confirmBinding,
   generateBindingToken,
@@ -105,6 +107,13 @@ function appSender(tabId = 42): chrome.runtime.MessageSender {
   } as chrome.runtime.MessageSender;
 }
 
+function localSender(tabId = 42): chrome.runtime.MessageSender {
+  return {
+    origin: 'http://localhost:5173',
+    tab: { id: tabId } as chrome.tabs.Tab,
+  } as chrome.runtime.MessageSender;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   _resetInitLatchForTests();
@@ -113,6 +122,21 @@ beforeEach(() => {
 
 afterEach(() => {
   _clearAppPortsForTests();
+});
+
+describe('binding — ALLOWED_ORIGINS', () => {
+  it('contains the production origin', () => {
+    expect(ALLOWED_ORIGINS.has('https://app.cmcareersystems.com')).toBe(true);
+  });
+
+  it('contains the localhost dev origin', () => {
+    expect(ALLOWED_ORIGINS.has('http://localhost:5173')).toBe(true);
+  });
+
+  it('does not contain arbitrary origins', () => {
+    expect(ALLOWED_ORIGINS.has('https://evil.example.com')).toBe(false);
+    expect(ALLOWED_ORIGINS.has('http://localhost:3000')).toBe(false);
+  });
 });
 
 describe('binding — sender validation', () => {
@@ -129,12 +153,35 @@ describe('binding — sender validation', () => {
     expect(isValidAppSender(sender)).toBe(false);
   });
 
-  it('accepts the app origin with a numeric tab id', () => {
+  it('accepts the production origin with a numeric tab id', () => {
     expect(isValidAppSender(appSender(7))).toBe(true);
+  });
+
+  it('accepts the localhost dev origin with a numeric tab id', () => {
+    expect(isValidAppSender(localSender(7))).toBe(true);
   });
 
   it('treats missing sender as invalid', () => {
     expect(isValidAppSender(undefined)).toBe(false);
+  });
+});
+
+describe('binding — acceptAppPort (localhost)', () => {
+  it('accepts a well-formed port from localhost:5173', () => {
+    const port = makePort({ sender: localSender(55) });
+    expect(acceptAppPort(port as unknown as chrome.runtime.Port)).toBe(true);
+    expect(getAppPortCount()).toBe(1);
+  });
+
+  it('disconnects a port from localhost on a non-allowed port number', () => {
+    const port = makePort({
+      sender: {
+        origin: 'http://localhost:3000',
+        tab: { id: 1 },
+      } as chrome.runtime.MessageSender,
+    });
+    expect(acceptAppPort(port as unknown as chrome.runtime.Port)).toBe(false);
+    expect(port.disconnect).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -262,6 +309,39 @@ describe('binding — broadcastBindOffer', () => {
   it('returns delivered=0 when no ports are registered (Phase 8 "open the app first" case)', () => {
     const result = broadcastBindOffer('hello');
     expect(result).toEqual({ delivered: 0, failed: 0 });
+  });
+});
+
+describe('binding — broadcastNewEvents', () => {
+  it('posts new-events to every registered port', () => {
+    const p1 = makePort({ sender: appSender(1) });
+    const p2 = makePort({ sender: appSender(2) });
+    acceptAppPort(p1 as unknown as chrome.runtime.Port);
+    acceptAppPort(p2 as unknown as chrome.runtime.Port);
+
+    broadcastNewEvents(3);
+
+    expect(p1.postMessage).toHaveBeenCalledWith({ type: 'new-events', count: 3 });
+    expect(p2.postMessage).toHaveBeenCalledWith({ type: 'new-events', count: 3 });
+  });
+
+  it('is a no-op when no ports are registered', () => {
+    expect(() => broadcastNewEvents(1)).not.toThrow();
+  });
+
+  it('prunes a dead port that throws on postMessage', () => {
+    const good = makePort({ sender: appSender(1) });
+    const dead = makePort({ sender: appSender(2) });
+    dead.postMessage.mockImplementation(() => {
+      throw new Error('port closed');
+    });
+    acceptAppPort(good as unknown as chrome.runtime.Port);
+    acceptAppPort(dead as unknown as chrome.runtime.Port);
+
+    broadcastNewEvents(1);
+
+    expect(getAppPortCount()).toBe(1);
+    expect(good.postMessage).toHaveBeenCalledWith({ type: 'new-events', count: 1 });
   });
 });
 

@@ -5,7 +5,7 @@
   "permissions": ["storage", "downloads", "sidePanel"],
   "host_permissions": ["https://www.linkedin.com/*"],
   "externally_connectable": {
-    "matches": ["https://app.cmcareersystems.com/*"]
+    "matches": ["https://app.cmcareersystems.com/*", "http://localhost:5173/*"]
   },
   "content_scripts": [
     {

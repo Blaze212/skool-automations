@@ -58,13 +58,23 @@ import {
 import { buildCsv, getCsvFilename } from './csv.ts';
 import type { Classified, DestinationStrategy } from './destination.ts';
 import { createDestination } from './destination-impl.ts';
-import { APP_ORIGIN, acceptAppPort, beginBinding, clearBinding } from './binding.ts';
+import {
+  ALLOWED_ORIGINS,
+  acceptAppPort,
+  beginBinding,
+  broadcastNewEvents,
+  clearBinding,
+  getAppPortCount,
+} from './binding.ts';
 import { handleExternalMessage } from './background-external.ts';
 import { ts } from './logger.ts';
 
 const tag = () => `[Pipeline Tracker BG - ${ts()}]`;
 
-console.log(tag(), `service worker started, target=${RESOLVED_BUILD_TARGET}`);
+console.log(
+  tag(),
+  `service worker started, target=${RESOLVED_BUILD_TARGET}, extensionId=${chrome.runtime.id}`,
+);
 
 interface BackgroundResult {
   ok: boolean;
@@ -275,6 +285,8 @@ export async function recordResolved(
     warnings: classified.warnings ?? [],
     code: classified.code,
     http_status: classified.http_status,
+    ...(event.title ? { title: event.title } : {}),
+    ...(event.message_text ? { message_text: event.message_text } : {}),
   };
 
   let history: HistoryEntry[];
@@ -439,6 +451,14 @@ export async function handleMessage(msg: BgMessage): Promise<BackgroundResult> {
       // because the outbox just grew. Repaint the badge so the count reflects
       // the new entry without waiting for the next SW respawn.
       await refreshPublishableBadge();
+      // Notify any connected app tabs so they can auto-trigger sync-pull →
+      // sync-ack without the user clicking Sync on the webapp.
+      if (getAppPortCount() > 0) {
+        const outbox = await outboxStore.get();
+        if (outbox.length > 0) {
+          broadcastNewEvents(outbox.length);
+        }
+      }
       return { ok: true };
     }
     await drainOutbox();
@@ -464,6 +484,12 @@ export async function handleMessage(msg: BgMessage): Promise<BackgroundResult> {
     }
     if (msg.kind === 'start_binding') {
       const { offer } = await beginBinding();
+      if (offer.delivered === 0) {
+        console.warn(
+          tag(),
+          `start_binding: no connected app ports — webapp may be calling chrome.runtime.connect() with the wrong extension ID. This extension's ID is: ${chrome.runtime.id}`,
+        );
+      }
       const result: StartBindingResult = { ok: true, delivered: offer.delivered };
       return result;
     }
@@ -581,11 +607,25 @@ if (
   typeof chrome.runtime.onConnectExternal.addListener === 'function'
 ) {
   chrome.runtime.onConnectExternal.addListener((port) => {
-    // acceptAppPort does its own sender + name validation, disconnects on
-    // rejection, and wires the per-port onMessage / onDisconnect listeners.
-    // Nothing more for us to do at this layer — defense in depth lives
-    // inside the binding module.
-    acceptAppPort(port);
+    console.log(
+      tag(),
+      `onConnectExternal fired — name=${port.name}, origin=${port.sender?.origin ?? 'undefined'}, tabId=${port.sender?.tab?.id ?? 'undefined'}`,
+    );
+    const accepted = acceptAppPort(port);
+    if (accepted) {
+      // SW may have respawned since the last port connection, wiping appPorts.
+      // If events queued while the SW was dead, notify immediately so the webapp
+      // can sync without waiting for the next capture.
+      void outboxStore.get().then((outbox) => {
+        if (outbox.length > 0) {
+          console.log(
+            tag(),
+            `onConnectExternal: found ${outbox.length} queued event(s) — broadcasting new-events`,
+          );
+          broadcastNewEvents(outbox.length);
+        }
+      });
+    }
   });
 }
 
@@ -606,13 +646,21 @@ if (
     (msg: unknown, sender: chrome.runtime.MessageSender, sendResponse: (r: unknown) => void) => {
       // Reject invalid origins synchronously so Chrome closes the channel
       // immediately rather than leaving a dead async channel open.
-      if (sender.origin !== APP_ORIGIN) {
+      const msgType =
+        msg && typeof msg === 'object' && 'type' in msg
+          ? (msg as Record<string, unknown>).type
+          : 'unknown';
+      if (!ALLOWED_ORIGINS.has(sender.origin ?? '')) {
         console.warn(
           tag(),
-          `external message rejected — wrong origin: ${sender.origin ?? 'undefined'}`,
+          `onMessageExternal rejected — origin=${sender.origin ?? 'undefined'}, type=${String(msgType)}`,
         );
         return false;
       }
+      console.log(
+        tag(),
+        `onMessageExternal accepted — origin=${sender.origin ?? 'undefined'}, type=${String(msgType)}`,
+      );
       handleExternalMessage(msg, sender, { refreshBadge: refreshPublishableBadge }).then(
         (result) => {
           if (result === null) return; // unknown type — no response

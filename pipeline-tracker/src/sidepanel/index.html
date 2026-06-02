@@ -512,6 +512,18 @@
         cursor: not-allowed;
       }
 
+      /* ── Activity row URL — single line with ellipsis ───────────────── */
+      .meta-url {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+      }
+      .meta-url a {
+        white-space: nowrap;
+        word-break: normal;
+      }
+
       /* ── Row expand — message_text + timestamp (Phase 11) ────────────── */
       .meta-message {
         margin-top: 4px;

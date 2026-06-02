@@ -250,6 +250,31 @@ describe('side panel — renderActivity', () => {
     const labels = Array.from(list.querySelectorAll('.badge')).map((b) => b.textContent);
     expect(labels).toEqual(expect.arrayContaining(['ok', 'error']));
   });
+
+  it('renders expandable <details> cards, not flat divs', () => {
+    const list = document.getElementById('activity-list') as HTMLElement;
+    renderActivity(list, [makeHistoryEntry(1, 'ok')]);
+    expect(list.querySelector('details.row')).not.toBeNull();
+    expect(list.querySelector('details.row summary.row-head')).not.toBeNull();
+  });
+
+  it('shows event-type badge alongside status badge', () => {
+    const list = document.getElementById('activity-list') as HTMLElement;
+    renderActivity(list, [makeHistoryEntry(1, 'pending')]);
+    const badges = Array.from(list.querySelectorAll('summary .badge')).map((b) => b.textContent);
+    expect(badges).toContain('Connect');
+    expect(badges).toContain('pending');
+  });
+
+  it('re-renders with updated status when called again (simulates storage listener)', () => {
+    const list = document.getElementById('activity-list') as HTMLElement;
+    renderActivity(list, [makeHistoryEntry(1, 'pending')]);
+    expect(list.querySelector('.badge-pending')).not.toBeNull();
+
+    renderActivity(list, [makeHistoryEntry(1, 'ok')]);
+    expect(list.querySelector('.badge-pending')).toBeNull();
+    expect(list.querySelector('.badge-ok')).not.toBeNull();
+  });
 });
 
 function seedFirstRunComplete(local: LocalStore): void {
@@ -284,6 +309,35 @@ describe('side panel — initSidePanel', () => {
     expect(
       (document.getElementById('activity-list') as HTMLElement).querySelectorAll('.row'),
     ).toHaveLength(1);
+  });
+
+  it('re-renders activity list to ok when HISTORY storage change fires after sync', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+    local[STORAGE_KEYS.HISTORY] = [makeHistoryEntry(1, 'pending')];
+
+    await initSidePanel();
+
+    const list = document.getElementById('activity-list') as HTMLElement;
+    expect(list.querySelector('.badge-pending')).not.toBeNull();
+
+    // Simulate sync-ack writing ok status to storage, then firing storage.onChanged.
+    local[STORAGE_KEYS.HISTORY] = [makeHistoryEntry(1, 'ok')];
+
+    // Fire all registered storage.onChanged listeners with a HISTORY change —
+    // only the activity listener acts on it; the others guard on their own key.
+    const addListenerMock = chrome.storage.onChanged.addListener as ReturnType<typeof vi.fn>;
+    const registeredListeners = addListenerMock.mock.calls.map(
+      (call: unknown[]) =>
+        call[0] as (changes: Record<string, chrome.storage.StorageChange>, area: string) => void,
+    );
+    const change = { [STORAGE_KEYS.HISTORY]: { oldValue: [], newValue: [] } };
+    for (const fn of registeredListeners) fn(change, 'local');
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(list.querySelector('.badge-pending')).toBeNull();
+    expect(list.querySelector('.badge-ok')).not.toBeNull();
   });
 
   it('sends drain_outbox to the SW after clearing so the publishable badge repaints', async () => {
