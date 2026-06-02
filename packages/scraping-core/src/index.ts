@@ -9,6 +9,9 @@ export {
   ChatOverlayCard,
   MessengerPageCard,
   ProfilePageAcceptCard,
+  SalesNavLeadCard,
+  SalesNavMenuCard,
+  SalesNavConnectModalCard,
 } from './cards/index.js';
 
 export {
@@ -32,3 +35,16 @@ export {
 } from './extract.js';
 
 export type { DebugPayload, EventType, ExtractionSource, PipelineEvent } from './types.js';
+
+export {
+  recover,
+  stripHtmlForCarry,
+  RECOVERED_HTML_CAP_BYTES,
+  getCachedAvailability,
+  invalidateAvailabilityCache,
+  type AiAvailability,
+  type LanguageModelSession,
+  type LanguageModelStatic,
+  type RecoverInput,
+  type RecoverResult,
+} from './ai-fallback/index.js';
