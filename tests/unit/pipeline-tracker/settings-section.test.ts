@@ -5,8 +5,9 @@
 //   2. Toggling fires update() with the desired partial and reflects the
 //      post-write snapshot back into the DOM.
 //   3. Persist failure rolls the toggle back and surfaces an inline error.
-//   4. The AI rows are rendered DISABLED — spec 013 takes them live; this
-//      phase ships them as inert placeholders.
+//   4. The on-device AI recovery toggle is LIVE (spec 013): seeded from
+//      settings, availability-driven UI state, persist on toggle, model
+//      download with progress.
 //   5. Re-rendering into the same root replaces the prior subtree (no leak).
 
 /**
@@ -49,14 +50,14 @@ describe('settings section — render', () => {
     expect(toggle.checked).toBe(true);
   });
 
-  it('renders AI rows DISABLED (spec 013 owns the live wiring)', () => {
-    renderSettingsSection(root, { settings: defaults(), update: vi.fn() });
-    const aiRows = Array.from(root.querySelectorAll('.settings-row-disabled'));
-    expect(aiRows).toHaveLength(2);
-    for (const row of aiRows) {
-      const cb = row.querySelector('input[type="checkbox"]') as HTMLInputElement;
-      expect(cb.disabled).toBe(true);
-    }
+  it('seeds the AI recovery toggle from settings.ai_fallback_enabled', () => {
+    renderSettingsSection(root, {
+      settings: defaults({ ai_fallback_enabled: true }),
+      update: vi.fn(),
+      checkAvailability: vi.fn().mockResolvedValue('available'),
+    });
+    const toggle = root.querySelector('#settings-ai-fallback') as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
   });
 
   it('re-rendering replaces the prior subtree', () => {
@@ -66,6 +67,125 @@ describe('settings section — render', () => {
     const allDetails = root.querySelectorAll('.settings-details');
     expect(allDetails).toHaveLength(1);
     expect(allDetails[0]).not.toBe(firstDetails);
+  });
+});
+
+describe('settings section — on-device AI availability states', () => {
+  async function renderWithAvailability(state: string) {
+    renderSettingsSection(root, {
+      settings: defaults(),
+      update: vi.fn(),
+      checkAvailability: vi.fn().mockResolvedValue(state),
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  it('enables the toggle and hides the download CTA when available', async () => {
+    await renderWithAvailability('available');
+    const toggle = root.querySelector('#settings-ai-fallback') as HTMLInputElement;
+    const dl = root.querySelector('#settings-ai-download') as HTMLButtonElement;
+    expect(toggle.disabled).toBe(false);
+    expect(dl.hidden).toBe(true);
+    expect((root.querySelector('#settings-ai-status') as HTMLElement).textContent).toMatch(
+      /ready/i,
+    );
+  });
+
+  it('shows the download CTA when the model is downloadable', async () => {
+    await renderWithAvailability('downloadable');
+    const dl = root.querySelector('#settings-ai-download') as HTMLButtonElement;
+    expect(dl.hidden).toBe(false);
+  });
+
+  it('disables the toggle with a Chrome-version hint when unavailable', async () => {
+    await renderWithAvailability('unavailable');
+    const toggle = root.querySelector('#settings-ai-fallback') as HTMLInputElement;
+    expect(toggle.disabled).toBe(true);
+    expect((root.querySelector('#settings-ai-status') as HTMLElement).textContent).toMatch(
+      /Chrome 138/i,
+    );
+  });
+});
+
+describe('settings section — AI toggle persist + model download', () => {
+  it('persists ai_fallback_enabled and re-probes availability on toggle', async () => {
+    const update = vi
+      .fn<(p: Partial<Settings>) => Promise<Settings>>()
+      .mockResolvedValue(defaults({ ai_fallback_enabled: true }));
+    const checkAvailability = vi.fn().mockResolvedValue('available');
+    renderSettingsSection(root, { settings: defaults(), update, checkAvailability });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const toggle = root.querySelector('#settings-ai-fallback') as HTMLInputElement;
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(update).toHaveBeenCalledWith({ ai_fallback_enabled: true });
+    expect(toggle.checked).toBe(true);
+    // Probed once on render + once after the toggle.
+    expect(checkAvailability).toHaveBeenCalledTimes(2);
+  });
+
+  it('rolls the AI toggle back on persist rejection', async () => {
+    const update = vi
+      .fn<(p: Partial<Settings>) => Promise<Settings>>()
+      .mockRejectedValue(new Error('quota exceeded'));
+    renderSettingsSection(root, {
+      settings: defaults(),
+      update,
+      checkAvailability: vi.fn().mockResolvedValue('available'),
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const toggle = root.querySelector('#settings-ai-fallback') as HTMLInputElement;
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(toggle.checked).toBe(false);
+  });
+
+  it('downloads the model, reports progress, and records ai_model_downloaded', async () => {
+    const update = vi
+      .fn<(p: Partial<Settings>) => Promise<Settings>>()
+      .mockResolvedValue(defaults({ ai_model_downloaded: true }));
+    const startModelDownload = vi
+      .fn<(cb: (f: number) => void) => Promise<string>>()
+      .mockImplementation(async (onProgress) => {
+        onProgress(0.5);
+        onProgress(1);
+        return 'available';
+      });
+    renderSettingsSection(root, {
+      settings: defaults({ ai_fallback_enabled: true }),
+      update,
+      checkAvailability: vi.fn().mockResolvedValue('downloadable'),
+      startModelDownload,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const dl = root.querySelector('#settings-ai-download') as HTMLButtonElement;
+    expect(dl.hidden).toBe(false);
+    dl.dispatchEvent(new Event('click'));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(startModelDownload).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledWith({ ai_model_downloaded: true });
+    expect(dl.hidden).toBe(true);
+    expect((root.querySelector('#settings-ai-status') as HTMLElement).textContent).toMatch(
+      /ready/i,
+    );
   });
 });
 

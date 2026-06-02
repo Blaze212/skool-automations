@@ -240,6 +240,28 @@
         margin: 10px 0 2px;
         font-weight: 600;
       }
+      .settings-ai-status {
+        font-size: 11px;
+        color: var(--cs-muted);
+        margin: 2px 0 4px;
+      }
+      .settings-ai-download {
+        font-size: 12px;
+        padding: 5px 10px;
+        border: 1px solid var(--cs-border, #d0d0d0);
+        border-radius: 4px;
+        background: var(--cs-surface, #fff);
+        color: var(--cs-text, #1a1a1a);
+        cursor: pointer;
+        margin: 2px 0 6px;
+      }
+      .settings-ai-download:hover:not(:disabled) {
+        background: var(--cs-hover, #f3f4f6);
+      }
+      .settings-ai-download:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
 
       /* ── First-run modal (Phase 6 / D8 / D-rev-17) ─────────────────────── */
       .first-run-overlay {
