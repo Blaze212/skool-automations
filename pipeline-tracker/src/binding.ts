@@ -40,13 +40,15 @@ import { ts } from './logger.ts';
 const tag = () => `[Pipeline Tracker Binding - ${ts()}]`;
 
 export const APP_ORIGIN = 'https://app.cmcareersystems.com';
+// Allow localhost for local dev (Vite default port).
+export const ALLOWED_ORIGINS = new Set([APP_ORIGIN, 'http://localhost:5173']);
 export const APP_PORT_NAME = 'pipeline-tracker-app';
 
 // --- Sender validation (defense in depth alongside externally_connectable) ---
 
 export function isValidAppSender(sender: chrome.runtime.MessageSender | undefined): boolean {
   if (!sender) return false;
-  if (sender.origin !== APP_ORIGIN) return false;
+  if (!ALLOWED_ORIGINS.has(sender.origin ?? '')) return false;
   if (typeof sender.tab?.id !== 'number') return false;
   return true;
 }
@@ -115,6 +117,18 @@ export interface BindAckMessage {
   bindingToken: string;
 }
 
+/**
+ * Sent by the SW to the webapp whenever a new event lands in the outbox (i.e.
+ * after content.ts fires drain_outbox). The webapp listens on the port and can
+ * immediately trigger sync-pull → sync-ack to deliver events without user
+ * interaction, as long as the tab is open and the binding is confirmed.
+ */
+export interface NewEventsMessage {
+  type: 'new-events';
+  /** Current outbox size at broadcast time. */
+  count: number;
+}
+
 export type AppPortInbound = BindAckMessage;
 
 function isBindAck(msg: unknown): msg is BindAckMessage {
@@ -132,7 +146,10 @@ function isBindAck(msg: unknown): msg is BindAckMessage {
  */
 export function acceptAppPort(port: chrome.runtime.Port): boolean {
   if (port.name !== APP_PORT_NAME) {
-    console.warn(tag(), `rejecting port with unexpected name=${port.name}`);
+    console.warn(
+      tag(),
+      `rejecting port — unexpected name="${port.name}" (expected "${APP_PORT_NAME}")`,
+    );
     try {
       port.disconnect();
     } catch (err) {
@@ -141,9 +158,12 @@ export function acceptAppPort(port: chrome.runtime.Port): boolean {
     return false;
   }
   if (!isValidAppSender(port.sender)) {
+    const origin = port.sender?.origin ?? 'undefined';
+    const tabId = port.sender?.tab?.id ?? 'undefined';
+    const allowed = Array.from(ALLOWED_ORIGINS).join(', ');
     console.warn(
       tag(),
-      `rejecting port — sender failed validation, origin=${port.sender?.origin ?? 'undefined'}`,
+      `rejecting port — sender failed validation: origin=${origin}, tabId=${tabId}, allowed=[${allowed}]`,
     );
     try {
       port.disconnect();
@@ -173,10 +193,17 @@ export function acceptAppPort(port: chrome.runtime.Port): boolean {
   console.log(tag(), `port accepted, tabId=${tabId}, total=${appPorts.size}`);
 
   port.onDisconnect.addListener(() => {
+    // Always read lastError in onDisconnect — Chrome sets it for non-error
+    // closures too (bfcache, SW death) and logs "Unchecked runtime.lastError"
+    // if nothing accesses it inside the callback.
+    const reason = (chrome.runtime.lastError as { message?: string } | undefined)?.message ?? null;
     const cur = appPorts.get(tabId);
     if (cur && cur.port === port) {
       appPorts.delete(tabId);
-      console.log(tag(), `port disconnected, tabId=${tabId}, total=${appPorts.size}`);
+      console.log(
+        tag(),
+        `port disconnected, tabId=${tabId}, total=${appPorts.size}${reason ? `, reason: ${reason}` : ''}`,
+      );
     }
   });
 
@@ -252,6 +279,7 @@ export function broadcastBindOffer(bindingToken: string): BindOfferResult {
   const offer: BindOfferMessage = { type: 'bind-offer', bindingToken };
   let delivered = 0;
   let failed = 0;
+  console.log(tag(), `broadcastBindOffer: appPorts.size=${appPorts.size}`);
   for (const entry of appPorts.values()) {
     try {
       entry.port.postMessage(offer);
@@ -266,6 +294,28 @@ export function broadcastBindOffer(bindingToken: string): BindOfferResult {
   }
   console.log(tag(), `bind-offer broadcast: delivered=${delivered}, failed=${failed}`);
   return { delivered, failed };
+}
+
+/**
+ * Notify all connected app tabs that new events are in the outbox. The webapp
+ * should respond by triggering sync-pull → sync-ack immediately, giving
+ * real-time delivery without user interaction.
+ *
+ * Dead ports are pruned from the registry on send failure, matching the same
+ * cleanup behaviour in broadcastBindOffer.
+ */
+export function broadcastNewEvents(count: number): void {
+  if (appPorts.size === 0) return;
+  const msg: NewEventsMessage = { type: 'new-events', count };
+  for (const entry of appPorts.values()) {
+    try {
+      entry.port.postMessage(msg);
+    } catch (err) {
+      console.warn(tag(), `new-events post to tab ${entry.tabId} failed:`, err);
+      appPorts.delete(entry.tabId);
+    }
+  }
+  console.log(tag(), `new-events broadcast: ports=${appPorts.size}, count=${count}`);
 }
 
 // --- Public binding lifecycle helpers (used by background.ts) ---

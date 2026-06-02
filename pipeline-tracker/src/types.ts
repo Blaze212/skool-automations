@@ -62,6 +62,10 @@ export interface HistoryEntry {
   warnings: string[];
   code?: string;
   http_status?: number;
+  /** LinkedIn job title captured at event time, if available. */
+  title?: string;
+  /** Captured message body — only present when capture_message_bodies was on. */
+  message_text?: string;
 }
 
 export interface OutboxEntry {

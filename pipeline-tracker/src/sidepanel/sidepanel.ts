@@ -233,8 +233,10 @@ export function renderUnsynced(
 export function renderActivity(
   list: HTMLElement,
   history: HistoryEntry[],
-  now: number = Date.now(),
+  opts: { captureMessageBodies?: boolean; now?: number } = {},
 ): void {
+  const now = opts.now ?? Date.now();
+  const captureMessageBodies = opts.captureMessageBodies ?? false;
   list.replaceChildren();
 
   if (history.length === 0) {
@@ -246,11 +248,11 @@ export function renderActivity(
   }
 
   for (const entry of history) {
-    const row = document.createElement('div');
-    row.className = 'row';
+    const wrap = document.createElement('details');
+    wrap.className = 'row';
 
-    const head = document.createElement('div');
-    head.className = 'row-head';
+    const summary = document.createElement('summary');
+    summary.className = 'row-head';
 
     const name = document.createElement('span');
     name.className = 'name';
@@ -260,20 +262,67 @@ export function renderActivity(
     time.className = 'time';
     setText(time, formatRelative(entry.ts, now));
 
+    summary.append(name, time);
+    const evtBadge = eventTypeBadge(entry.event_type);
+    appendBadge(summary, evtBadge.label, evtBadge.className);
     const status = statusBadge(entry.status);
+    appendBadge(summary, status.label, status.className);
 
-    head.append(name, time);
-    appendBadge(head, status.label, status.className);
-    row.appendChild(head);
+    wrap.appendChild(summary);
 
-    if (entry.message) {
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      setText(meta, entry.message);
-      row.appendChild(meta);
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+
+    if (entry.title) {
+      const titleLine = document.createElement('div');
+      titleLine.textContent = entry.title;
+      meta.appendChild(titleLine);
     }
 
-    list.appendChild(row);
+    if (entry.page_url) {
+      const urlLine = document.createElement('div');
+      urlLine.className = 'meta-url';
+      if (isSafeLinkedInUrl(entry.page_url)) {
+        const a = document.createElement('a');
+        a.href = entry.page_url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        // Display the path only — short enough to fit on one line.
+        try {
+          a.textContent =
+            new URL(entry.page_url).hostname.replace('www.', '') +
+            new URL(entry.page_url).pathname.replace(/\/$/, '');
+        } catch {
+          a.textContent = entry.page_url;
+        }
+        urlLine.appendChild(a);
+      } else {
+        urlLine.textContent = entry.page_url;
+      }
+      meta.appendChild(urlLine);
+    }
+
+    if (captureMessageBodies && entry.message_text) {
+      const msgTextLine = document.createElement('div');
+      msgTextLine.className = 'meta-message';
+      setText(msgTextLine, entry.message_text);
+      meta.appendChild(msgTextLine);
+    }
+
+    const tsLine = document.createElement('div');
+    tsLine.className = 'meta-timestamp';
+    tsLine.textContent = `Resolved: ${entry.ts}`;
+    meta.appendChild(tsLine);
+
+    if (entry.message) {
+      const msgLine = document.createElement('div');
+      msgLine.className = 'sync-status';
+      setText(msgLine, entry.message);
+      meta.appendChild(msgLine);
+    }
+
+    wrap.appendChild(meta);
+    list.appendChild(wrap);
   }
 }
 
@@ -535,6 +584,10 @@ export function _resetBindingMountForTests(): void {
     _unsyncedListUnsubscribe();
     _unsyncedListUnsubscribe = null;
   }
+  if (_activityListUnsubscribe) {
+    _activityListUnsubscribe();
+    _activityListUnsubscribe = null;
+  }
 }
 
 /**
@@ -545,6 +598,7 @@ export function _resetBindingMountForTests(): void {
  * the binding section's storage.onChanged wiring.
  */
 let _unsyncedListUnsubscribe: (() => void) | null = null;
+let _activityListUnsubscribe: (() => void) | null = null;
 
 function mountUnsyncedListListener(
   list: HTMLElement,
@@ -565,6 +619,19 @@ function mountUnsyncedListListener(
   return () => chrome.storage.onChanged.removeListener(listener);
 }
 
+function mountActivityListener(list: HTMLElement, captureMessageBodies: boolean): () => void {
+  const listener = (
+    changes: Record<string, chrome.storage.StorageChange>,
+    areaName: string,
+  ): void => {
+    if (areaName !== 'local') return;
+    if (!(STORAGE_KEYS.HISTORY in changes)) return;
+    void historyStore.get().then((next) => renderActivity(list, next, { captureMessageBodies }));
+  };
+  chrome.storage.onChanged.addListener(listener);
+  return () => chrome.storage.onChanged.removeListener(listener);
+}
+
 function safelyMountUnsyncedListener(
   list: HTMLElement,
   countEl: HTMLElement,
@@ -578,6 +645,18 @@ function safelyMountUnsyncedListener(
     _unsyncedListUnsubscribe = mountUnsyncedListListener(list, countEl, captureMessageBodies);
   } catch (err) {
     console.error('[Pipeline Tracker side panel] mountUnsyncedListListener failed:', err);
+  }
+}
+
+function safelyMountActivityListener(list: HTMLElement, captureMessageBodies: boolean): void {
+  if (_activityListUnsubscribe) {
+    _activityListUnsubscribe();
+    _activityListUnsubscribe = null;
+  }
+  try {
+    _activityListUnsubscribe = mountActivityListener(list, captureMessageBodies);
+  } catch (err) {
+    console.error('[Pipeline Tracker side panel] mountActivityListener failed:', err);
   }
 }
 
@@ -609,7 +688,7 @@ export async function initSidePanel(): Promise<void> {
   //       Skip), initSidePanel must still resolve with a usable surface —
   //       events visible, badge cleared.
   renderUnsynced(unsyncedList, unsyncedCount, outbox, { captureMessageBodies });
-  renderActivity(activityList, history);
+  renderActivity(activityList, history, { captureMessageBodies });
   await clearUnreadCounter();
 
   // Phase 11 — Export CSV button. Delegates to the SW (background handles
@@ -629,10 +708,15 @@ export async function initSidePanel(): Promise<void> {
     });
   }
 
-  // Phase 8 — keep the unsynced events list in sync when the SW wipes the
-  // outbox (delete-outbox rebind choice) or any other code mutates OUTBOX.
+  // Keep the unsynced events list in sync when the SW wipes the outbox
+  // (delete-outbox rebind choice) or any other code mutates OUTBOX.
   // Without this listener the panel shows stale rows until next open.
   safelyMountUnsyncedListener(unsyncedList, unsyncedCount, captureMessageBodies);
+
+  // Keep the activity list in sync when sync-ack (or any other writer)
+  // flips HISTORY entries from 'pending' → 'ok'. Without this the panel
+  // keeps showing "Queued — waiting to send" until the panel is reopened.
+  safelyMountActivityListener(activityList, captureMessageBodies);
 
   // Binding section mounts independently of the first-run modal: a user
   // can read the disclosure with the section visible behind it (the

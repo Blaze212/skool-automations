@@ -495,8 +495,31 @@ function showContextInvalidatedBanner(): void {
 
 function showServiceWorkerUnreachableBanner(): void {
   showReloadBanner(
-    'Pipeline Tracker can’t reach its background service. Events are not being logged. Click to reload this tab.',
+    'Pipeline Tracker cannot reach its background service. Events are not being logged. Click to reload this tab.',
   );
+}
+
+// --- Session rescue buffer ---
+//
+// When enqueuePendingEvent fails (extension context invalidated or unexpected IO
+// error), the event was never written to chrome.storage.local. sessionStorage
+// survives location.reload() within the same tab, so we stash the raw
+// PipelineEvent there. replayRescueBuffer() is called on every content-script
+// load; when storage is healthy again the rescued events are fed back through
+// sendEvent() as if they'd just been captured.
+
+const RESCUE_BUFFER_KEY = 'pipeline_tracker_rescued_events';
+
+function saveToRescueBuffer(event: PipelineEvent): void {
+  try {
+    const raw = sessionStorage.getItem(RESCUE_BUFFER_KEY);
+    const existing: PipelineEvent[] = raw ? (JSON.parse(raw) as PipelineEvent[]) : [];
+    existing.push(event);
+    sessionStorage.setItem(RESCUE_BUFFER_KEY, JSON.stringify(existing));
+    console.log(tag(), `event saved to rescue buffer (${existing.length} buffered)`);
+  } catch (err) {
+    console.warn(tag(), 'failed to write rescue buffer:', err);
+  }
 }
 
 async function enqueuePendingEvent(
@@ -608,6 +631,7 @@ async function sendEvent(event: PipelineEvent): Promise<void> {
     // the event is dropped with only a swallowed warning.
     if (isContextInvalidated(err)) {
       console.warn(tag(), 'extension context invalidated — showing reload banner');
+      saveToRescueBuffer(event);
       showContextInvalidatedBanner();
     } else if (err instanceof StorageQuotaExceededError) {
       // Spec 012 D-rev-11a: surface quota failure as a HistoryEntry so the user
@@ -622,8 +646,7 @@ async function sendEvent(event: PipelineEvent): Promise<void> {
       });
     } else {
       console.error(tag(), 'failed to enqueue event:', err);
-      // We can't even write to chrome.storage — something is badly wrong.
-      // Fail loudly so the user knows capture isn't working.
+      saveToRescueBuffer(event);
       showReloadBanner(
         'Pipeline Tracker failed to save an event. Capture is broken — click to reload this tab.',
       );
@@ -654,6 +677,29 @@ async function sendEvent(event: PipelineEvent): Promise<void> {
       'Pipeline Tracker hit an unexpected error sending an event. Click to reload this tab.',
     );
   }
+}
+
+export async function replayRescueBuffer(): Promise<void> {
+  let events: PipelineEvent[];
+  try {
+    const raw = sessionStorage.getItem(RESCUE_BUFFER_KEY);
+    if (!raw) return;
+    events = JSON.parse(raw) as PipelineEvent[];
+    sessionStorage.removeItem(RESCUE_BUFFER_KEY);
+    if (events.length === 0) return;
+  } catch {
+    sessionStorage.removeItem(RESCUE_BUFFER_KEY);
+    return;
+  }
+  console.log(tag(), `replaying ${events.length} rescued event(s) from session buffer`);
+  for (const event of events) {
+    await sendEvent(event);
+  }
+}
+
+/** Test-only: reset the session rescue buffer between cases. */
+export function resetRescueBuffer(): void {
+  sessionStorage.removeItem(RESCUE_BUFFER_KEY);
 }
 
 // =============================================================================
@@ -1241,4 +1287,5 @@ document.body.addEventListener(
   { capture: true },
 );
 
+void replayRescueBuffer();
 console.log(tag(), 'content script loaded');

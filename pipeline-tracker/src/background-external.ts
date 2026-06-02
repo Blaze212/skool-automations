@@ -23,7 +23,7 @@ import {
   resolveOutboxBatch,
 } from './storage.ts';
 import type { PipelineEvent } from './types.ts';
-import { APP_ORIGIN } from './binding.ts';
+import { ALLOWED_ORIGINS } from './binding.ts';
 import { ts } from './logger.ts';
 
 const tag = () => `[Pipeline Tracker External - ${ts()}]`;
@@ -186,7 +186,7 @@ export async function handleExternalMessage(
   sender: chrome.runtime.MessageSender,
   deps: { refreshBadge?: () => Promise<void> } = {},
 ): Promise<ExternalMessageResponse | null> {
-  if (sender.origin !== APP_ORIGIN) {
+  if (!ALLOWED_ORIGINS.has(sender.origin ?? '')) {
     console.warn(
       tag(),
       `external message rejected — wrong origin: ${sender.origin ?? 'undefined'}`,

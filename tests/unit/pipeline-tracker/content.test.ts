@@ -3,8 +3,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   handleConnectionRequest,
+  replayRescueBuffer,
   resetContextBanner,
   resetDedup,
+  resetRescueBuffer,
 } from '../../../pipeline-tracker/src/content.ts';
 import {
   STORAGE_KEYS,
@@ -50,6 +52,7 @@ describe('pipeline-tracker content script — handleConnectionRequest', () => {
     vi.clearAllMocks();
     resetDedup();
     resetContextBanner();
+    resetRescueBuffer();
     document.body.innerHTML = '';
     local = installStatefulLocalStorage();
     (chrome.storage.sync.get as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -301,6 +304,75 @@ describe('pipeline-tracker content script — handleConnectionRequest', () => {
 
     expect(sendMessage).toHaveBeenCalledTimes(2);
     expect(document.getElementById('pipeline-tracker-reload-banner')).toBeNull();
+  });
+
+  // Rescue buffer: when enqueue fails due to context invalidation, the event
+  // must be stashed in sessionStorage so a reload can retry it.
+  it('saves event to rescue buffer on context-invalidated enqueue failure', async () => {
+    (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('Extension context invalidated.'),
+    );
+
+    const sendButton = document.createElement('button');
+    sendButton.setAttribute('aria-label', 'Send without a note');
+    document.body.appendChild(sendButton);
+
+    await handleConnectionRequest(sendButton, 'Jane Doe', 'Staff Engineer');
+
+    const raw = sessionStorage.getItem('pipeline_tracker_rescued_events');
+    expect(raw).not.toBeNull();
+    const buffered = JSON.parse(raw!) as PipelineEvent[];
+    expect(buffered).toHaveLength(1);
+    expect(buffered[0].name).toBe('Jane Doe');
+    expect(buffered[0].event_type).toBe('connection_request');
+  });
+
+  // Rescue buffer: generic chrome.storage errors (not quota, not context) also
+  // populate the buffer so a reload recovers the event.
+  it('saves event to rescue buffer on generic storage enqueue failure', async () => {
+    (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('Unexpected IO error'),
+    );
+
+    const sendButton = document.createElement('button');
+    sendButton.setAttribute('aria-label', 'Send without a note');
+    document.body.appendChild(sendButton);
+
+    await handleConnectionRequest(sendButton, 'Bob Smith');
+
+    const raw = sessionStorage.getItem('pipeline_tracker_rescued_events');
+    expect(raw).not.toBeNull();
+    const buffered = JSON.parse(raw!) as PipelineEvent[];
+    expect(buffered[0].name).toBe('Bob Smith');
+  });
+
+  // Rescue buffer: replayRescueBuffer re-enqueues the buffered event after reload.
+  it('replayRescueBuffer enqueues rescued events and clears the buffer', async () => {
+    const event: PipelineEvent = {
+      api_key: '',
+      event_type: 'connection_request',
+      date: '2026-06-01',
+      name: 'Jane Doe',
+      title: 'Staff Engineer',
+      linkedin_url: 'https://www.linkedin.com/in/jane-doe',
+      page_url: 'https://www.linkedin.com/in/jane-doe/',
+      message_text: '',
+    };
+    sessionStorage.setItem('pipeline_tracker_rescued_events', JSON.stringify([event]));
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+    await replayRescueBuffer();
+
+    const outbox = local[STORAGE_KEYS.OUTBOX] as OutboxEntry[];
+    expect(outbox).toHaveLength(1);
+    expect(outbox[0].event.name).toBe('Jane Doe');
+    expect(sessionStorage.getItem('pipeline_tracker_rescued_events')).toBeNull();
+  });
+
+  // Rescue buffer: a no-op when there is nothing buffered.
+  it('replayRescueBuffer is a no-op when the buffer is empty', async () => {
+    await replayRescueBuffer();
+    expect(local[STORAGE_KEYS.OUTBOX]).toBeUndefined();
   });
 
   it('debug_mode=false + scrape success → debug field absent', async () => {

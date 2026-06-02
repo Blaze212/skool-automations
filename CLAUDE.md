@@ -130,6 +130,8 @@ After every change, run in this order:
 3. `pnpm format` — auto-format scripts/tests with Prettier; `pnpm format:functions` — auto-format edge functions with deno fmt (required before lint)
 4. `pnpm lint` — fix lint errors
 
+**Before pushing, always re-run the full CI gate locally — `pnpm typecheck`, `pnpm test`, `pnpm format`, then `pnpm lint` — and only push once all four pass.** These mirror the GitHub Actions CI job; running them first keeps the remote build green. Note that `pnpm format` rewrites files, so re-stage any formatting changes before committing. (Transient CI failures from remote CDN fetches — e.g. an `esm.sh` `5xx` on a `https://esm.sh/...` import — are not code issues; re-run the failed job rather than changing the import.)
+
 ## Don't
 
 - Don't hardcode secrets or commit `.env` files — secrets are injected via Supabase CLI locally and via GitHub Actions secrets in CI.

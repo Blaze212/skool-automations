@@ -26,7 +26,12 @@ import {
   handleMessage,
 } from '../../../pipeline-tracker/src/background.ts';
 import { _resetInitLatchForTests } from '../../../pipeline-tracker/src/storage.ts';
-import { _clearAppPortsForTests } from '../../../pipeline-tracker/src/binding.ts';
+import {
+  _clearAppPortsForTests,
+  acceptAppPort,
+  APP_PORT_NAME,
+  ALLOWED_ORIGINS,
+} from '../../../pipeline-tracker/src/binding.ts';
 import {
   STORAGE_KEYS,
   type ExtensionBinding,
@@ -61,6 +66,23 @@ function installStatefulStorage(initial: LocalStore = {}): LocalStore {
     },
   );
   return local;
+}
+
+function makeConnectedPort(tabId = 42): chrome.runtime.Port {
+  const listeners: Array<() => void> = [];
+  return {
+    name: APP_PORT_NAME,
+    sender: {
+      origin: Array.from(ALLOWED_ORIGINS)[0],
+      tab: { id: tabId },
+    } as chrome.runtime.MessageSender,
+    postMessage: vi.fn(),
+    disconnect: vi.fn(),
+    onMessage: { addListener: vi.fn() },
+    onDisconnect: {
+      addListener: vi.fn((fn: () => void) => listeners.push(fn)),
+    },
+  } as unknown as chrome.runtime.Port;
 }
 
 beforeEach(() => {
@@ -295,6 +317,53 @@ describe('background — wipe_unsynced routing', () => {
     );
     expect(chrome.storage.local.set).not.toHaveBeenCalledWith(
       expect.objectContaining({ [STORAGE_KEYS.HISTORY]: expect.anything() }),
+    );
+  });
+});
+
+describe('background — drain_outbox publishable path: new-events broadcast', () => {
+  it('broadcasts new-events to connected ports when outbox is non-empty', async () => {
+    const local = installStatefulStorage({
+      [STORAGE_KEYS.OUTBOX]: [{ history_id: 'h1', event: {}, enqueued_at: '', attempts: 0 }],
+      [STORAGE_KEYS.BADGE_STATE]: { unreadCount: 0, highestSeverity: 'ok', lastStatus: 'ok' },
+    });
+    _setBuildTargetForTests('publishable');
+
+    const port = makeConnectedPort(10);
+    acceptAppPort(port);
+
+    const result = await handleMessage({ kind: 'drain_outbox' });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(port.postMessage).toHaveBeenCalledWith({ type: 'new-events', count: 1 });
+  });
+
+  it('does not broadcast when no ports are connected', async () => {
+    installStatefulStorage({
+      [STORAGE_KEYS.OUTBOX]: [{ history_id: 'h1', event: {}, enqueued_at: '', attempts: 0 }],
+      [STORAGE_KEYS.BADGE_STATE]: { unreadCount: 0, highestSeverity: 'ok', lastStatus: 'ok' },
+    });
+    _setBuildTargetForTests('publishable');
+
+    const result = await handleMessage({ kind: 'drain_outbox' });
+
+    expect(result).toMatchObject({ ok: true });
+  });
+
+  it('does not broadcast when the outbox is empty', async () => {
+    installStatefulStorage({
+      [STORAGE_KEYS.OUTBOX]: [],
+      [STORAGE_KEYS.BADGE_STATE]: { unreadCount: 0, highestSeverity: 'ok', lastStatus: 'ok' },
+    });
+    _setBuildTargetForTests('publishable');
+
+    const port = makeConnectedPort(10);
+    acceptAppPort(port);
+
+    await handleMessage({ kind: 'drain_outbox' });
+
+    expect(port.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'new-events' }),
     );
   });
 });

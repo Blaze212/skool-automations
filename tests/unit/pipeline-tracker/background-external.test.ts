@@ -119,9 +119,27 @@ describe('handleExternalMessage — origin validation', () => {
     expect(result).toBeNull();
   });
 
-  it('accepts correct origin, returns a response object', async () => {
+  it('rejects localhost on a non-allowed port number', async () => {
+    installStatefulStorage();
+    const result = await handleExternalMessage(
+      { type: 'ping' },
+      { origin: 'http://localhost:3000' },
+    );
+    expect(result).toBeNull();
+  });
+
+  it('accepts correct production origin, returns a response object', async () => {
     installStatefulStorage();
     const result = await handleExternalMessage({ type: 'ping' }, validSender);
+    expect(result).not.toBeNull();
+  });
+
+  it('accepts localhost:5173 dev origin, returns a response object', async () => {
+    installStatefulStorage();
+    const result = await handleExternalMessage(
+      { type: 'ping' },
+      { origin: 'http://localhost:5173' },
+    );
     expect(result).not.toBeNull();
   });
 
