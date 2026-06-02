@@ -19,6 +19,7 @@ export async function downloadModel(
   try {
     if (typeof LanguageModel === 'undefined' || !LanguageModel) return 'unavailable';
     const session = await LanguageModel.create({
+      expectedOutputs: [{ type: 'text', languages: ['en'] }],
       monitor(monitor) {
         monitor.addEventListener('downloadprogress', (event) => onProgress?.(event.loaded));
       },
