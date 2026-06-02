@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   handleConnectionRequest,
+  handleSalesNavConnectionRequest,
   replayRescueBuffer,
   resetContextBanner,
   resetDedup,
@@ -394,5 +395,137 @@ describe('pipeline-tracker content script — handleConnectionRequest', () => {
 
     const payload = lastEnqueuedEvent(local);
     expect(payload.debug).toBeUndefined();
+  });
+});
+
+describe('pipeline-tracker content script — Sales Navigator connection request', () => {
+  let local: Store;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetDedup();
+    resetContextBanner();
+    resetRescueBuffer();
+    document.body.innerHTML = '';
+    local = installStatefulLocalStorage();
+    (chrome.storage.sync.get as ReturnType<typeof vi.fn>).mockResolvedValue({ debug_mode: false });
+    window.history.pushState({}, '', '/sales/lead/ACwAACbVAzwB,NAME_SEARCH,qJrX');
+  });
+
+  afterEach(() => {
+    window.history.pushState({}, '', '/');
+  });
+
+  /** Build the "Send invitation" modal (name + optional note). */
+  function makeConnectModal(name: string, note?: string): HTMLElement {
+    const modal = document.createElement('div');
+    modal.setAttribute('role', 'dialog');
+    const heading = document.createElement('h2');
+    heading.id = 'connect-cta-form__header';
+    heading.textContent = 'Send invitation';
+    modal.appendChild(heading);
+    const nameEl = document.createElement('div');
+    nameEl.setAttribute('data-anonymize', 'person-name');
+    nameEl.textContent = name;
+    modal.appendChild(nameEl);
+    const textarea = document.createElement('textarea');
+    textarea.id = 'connect-cta-form__invitation';
+    if (note !== undefined) textarea.value = note;
+    modal.appendChild(textarea);
+    const sendButton = document.createElement('button');
+    sendButton.className = 'connect-cta-form__send';
+    sendButton.textContent = 'Send Invitation';
+    modal.appendChild(sendButton);
+    return modal;
+  }
+
+  it('merges staged title/url with the modal name + note', async () => {
+    const modal = makeConnectModal('David Janotka', 'Hi David, would love to connect!');
+    document.body.appendChild(modal);
+    const sendButton = modal.querySelector('button')!;
+
+    await handleSalesNavConnectionRequest(
+      sendButton,
+      'David Janotka',
+      'Founder & Managing Director at Web3 Recruit',
+      'https://www.linkedin.com/in/david-janotka-138226162',
+    );
+
+    const payload = lastEnqueuedEvent(local);
+    expect(payload.event_type).toBe('connection_request');
+    expect(payload.name).toBe('David Janotka');
+    expect(payload.title).toBe('Founder & Managing Director at Web3 Recruit');
+    expect(payload.linkedin_url).toBe('https://www.linkedin.com/in/david-janotka-138226162');
+    expect(payload.message_text).toBe('Hi David, would love to connect!');
+  });
+
+  it('falls back to the lead header when no data was staged', async () => {
+    // Lead header in the document
+    const header = document.createElement('section');
+    const h1 = document.createElement('h1');
+    h1.setAttribute('data-x--lead--name', '');
+    h1.setAttribute('data-anonymize', 'person-name');
+    const nameLink = document.createElement('a');
+    nameLink.setAttribute('data-anonymize', 'person-name');
+    nameLink.setAttribute('href', '/sales/lead/ACwAACbVAzwB,NAME_SEARCH,qJrX');
+    nameLink.textContent = 'David Janotka';
+    h1.appendChild(nameLink);
+    header.appendChild(h1);
+    const headline = document.createElement('span');
+    headline.setAttribute('data-anonymize', 'headline');
+    headline.textContent = 'Founder & Managing Director at Web3 Recruit';
+    header.appendChild(headline);
+    document.body.appendChild(header);
+
+    const modal = makeConnectModal('David Janotka');
+    document.body.appendChild(modal);
+    const sendButton = modal.querySelector('button')!;
+
+    // No pending args passed — must recover from the header
+    await handleSalesNavConnectionRequest(sendButton);
+
+    const payload = lastEnqueuedEvent(local);
+    expect(payload.name).toBe('David Janotka');
+    expect(payload.title).toBe('Founder & Managing Director at Web3 Recruit');
+    expect(payload.linkedin_url).toBe('https://www.linkedin.com/sales/lead/ACwAACbVAzwB');
+  });
+
+  it('end-to-end click path: Connect in a preview menu stages the URL, modal Send uses it', async () => {
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+    // Preview menu with a public /in/ link, rendered detached at the doc root
+    const menu = document.createElement('ul');
+    const connectLi = document.createElement('li');
+    const connectBtn = document.createElement('button');
+    connectBtn.textContent = 'Connect';
+    connectLi.appendChild(connectBtn);
+    menu.appendChild(connectLi);
+    const viewLi = document.createElement('li');
+    const viewLink = document.createElement('a');
+    viewLink.setAttribute('href', 'https://www.linkedin.com/in/david-janotka-138226162');
+    viewLink.textContent = 'View LinkedIn profile';
+    viewLi.appendChild(viewLink);
+    menu.appendChild(viewLi);
+    document.body.appendChild(menu);
+
+    // Click "Connect" → the document listener stages the menu's profile URL.
+    connectBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    // The "Send invitation" modal opens; clicking Send fires the captured event.
+    const modal = makeConnectModal('David Janotka', 'Hi David!');
+    document.body.appendChild(modal);
+    const sendButton = modal.querySelector('button')!;
+    sendButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    await vi.waitFor(() => {
+      const outbox = local[STORAGE_KEYS.OUTBOX] as OutboxEntry[] | undefined;
+      if (!outbox || outbox.length === 0) throw new Error('not enqueued yet');
+    });
+
+    const payload = lastEnqueuedEvent(local);
+    expect(payload.event_type).toBe('connection_request');
+    expect(payload.name).toBe('David Janotka');
+    expect(payload.linkedin_url).toBe('https://www.linkedin.com/in/david-janotka-138226162');
+    expect(payload.message_text).toBe('Hi David!');
   });
 });

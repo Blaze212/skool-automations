@@ -2,6 +2,11 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { extract } from '../src/extract.js';
+import { invalidateAvailabilityCache } from '../src/ai-fallback/availability.js';
+import {
+  installLanguageModel,
+  uninstallLanguageModel,
+} from '../../../tests/__mocks__/language-model.ts';
 
 /**
  * Builds the My Network invitation card shape that AcceptInvitationCard
@@ -81,14 +86,14 @@ describe('extract() — accepted_connection happy path', () => {
     document.body.innerHTML = '';
   });
 
-  it('extracts a clean event from a My Network invitation card', () => {
+  it('extracts a clean event from a My Network invitation card', async () => {
     const { acceptButton } = makeMyNetworkCard({
       name: 'Jane Doe',
       vanity: 'jane-doe',
       title: 'Senior Engineer at Acme — 10+ years scaling teams',
     });
 
-    const result = extract({
+    const result = await extract({
       document,
       target: acceptButton,
       pageUrl: 'https://www.linkedin.com/mynetwork/invitation-manager/',
@@ -109,14 +114,14 @@ describe('extract() — accepted_connection happy path', () => {
     expect(result.event.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it('extracts from a profile-page Accept button via the URL-anchored card', () => {
+  it('extracts from a profile-page Accept button via the URL-anchored card', async () => {
     const { acceptButton } = makeProfilePageAccept({
       name: 'Alex Profile',
       vanity: 'alex-profile',
       title: 'Founder at Startupco — building distributed teams',
     });
 
-    const result = extract({
+    const result = await extract({
       document,
       target: acceptButton,
       pageUrl: 'https://www.linkedin.com/in/alex-profile/',
@@ -136,7 +141,7 @@ describe('extract() — dirty paths', () => {
     document.body.innerHTML = '';
   });
 
-  it('marks dirty when the click target has no matching card ancestor', () => {
+  it('marks dirty when the click target has no matching card ancestor', async () => {
     // Bare button not inside a listitem and the URL isn't a profile page —
     // both card constructors return null, so the orchestrator yields an
     // empty event and validate() flags the required-field gaps.
@@ -145,7 +150,7 @@ describe('extract() — dirty paths', () => {
     button.setAttribute('aria-label', 'Accept invitation');
     document.body.appendChild(button);
 
-    const result = extract({
+    const result = await extract({
       document,
       target: button,
       pageUrl: 'https://www.linkedin.com/feed/',
@@ -159,7 +164,7 @@ describe('extract() — dirty paths', () => {
     expect(codes).toContain('title:missing-required');
   });
 
-  it('flags a degree-marker leak in a captured title', () => {
+  it('flags a degree-marker leak in a captured title', async () => {
     // Title with "· 1st" trailing — the cards don't always strip this and
     // validate() catches it before the event ships.
     const { acceptButton } = makeMyNetworkCard({
@@ -168,7 +173,7 @@ describe('extract() — dirty paths', () => {
       title: 'Director of Engineering · 1st',
     });
 
-    const result = extract({
+    const result = await extract({
       document,
       target: acceptButton,
       pageUrl: 'https://www.linkedin.com/mynetwork/invitation-manager/',
@@ -189,9 +194,9 @@ describe('extract() — guard rails', () => {
     document.body.innerHTML = '';
   });
 
-  it('throws for non-accepted_connection eventTypes (phase 4 scope limit)', () => {
+  it('throws for non-accepted_connection eventTypes (phase 4 scope limit)', async () => {
     const button = document.createElement('button');
-    expect(() =>
+    await expect(
       extract({
         document,
         target: button,
@@ -200,17 +205,17 @@ describe('extract() — guard rails', () => {
         // assert the runtime guard works alongside the type-level guard.
         eventType: 'direct_message',
       }),
-    ).toThrow(/does not yet support/);
+    ).rejects.toThrow(/does not yet support/);
   });
 
-  it('accepts an aiOptions param without using it (spec 013 forward-compat)', () => {
+  it('does not consult the model for a clean event even with AI enabled', async () => {
     const { acceptButton } = makeMyNetworkCard({
       name: 'Riley',
       vanity: 'riley',
       title: 'Product designer focused on developer tools',
     });
 
-    const result = extract({
+    const result = await extract({
       document,
       target: acceptButton,
       pageUrl: 'https://www.linkedin.com/mynetwork/invitation-manager/',
@@ -218,8 +223,94 @@ describe('extract() — guard rails', () => {
       aiOptions: { enabled: true, timeoutMs: 1500 },
     });
 
-    // source stays 'selectors' — phase 4 does not consult aiOptions.
+    // Clean event ⇒ validate().dirty === false ⇒ recover() is never invoked.
     expect(result.source).toBe('selectors');
     expect(result.event.name).toBe('Riley');
+  });
+});
+
+describe('extract() — AI fallback (spec 013)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    invalidateAvailabilityCache();
+  });
+
+  afterEach(() => {
+    uninstallLanguageModel();
+    invalidateAvailabilityCache();
+  });
+
+  // A My Network card whose title carries a "· 1st" degree-marker leak —
+  // validate() flags it as dirty, which is the trigger condition for recovery.
+  function makeDirtyCard(): HTMLElement {
+    const { acceptButton } = makeMyNetworkCard({
+      name: 'Jane Doe',
+      vanity: 'jane-doe',
+      title: 'Director of Engineering · 1st',
+    });
+    return acceptButton;
+  }
+
+  it('repairs a dirty event and stamps source="ai-recovered" when the model is available', async () => {
+    installLanguageModel({
+      availability: 'available',
+      promptResult: JSON.stringify({
+        name: 'Jane Doe',
+        title: 'Head of Growth at Acme',
+        linkedin_url: 'https://www.linkedin.com/in/jane-doe/',
+        message_text: null,
+      }),
+    });
+
+    const result = await extract({
+      document,
+      target: makeDirtyCard(),
+      pageUrl: 'https://www.linkedin.com/mynetwork/invitation-manager/',
+      eventType: 'accepted_connection',
+      aiOptions: { enabled: true },
+    });
+
+    expect(result.source).toBe('ai-recovered');
+    expect(result.event.title).toBe('Head of Growth at Acme');
+    expect(result.recoveredHtml).toBeTruthy();
+  });
+
+  it('stays selectors-only when AI is disabled', async () => {
+    installLanguageModel({ availability: 'available' });
+    const result = await extract({
+      document,
+      target: makeDirtyCard(),
+      pageUrl: 'https://www.linkedin.com/mynetwork/invitation-manager/',
+      eventType: 'accepted_connection',
+      aiOptions: { enabled: false },
+    });
+    expect(result.source).toBe('selectors');
+    expect(result.recoveredHtml).toBeUndefined();
+  });
+
+  it('stays selectors-only when the model is unavailable', async () => {
+    installLanguageModel({ availability: 'unavailable' });
+    const result = await extract({
+      document,
+      target: makeDirtyCard(),
+      pageUrl: 'https://www.linkedin.com/mynetwork/invitation-manager/',
+      eventType: 'accepted_connection',
+      aiOptions: { enabled: true },
+    });
+    expect(result.source).toBe('selectors');
+    expect(result.recoveredHtml).toBeUndefined();
+  });
+
+  it('stays selectors-only when recover() returns null (model error)', async () => {
+    installLanguageModel({ availability: 'available', promptThrows: true });
+    const result = await extract({
+      document,
+      target: makeDirtyCard(),
+      pageUrl: 'https://www.linkedin.com/mynetwork/invitation-manager/',
+      eventType: 'accepted_connection',
+      aiOptions: { enabled: true },
+    });
+    expect(result.source).toBe('selectors');
+    expect(result.recoveredHtml).toBeUndefined();
   });
 });
