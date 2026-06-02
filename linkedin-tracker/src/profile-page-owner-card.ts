@@ -62,6 +62,12 @@ export class ProfilePageOwnerCard {
     return `https://www.linkedin.com/in/${this.vanity}`;
   }
 
+  /** The resolved card scope (profile top-card section) — used as the HTML
+   * context for the spec 013 on-device AI fallback. */
+  get container(): HTMLElement {
+    return this.card;
+  }
+
   /**
    * Profile headline — same sibling-walk logic as ProfilePageAcceptCard.
    * Skips degree markers, pronouns, connection counts and other noise; returns
