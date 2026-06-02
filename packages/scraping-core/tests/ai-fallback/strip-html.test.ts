@@ -37,4 +37,15 @@ describe('stripHtmlForCarry', () => {
     const out = stripHtmlForCarry('<div class="card"><b>Hi</b></div>');
     expect(out).toContain('<b>Hi</b>');
   });
+
+  it('strips all attributes except href', () => {
+    const out = stripHtmlForCarry(
+      '<div class="big-class" data-id="x" aria-label="y"><a href="/in/jane/">Jane</a></div>',
+    );
+    expect(out).not.toContain('class=');
+    expect(out).not.toContain('data-id');
+    expect(out).not.toContain('aria-label');
+    expect(out).toContain('href="/in/jane/"');
+    expect(out).toContain('Jane');
+  });
 });

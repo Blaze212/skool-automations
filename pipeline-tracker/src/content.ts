@@ -27,9 +27,12 @@ import {
   extract,
   MessengerPageCard,
   ProfilePageAcceptCard,
+  getCachedAvailability,
+  recover,
   SalesNavConnectModalCard,
   SalesNavLeadCard,
   SalesNavMenuCard,
+  stripHtmlForCarry,
   validate,
 } from '@cs/scraping-core';
 
@@ -811,8 +814,8 @@ export async function handleConnectionRequest(
   // modal h2 reads "Add a note to your invitation" (UI title, not the
   // recipient) and the body paragraph is generic invitation copy. The URL
   // pins the vanity so we can read the page directly.
+  const ownerCard = ProfilePageOwnerCard.fromCurrentUrl();
   if (!name || !title || !profileUrl) {
-    const ownerCard = ProfilePageOwnerCard.fromCurrentUrl();
     if (ownerCard) {
       if (!name) name = ownerCard.name;
       if (!title) title = ownerCard.title;
@@ -853,8 +856,59 @@ export async function handleConnectionRequest(
     ...(debug ? { debug } : {}),
   };
 
+  // Spec 013 — on-device AI fallback for the connection-request flow. Mirrors
+  // extract()'s gate: only when the user opted in, the scrape came back dirty,
+  // and the model is locally available. recover() never throws, so a null
+  // return cleanly degrades to a selectors-only row. The profile owner card's
+  // section is the HTML context (stripHtmlForCarry trims it to fit Nano's
+  // context window); off-profile surfaces have no owner card and are skipped.
+  const recovered = await maybeRecoverConnectFields(event, ownerCard);
+
   console.log(tag(), 'sending event:', JSON.stringify(event));
-  await sendEvent(event);
+  await sendEvent(event, recovered);
+}
+
+/**
+ * Run the on-device AI fallback for a connection-request event when enabled,
+ * dirty, and the model is available. Mutates `event` in place with recovered
+ * fields and returns the provenance to pass to sendEvent.
+ */
+async function maybeRecoverConnectFields(
+  event: PipelineEvent,
+  ownerCard: ProfilePageOwnerCard | null,
+): Promise<{ source?: ExtractionSource; recoveredHtml?: string }> {
+  // AI recovery is an enhancement, never a capture dependency (spec D-AI-1):
+  // any error here — settings read, availability probe, model — must degrade
+  // to a selectors-only row, not break the send path.
+  try {
+    const settings = await settingsStore.get();
+    if (!settings.ai_fallback_enabled || !ownerCard) return {};
+
+    const validation = validate(event);
+    if (!validation.dirty) return {};
+    if ((await getCachedAvailability()) !== 'available') return {};
+
+    const trimmedHtml = stripHtmlForCarry(ownerCard.container.outerHTML);
+    if (!trimmedHtml) return {};
+
+    const result = await recover({
+      trimmedHtml,
+      candidate: event,
+      gaps: validation.gaps,
+      pageUrl: event.page_url,
+    });
+    if (!result) return {};
+
+    event.name = result.filledEvent.name;
+    event.title = result.filledEvent.title;
+    event.linkedin_url = result.filledEvent.linkedin_url;
+    event.message_text = result.filledEvent.message_text;
+    console.log(tag(), 'connect: fields recovered on-device by AI fallback');
+    return { source: 'ai-recovered', recoveredHtml: trimmedHtml };
+  } catch (err) {
+    console.warn(tag(), 'connect: AI fallback errored — using selectors', err);
+    return {};
+  }
 }
 
 // =============================================================================

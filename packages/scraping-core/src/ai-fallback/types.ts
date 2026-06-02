@@ -24,11 +24,24 @@ export interface CreateMonitor {
   ): void;
 }
 
+/** Declares an expected input/output modality + its languages. Chrome uses the
+ * output language to attest output safety and pick the best decoding path. */
+export interface LanguageModelExpectation {
+  type: 'text' | 'image' | 'audio';
+  languages?: string[];
+}
+
 export interface LanguageModelCreateOptions {
   /** Aborts the in-flight create() and tears the session down if it fires. */
   signal?: AbortSignal;
   /** Hook for download-progress events when availability is 'downloadable'. */
   monitor?: (monitor: CreateMonitor) => void;
+  /** Expected input modalities/languages. */
+  expectedInputs?: LanguageModelExpectation[];
+  /** Expected output modalities/languages. Declaring the output language
+   * silences Chrome's "No output language was specified" warning and improves
+   * output quality + safety attestation. */
+  expectedOutputs?: LanguageModelExpectation[];
 }
 
 export interface LanguageModelPromptOptions {
@@ -37,11 +50,34 @@ export interface LanguageModelPromptOptions {
   responseConstraint?: object;
 }
 
+/**
+ * The Prompt API's token-accounting surface has been renamed twice. We support
+ * all three generations defensively (verified against the Chrome docs +
+ * webmachinelearning/prompt-api explainer, 2026-06):
+ *
+ *   Total budget       Used so far     Measure a prompt
+ *   ----------------   -------------   ---------------------
+ *   contextWindow      contextUsage    measureContextUsage()   ← current (Chrome ~141+, incl. 148)
+ *   inputQuota         inputUsage      measureInputUsage()      ← interim
+ *   maxTokens          tokensSoFar     countPromptTokens()      ← legacy
+ *
+ * All optional — guard each with `typeof` before use.
+ */
 export interface LanguageModelSession {
   prompt(input: string, options?: LanguageModelPromptOptions): Promise<string>;
-  measureInputUsage(input: string, options?: { signal?: AbortSignal }): Promise<number>;
-  /** Token budget for a single prompt. Undefined on older builds. */
+
+  measureContextUsage?(input: string, options?: { signal?: AbortSignal }): Promise<number>;
+  measureInputUsage?(input: string, options?: { signal?: AbortSignal }): Promise<number>;
+  countPromptTokens?(input: string, options?: { signal?: AbortSignal }): Promise<number>;
+
+  readonly contextWindow?: number;
   readonly inputQuota?: number;
+  readonly maxTokens?: number;
+
+  readonly contextUsage?: number;
+  readonly inputUsage?: number;
+  readonly tokensSoFar?: number;
+
   destroy?(): void;
 }
 
