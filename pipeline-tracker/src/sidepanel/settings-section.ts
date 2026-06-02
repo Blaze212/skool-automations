@@ -5,20 +5,21 @@
 //
 //   1. `capture_message_bodies` toggle — owned by this spec. Mirrors the
 //      first-run modal toggle so the user can change their mind later.
-//   2. AI fallback rows — STUBBED and disabled here. Spec 013 owns the actual
-//      `LanguageModel` plumbing (availability check, model download, the
-//      `ai_fallback_enabled` toggle going live). Until 013 ships, the rows are
-//      rendered for visual continuity (so the section isn't a one-line
-//      surface) with `disabled` + a "Coming soon" note. The rows DO NOT call
-//      settingsStore.update for those fields; they have no effect on storage.
+//   2. On-device AI recovery (spec 013) — LIVE. The `ai_fallback_enabled`
+//      toggle persists through `update`; an availability probe drives the UI
+//      state (ready / download CTA / downloading / unsupported); the download
+//      button triggers the ~2 GB model fetch with a progress readout. All
+//      `LanguageModel.*` access lives in @cs/scraping-core (spec 013 guard #1);
+//      this module only consumes the exported helpers.
 //
-// On capture-bodies change: calls the supplied `update` callback synchronously
-// (returns a Promise), which is responsible for the storage round-trip. UI
-// reflects the optimistic next state immediately; on persist failure the
-// caller's promise rejection rolls the toggle back via an inline error
-// message + checkbox revert.
+// On any toggle change: calls the supplied `update` callback (returns a
+// Promise), which is responsible for the storage round-trip. UI reflects the
+// optimistic next state immediately; on persist failure the caller's promise
+// rejection rolls the toggle back via an inline error message + checkbox
+// revert.
 
 import type { Settings } from '../types.ts';
+import { downloadModel, refreshAvailability, type AiAvailability } from '@cs/scraping-core';
 
 export interface RenderSettingsSectionOptions {
   /** Current persisted settings — used to seed toggle states. */
@@ -30,11 +31,21 @@ export interface RenderSettingsSectionOptions {
    * affected control and surfaces an inline error.
    */
   update: (patch: Partial<Settings>) => Promise<Settings>;
+  /** Probe on-device model availability. Defaults to the @cs/scraping-core
+   * helper; injectable for tests. */
+  checkAvailability?: () => Promise<AiAvailability>;
+  /** Trigger the model download with a progress callback. Defaults to the
+   * @cs/scraping-core helper; injectable for tests. */
+  startModelDownload?: (onProgress: (fraction: number) => void) => Promise<AiAvailability>;
 }
 
 const CAPTURE_BODIES_HELP =
   'Include the body of your LinkedIn messages in captured events. Off by default. ' +
   'Bodies stay on your device until you sync.';
+
+const AI_FALLBACK_HELP =
+  'When LinkedIn changes its HTML and the normal scrape misses a field, recover ' +
+  'it on-device with Chrome’s built-in AI. Nothing is sent to a server.';
 
 export function renderSettingsSection(root: HTMLElement, opts: RenderSettingsSectionOptions): void {
   root.replaceChildren();
@@ -109,48 +120,144 @@ export function renderSettingsSection(root: HTMLElement, opts: RenderSettingsSec
 
   body.append(captureRow, captureError);
 
-  // === AI fallback stubs (owned by spec 013; inert here) ===
+  // === On-device AI recovery (spec 013) ===
+  const checkAvailability = opts.checkAvailability ?? refreshAvailability;
+  const startModelDownload = opts.startModelDownload ?? downloadModel;
+
   const aiHeading = document.createElement('h3');
   aiHeading.className = 'settings-subheading';
-  aiHeading.textContent = 'On-device AI (coming soon)';
+  aiHeading.textContent = 'On-device AI recovery';
   body.appendChild(aiHeading);
 
-  const aiRows: Array<{ label: string; help: string }> = [
-    {
-      label: 'Enable AI fallback',
-      help:
-        'When LinkedIn changes its HTML and the normal scrape misses a field, ' +
-        'recover the field on-device with Chrome’s Prompt API.',
-    },
-    {
-      label: 'Download the on-device model',
-      help: 'About 2 GB. Downloads once, runs locally; nothing sent to a server.',
-    },
-  ];
+  const aiRow = document.createElement('label');
+  aiRow.className = 'settings-row';
 
-  for (const row of aiRows) {
-    const r = document.createElement('label');
-    r.className = 'settings-row settings-row-disabled';
+  const aiToggle = document.createElement('input');
+  aiToggle.type = 'checkbox';
+  aiToggle.id = 'settings-ai-fallback';
+  aiToggle.checked = opts.settings.ai_fallback_enabled;
+  aiToggle.disabled = true; // until the availability probe resolves
 
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.disabled = true;
+  const aiText = document.createElement('div');
+  aiText.className = 'settings-row-text';
 
-    const text = document.createElement('div');
-    text.className = 'settings-row-text';
+  const aiLabel = document.createElement('div');
+  aiLabel.className = 'settings-row-label';
+  aiLabel.textContent = 'Enable on-device AI recovery';
 
-    const lbl = document.createElement('div');
-    lbl.className = 'settings-row-label';
-    lbl.textContent = row.label;
+  const aiHelp = document.createElement('div');
+  aiHelp.className = 'settings-row-help';
+  aiHelp.textContent = AI_FALLBACK_HELP;
 
-    const help = document.createElement('div');
-    help.className = 'settings-row-help';
-    help.textContent = row.help;
+  aiText.append(aiLabel, aiHelp);
+  aiRow.append(aiToggle, aiText);
 
-    text.append(lbl, help);
-    r.append(cb, text);
-    body.appendChild(r);
+  // Status line + download CTA + error live OUTSIDE the <label> so a button
+  // click can't toggle the checkbox.
+  const aiStatus = document.createElement('div');
+  aiStatus.className = 'settings-ai-status';
+  aiStatus.id = 'settings-ai-status';
+  aiStatus.setAttribute('role', 'status');
+  aiStatus.textContent = 'Checking availability…';
+
+  const aiDownloadBtn = document.createElement('button');
+  aiDownloadBtn.type = 'button';
+  aiDownloadBtn.id = 'settings-ai-download';
+  aiDownloadBtn.className = 'settings-ai-download';
+  aiDownloadBtn.textContent = 'Download model (~2 GB)';
+  aiDownloadBtn.hidden = true;
+
+  const aiError = document.createElement('div');
+  aiError.className = 'settings-row-error';
+  aiError.setAttribute('role', 'alert');
+  aiError.hidden = true;
+
+  body.append(aiRow, aiStatus, aiDownloadBtn, aiError);
+
+  // Track the latest availability so post-flight handlers can restore the
+  // correct disabled state without re-probing.
+  let aiState: AiAvailability = 'unavailable';
+  let aiLastPersisted = opts.settings.ai_fallback_enabled;
+  let aiInFlight = false;
+
+  function applyAvailability(state: AiAvailability): void {
+    aiState = state;
+    aiRow.removeAttribute('title');
+    switch (state) {
+      case 'available':
+        aiToggle.disabled = false;
+        aiDownloadBtn.hidden = true;
+        aiStatus.textContent = 'Model ready — runs locally.';
+        break;
+      case 'downloadable':
+        aiToggle.disabled = false;
+        aiDownloadBtn.hidden = false;
+        aiStatus.textContent = 'Model available to download.';
+        break;
+      case 'downloading':
+        aiToggle.disabled = true;
+        aiDownloadBtn.hidden = true;
+        aiStatus.textContent = 'Downloading model…';
+        break;
+      case 'unavailable':
+      default:
+        aiToggle.disabled = true;
+        aiDownloadBtn.hidden = true;
+        aiStatus.textContent = 'Requires Chrome 138+ with built-in AI.';
+        aiRow.title = 'Chrome 138+ with built-in AI required';
+        break;
+    }
   }
+
+  void checkAvailability().then(applyAvailability);
+
+  aiToggle.addEventListener('change', async () => {
+    if (aiInFlight) return;
+    const desired = aiToggle.checked;
+    aiInFlight = true;
+    aiToggle.disabled = true;
+    aiError.hidden = true;
+    try {
+      const next = await opts.update({ ai_fallback_enabled: desired });
+      aiLastPersisted = next.ai_fallback_enabled;
+      aiToggle.checked = aiLastPersisted;
+      // The toggle is the documented cache-invalidation trigger (D-AI-7) —
+      // re-probe so a freshly-enabled user sees the download CTA if needed.
+      applyAvailability(await checkAvailability());
+    } catch (err) {
+      aiToggle.checked = aiLastPersisted;
+      aiError.hidden = false;
+      aiError.textContent = 'Could not save: ' + (err instanceof Error ? err.message : String(err));
+      applyAvailability(aiState); // restore disabled state from last known availability
+    } finally {
+      aiInFlight = false;
+    }
+  });
+
+  aiDownloadBtn.addEventListener('click', async () => {
+    aiDownloadBtn.disabled = true;
+    aiError.hidden = true;
+    aiStatus.textContent = 'Downloading… 0%';
+    try {
+      const state = await startModelDownload((fraction) => {
+        aiStatus.textContent = `Downloading… ${Math.round(fraction * 100)}%`;
+      });
+      applyAvailability(state);
+      if (state === 'available') {
+        // Best-effort: record that the user accepted the download.
+        try {
+          await opts.update({ ai_model_downloaded: true });
+        } catch {
+          // Non-fatal — the model is downloaded regardless of this flag.
+        }
+      } else {
+        aiError.hidden = false;
+        aiError.textContent = 'Download did not complete. Try again.';
+      }
+    } finally {
+      aiDownloadBtn.disabled = false;
+    }
+  });
 
   details.appendChild(body);
   root.appendChild(details);

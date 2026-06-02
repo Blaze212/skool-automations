@@ -35,3 +35,9 @@ export async function getCachedAvailability(): Promise<AiAvailability> {
 export function invalidateAvailabilityCache(): void {
   cached = null;
 }
+
+/** Force a fresh probe (used by the settings UI after a toggle or download). */
+export async function refreshAvailability(): Promise<AiAvailability> {
+  invalidateAvailabilityCache();
+  return getCachedAvailability();
+}
