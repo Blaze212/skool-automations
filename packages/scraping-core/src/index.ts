@@ -42,6 +42,8 @@ export {
   RECOVERED_HTML_CAP_BYTES,
   getCachedAvailability,
   invalidateAvailabilityCache,
+  refreshAvailability,
+  downloadModel,
   type AiAvailability,
   type LanguageModelSession,
   type LanguageModelStatic,
