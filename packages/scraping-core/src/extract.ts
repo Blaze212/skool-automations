@@ -12,15 +12,18 @@
  *     fallback; connection_request stages data across two separate clicks).
  *     Folding those into extract() is tracked as a follow-up in TODOS.md.
  *
- * Spec 013 will:
- *   - Set `source: 'ai-recovered'` when on-device LLM repair fills a gap
- *     reported by validate().
- *   - Use the `aiOptions` parameter declared here as the call site.
+ * Spec 013 (wired below):
+ *   - When validate() flags a dirty result AND aiOptions.enabled AND the
+ *     on-device model is available, run recover() to repair the gaps.
+ *   - Set `source: 'ai-recovered'` and attach `recoveredHtml` when repair runs.
  */
 
 import { AcceptInvitationCard, ProfilePageAcceptCard } from './cards/index.js';
 import { validate, type ValidationResult } from './validate.js';
 import type { EventType, ExtractionSource, PipelineEvent } from './types.js';
+import { getCachedAvailability } from './ai-fallback/availability.js';
+import { recover } from './ai-fallback/recover.js';
+import { stripHtmlForCarry } from './ai-fallback/strip-html.js';
 
 /**
  * Discriminates the orchestrator's calling context so future card types can
@@ -50,15 +53,14 @@ export interface ExtractInput {
 }
 
 /**
- * Placeholder for spec 013. Today extract() ignores this parameter; the shape
- * lives here so spec 013's PR only adds AI client wiring, not API surface.
+ * Spec 013 — on-device AI fallback options, passed from the caller's settings.
  */
 export interface AiRecoveryOptions {
-  /** When true, retry validation gaps via on-device LanguageModel. */
+  /** When true, retry validation gaps via on-device LanguageModel.
+   * Mirrors settings.ai_fallback_enabled. */
   enabled?: boolean;
-  /** Abort the recovery attempt after this many ms (Chrome Prompt API
-   * recommends always wrapping in an AbortSignal — see chrome-extension-mv3
-   * skill). */
+  /** Reserved. recover() wraps each model call in fixed AbortSignal timeouts
+   * (Chrome Prompt API best practice — see chrome-extension-mv3 skill). */
   timeoutMs?: number;
 }
 
@@ -68,8 +70,14 @@ export interface ExtractResult {
   event: PipelineEvent;
   /** Which extraction path produced the values. */
   source: ExtractionSource;
-  /** Output of validate(event). `dirty: true` means at least one gap. */
+  /** Output of validate(event) on the pre-recovery event. `dirty: true` means
+   * at least one gap — this is what triggers the AI fallback. */
   validation: ValidationResult;
+  /** Spec 013 — the stripped HTML subtree fed to the model, present only when
+   * recovery actually ran and succeeded (source === 'ai-recovered'). The
+   * publishable build persists this via the per-id recovered_html store; the
+   * internal build ignores it. NEVER stored inline on the wire event. */
+  recoveredHtml?: string;
 }
 
 // =============================================================================
@@ -83,6 +91,14 @@ interface CardFields {
   messageText: string;
 }
 
+interface CardMatch {
+  fields: CardFields;
+  /** The card's container element — the rich HTML context fed to the AI
+   * fallback. Stripping the clicked button alone would give the model no
+   * surrounding signal. */
+  container: HTMLElement;
+}
+
 /**
  * Route an accept-button target to the right card. Tries the My Network
  * AcceptInvitationCard first (button is inside [role="listitem"]) then falls
@@ -90,14 +106,17 @@ interface CardFields {
  * cards' fromAcceptButton constructors return null when their structural
  * conditions don't match, so the chain is safe.
  */
-function findAcceptCard(target: HTMLElement, pageUrl: string): CardFields | null {
+function findAcceptCard(target: HTMLElement, pageUrl: string): CardMatch | null {
   const invitation = AcceptInvitationCard.fromAcceptButton(target);
   if (invitation) {
     return {
-      name: invitation.name,
-      title: invitation.title,
-      profileUrl: invitation.profileUrl,
-      messageText: invitation.messageText,
+      fields: {
+        name: invitation.name,
+        title: invitation.title,
+        profileUrl: invitation.profileUrl,
+        messageText: invitation.messageText,
+      },
+      container: invitation.container,
     };
   }
   // ProfilePageAcceptCard reads vanity from window.location internally today;
@@ -109,10 +128,13 @@ function findAcceptCard(target: HTMLElement, pageUrl: string): CardFields | null
   const profile = ProfilePageAcceptCard.fromAcceptButton(target);
   if (profile) {
     return {
-      name: profile.name,
-      title: profile.title,
-      profileUrl: profile.profileUrl,
-      messageText: profile.messageText,
+      fields: {
+        name: profile.name,
+        title: profile.title,
+        profileUrl: profile.profileUrl,
+        messageText: profile.messageText,
+      },
+      container: profile.container,
     };
   }
   return null;
@@ -144,7 +166,7 @@ function buildEvent(
  * the event will have empty name/title/url and validate() will flag the
  * required-field gaps, so the caller decides whether to send or drop.
  */
-export function extract(input: ExtractInput): ExtractResult {
+export async function extract(input: ExtractInput): Promise<ExtractResult> {
   if (input.eventType !== 'accepted_connection') {
     // Phase 4 only covers accept-connection. See file header for the
     // rationale; DM + connection_request flows continue to call cards
@@ -154,8 +176,38 @@ export function extract(input: ExtractInput): ExtractResult {
     );
   }
 
-  const fields = findAcceptCard(input.target, input.pageUrl);
-  const event = buildEvent('accepted_connection', fields, input.pageUrl);
+  const match = findAcceptCard(input.target, input.pageUrl);
+  const event = buildEvent('accepted_connection', match?.fields ?? null, input.pageUrl);
   const validation = validate(event);
+
+  // Spec 013 — on-device AI fallback. Only when the selectors produced a dirty
+  // result, the user opted in, and the model is locally available. recover()
+  // never throws, so a null return cleanly degrades to a selectors-only row.
+  if (validation.dirty && input.aiOptions?.enabled) {
+    const availability = await getCachedAvailability();
+    if (availability === 'available') {
+      // Strip the card container when one matched; otherwise fall back to the
+      // clicked element (e.g. no card found — recovery from whatever is there).
+      const recoverTarget = match?.container ?? input.target;
+      const trimmedHtml = stripHtmlForCarry(recoverTarget.outerHTML);
+      if (trimmedHtml) {
+        const result = await recover({
+          trimmedHtml,
+          candidate: event,
+          gaps: validation.gaps,
+          pageUrl: input.pageUrl,
+        });
+        if (result) {
+          return {
+            event: result.filledEvent,
+            source: 'ai-recovered',
+            validation,
+            recoveredHtml: trimmedHtml,
+          };
+        }
+      }
+    }
+  }
+
   return { event, source: 'selectors', validation };
 }
