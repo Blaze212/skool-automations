@@ -30,8 +30,13 @@ export interface FakeLanguageModelConfig {
   measureThrows?: boolean;
   /** Hang measureInputUsage() so its AbortSignal timeout resolves it. */
   measureHangs?: boolean;
-  /** Reported session.inputQuota. */
+  /** Reported session.inputQuota (gen-2 token API). */
   inputQuota?: number;
+  /** Reported session.contextWindow (gen-3 token API). When set, the session
+   * exposes contextWindow/contextUsage/measureContextUsage instead of the
+   * gen-2 names — used to test the defensive cross-version resolver. */
+  contextWindow?: number;
+  contextUsage?: number;
 }
 
 export interface FakeLanguageModel extends LanguageModelStatic {
@@ -78,14 +83,14 @@ export function createFakeLanguageModel(config: FakeLanguageModelConfig = {}): F
       if (config.createThrows) throw new Error('create boom');
       options?.signal?.throwIfAborted?.();
 
+      const measure = async (_input: string, opts?: { signal?: AbortSignal }): Promise<number> => {
+        calls.measure++;
+        if (config.measureThrows) throw new Error('measure boom');
+        if (config.measureHangs) return hangUntilAborted<number>(opts?.signal);
+        return config.inputUsage ?? 1;
+      };
+
       const session: LanguageModelSession = {
-        inputQuota: config.inputQuota,
-        async measureInputUsage(_input, opts): Promise<number> {
-          calls.measure++;
-          if (config.measureThrows) throw new Error('measure boom');
-          if (config.measureHangs) return hangUntilAborted<number>(opts?.signal);
-          return config.inputUsage ?? 1;
-        },
         async prompt(_input, opts): Promise<string> {
           calls.prompt++;
           if (config.promptThrows) throw new Error('prompt boom');
@@ -96,6 +101,16 @@ export function createFakeLanguageModel(config: FakeLanguageModelConfig = {}): F
           calls.destroy++;
         },
       };
+
+      // Expose the gen-3 (contextWindow) token API when configured, else gen-2.
+      if (config.contextWindow !== undefined) {
+        session.contextWindow = config.contextWindow;
+        session.contextUsage = config.contextUsage ?? 0;
+        session.measureContextUsage = measure;
+      } else {
+        session.inputQuota = config.inputQuota;
+        session.measureInputUsage = measure;
+      }
       return session;
     },
   };
