@@ -3,6 +3,7 @@ import {
   OUTBOX_CAP,
   STORAGE_KEYS,
   type DebugPayload,
+  type ExtractionSource,
   type HistoryEntry,
   type OutboxEntry,
   type PipelineEvent,
@@ -12,6 +13,8 @@ import {
   outboxStore,
   recordStorageQuotaError,
   setOutboxAndHistory,
+  setOutboxHistoryAndRecoveredHtml,
+  settingsStore,
   StorageQuotaExceededError,
 } from './storage.ts';
 import { ts } from './logger.ts';
@@ -24,6 +27,9 @@ import {
   extract,
   MessengerPageCard,
   ProfilePageAcceptCard,
+  SalesNavConnectModalCard,
+  SalesNavLeadCard,
+  SalesNavMenuCard,
   validate,
 } from '@cs/scraping-core';
 
@@ -31,6 +37,12 @@ export { AcceptInvitationCard };
 export { ProfilePageAcceptCard };
 export { ChatOverlayCard };
 export { MessengerPageCard };
+
+// Injected by build.ts via esbuild define. Undefined under vitest only when a
+// test forgets the define (the config sets it to 'internal'); treat absence as
+// internal so recovered_html persistence stays off by default.
+declare const BUILD_TARGET: 'internal' | 'publishable';
+const IS_PUBLISHABLE_BUILD = typeof BUILD_TARGET !== 'undefined' && BUILD_TARGET === 'publishable';
 
 const tag = () => `[Pipeline Tracker - ${ts()}]`;
 
@@ -525,6 +537,7 @@ function saveToRescueBuffer(event: PipelineEvent): void {
 async function enqueuePendingEvent(
   outboxEntry: OutboxEntry,
   pendingHistoryEntry: HistoryEntry,
+  recoveredHtml?: string,
 ): Promise<void> {
   const [prevOutbox, prevHistory] = await Promise.all([outboxStore.get(), historyStore.get()]);
 
@@ -532,9 +545,14 @@ async function enqueuePendingEvent(
   const outbox = [...prevOutbox, outboxEntry].slice(-OUTBOX_CAP);
   const history = [pendingHistoryEntry, ...prevHistory].slice(0, HISTORY_CAP);
 
-  // Atomic — both keys land in one storage write so a quota failure on a
-  // second write can't leave the outbox ahead of history.
-  await setOutboxAndHistory(outbox, history);
+  // Atomic — outbox + history (+ recovered_html for AI-recovered rows) land in
+  // one storage write so a quota failure on a second write can't leave the
+  // outbox ahead of history or orphan recovered_html bytes (spec 013 D-rev-28).
+  if (recoveredHtml) {
+    await setOutboxHistoryAndRecoveredHtml(outbox, history, outboxEntry.history_id, recoveredHtml);
+  } else {
+    await setOutboxAndHistory(outbox, history);
+  }
 }
 
 /**
@@ -583,7 +601,18 @@ async function sendDrainRequestWithRetry(): Promise<void> {
   throw lastErr;
 }
 
-async function sendEvent(event: PipelineEvent): Promise<void> {
+/**
+ * Spec 013 — extraction provenance threaded from extract() at the call site.
+ * `source` is stamped onto the wire event; `recoveredHtml` is the stripped
+ * subtree fed to the on-device model, persisted ONLY in the publishable build
+ * (the internal build ignores it — its webhook owns the canonical row).
+ */
+interface SendEventMeta {
+  source?: ExtractionSource;
+  recoveredHtml?: string;
+}
+
+async function sendEvent(event: PipelineEvent, meta: SendEventMeta = {}): Promise<void> {
   // Pre-flight validation: log structural gaps + noise hits so they show up in
   // the page console alongside the per-flow extraction logs. Severity-driving
   // logic stays in background.ts (effectiveSeverity); validate() is a strict
@@ -596,6 +625,17 @@ async function sendEvent(event: PipelineEvent): Promise<void> {
       validation.gaps.map((g) => `${g.field}:${g.code}`).join(', '),
     );
   }
+
+  // Stamp provenance so the side panel / CSV render the AI badge. 'selectors'
+  // is the implicit default downstream, so only stamp the non-default value.
+  if (meta.source === 'ai-recovered') event.source = 'ai-recovered';
+
+  // recovered_html carry-through is publishable-only. The accept flow (the sole
+  // caller passing recoveredHtml) is never a messenger card, so the D-AI-2
+  // side-channel closure can't trigger here; when DM/connection flows route
+  // through extract(), apply the capture_message_bodies guard at this seam.
+  const recoveredHtml =
+    IS_PUBLISHABLE_BUILD && meta.source === 'ai-recovered' ? meta.recoveredHtml : undefined;
 
   const historyId =
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -622,7 +662,7 @@ async function sendEvent(event: PipelineEvent): Promise<void> {
   };
 
   try {
-    await enqueuePendingEvent(outboxEntry, pendingHistoryEntry);
+    await enqueuePendingEvent(outboxEntry, pendingHistoryEntry, recoveredHtml);
   } catch (err) {
     // enqueue is the first chrome.* call on the capture path, so when the
     // extension context is invalidated (orphaned content script after an
@@ -818,6 +858,113 @@ export async function handleConnectionRequest(
 }
 
 // =============================================================================
+// Flow 1 (Sales Navigator): Outbound connection request
+//
+// Sales Nav's connect flow mirrors regular LinkedIn's two-click shape: the user
+// clicks "Connect" (in a search-row "…" menu, a profile preview menu, or the
+// lead-header overflow), then confirms in the "Send invitation" modal. The
+// trigger surfaces are detached popover menus that carry only links — no name
+// or headline — so we stage the profile URL (and, on a lead page, the name +
+// headline) on the Connect click, then read the authoritative recipient name
+// and the optional note from the modal on "Send Invitation".
+//
+// This reuses the shared `_pendingConnection` staging slot and the regular
+// sendEvent/dedup machinery; only the card sources differ. Sales Nav runs at
+// linkedin.com/sales/* so the existing content_scripts match already covers it.
+// =============================================================================
+
+const SALES_NAV_PATH_RE = /^\/sales\//;
+
+function isSalesNavPage(): boolean {
+  return SALES_NAV_PATH_RE.test(window.location.pathname);
+}
+
+/**
+ * Stage data on a Sales Nav "Connect" click. The menu (when the click was in
+ * one) yields the profile URL — possibly the public /in/ URL via "View LinkedIn
+ * profile"; the lead header (when we're on a lead page) yields the name +
+ * headline the modal can't supply. Written to the shared `_pendingConnection`
+ * slot consumed by handleSalesNavConnectionRequest on the modal Send click.
+ */
+export function stageSalesNavConnect(connectButton: HTMLElement): void {
+  const menuCard = SalesNavMenuCard.fromMenuItem(connectButton);
+  const leadCard =
+    SalesNavLeadCard.fromActionButton(connectButton) ?? SalesNavLeadCard.fromDocument();
+
+  // Prefer the menu's URL (it may be the canonical public profile) and fall
+  // back to the lead header's.
+  const profileUrl = menuCard?.profileUrl || leadCard?.profileUrl || '';
+
+  _pendingConnection = {
+    name: leadCard?.name ?? '',
+    title: leadCard?.title ?? '',
+    profileUrl,
+    ts: Date.now(),
+  };
+  console.log(tag(), 'captured (sales-nav connect click):', {
+    name: _pendingConnection.name,
+    title: _pendingConnection.title,
+    profile_url: _pendingConnection.profileUrl,
+  });
+}
+
+export async function handleSalesNavConnectionRequest(
+  sendButton: HTMLElement,
+  pendingName?: string,
+  pendingTitle?: string,
+  pendingProfileUrl?: string,
+): Promise<void> {
+  const modalCard =
+    SalesNavConnectModalCard.fromSendButton(sendButton) ?? SalesNavConnectModalCard.fromDocument();
+
+  // The modal is the confirm dialog, so its recipient name is authoritative;
+  // the staged name is the fallback. Title + URL only exist in the staged data
+  // (the modal carries neither).
+  let name = modalCard?.name || pendingName || '';
+  let title = pendingTitle ?? '';
+  let profileUrl = normalizeLinkedInUrl(pendingProfileUrl ?? '');
+  const messageText = modalCard?.messageText ?? '';
+
+  // Lead-page fallback: when the Connect click never staged (fired from a
+  // surface we didn't catch), read name/title/url straight off the lead header.
+  if (!name || !title || !profileUrl) {
+    const leadCard = SalesNavLeadCard.fromDocument();
+    if (leadCard) {
+      if (!name) name = leadCard.name;
+      if (!title) title = leadCard.title;
+      if (!profileUrl) profileUrl = leadCard.profileUrl;
+    }
+  }
+
+  console.log(tag(), 'Sales Nav Flow 1: name=', name, 'title=', title);
+  if (!name) console.warn(tag(), 'Sales Nav Flow 1: could not find recipient name');
+
+  const debugMode = await getDebugMode();
+  const debugContainer = (modalCard?.container ??
+    SalesNavLeadCard.fromDocument()?.container ??
+    document.body) as HTMLElement;
+  const debug = debugMode ? buildDebugPayload(sendButton, debugContainer) : undefined;
+
+  if (isDuplicate(name)) return;
+  recordSent(name);
+
+  const event: PipelineEvent = {
+    api_key: '',
+    event_type: 'connection_request',
+    date: new Date().toISOString().slice(0, 10),
+    name,
+    title,
+    linkedin_url: profileUrl,
+    page_url: window.location.href,
+    message_text: messageText,
+    ...(debug ? { debug } : {}),
+  };
+
+  console.log(tag(), 'sending sales-nav event:', JSON.stringify(event));
+  await sendEvent(event);
+}
+
+// =============================================================================
 // Flow 2 + 3: Accept connection (My Network page OR Profile page)
 // Merged into one handler — structural helpers handle both DOM shapes.
 // =============================================================================
@@ -852,13 +999,18 @@ async function handleAcceptConnection(button: HTMLElement): Promise<void> {
     cardType,
   );
 
-  const result = extract({
+  const settings = await settingsStore.get();
+  const result = await extract({
     document,
     target: button,
     pageUrl: window.location.href,
     eventType: 'accepted_connection',
+    aiOptions: { enabled: settings.ai_fallback_enabled },
   });
   const { event, validation } = result;
+  if (result.source === 'ai-recovered') {
+    console.log(tag(), 'accept: fields recovered on-device by AI fallback');
+  }
   if (!event.name) console.warn(tag(), 'accept: could not find name');
   if (!event.title) console.warn(tag(), 'accept: could not find title');
   if (validation.dirty) {
@@ -888,7 +1040,7 @@ async function handleAcceptConnection(button: HTMLElement): Promise<void> {
   });
 
   const finalEvent: PipelineEvent = debug ? { ...event, debug } : event;
-  await sendEvent(finalEvent);
+  await sendEvent(finalEvent, { source: result.source, recoveredHtml: result.recoveredHtml });
 }
 
 // =============================================================================
@@ -1188,6 +1340,32 @@ document.body.addEventListener(
 
     const ariaLabel = el.getAttribute('aria-label') ?? '';
     const elText = el.textContent?.trim() ?? '';
+
+    // --- Sales Navigator connection request (separate linkedin.com/sales/ surface) ---
+    if (isSalesNavPage()) {
+      // Stage on a "Connect" menu/header item (button text only — no aria-label).
+      if (el.tagName === 'BUTTON' && /^connect$/i.test(elText)) {
+        stageSalesNavConnect(el);
+        return;
+      }
+      // Send on the modal's "Send Invitation" button — identified by its stable
+      // class, or by text inside the connect dialog (it carries no aria-label).
+      const isSalesNavSend =
+        el.tagName === 'BUTTON' &&
+        (el.classList.contains('connect-cta-form__send') ||
+          (/^send\s+invitation$/i.test(elText) && !!el.closest('[role="dialog"]')));
+      if (isSalesNavSend) {
+        const pending = readPendingConnection();
+        handleSalesNavConnectionRequest(
+          el,
+          pending?.name,
+          pending?.title,
+          pending?.profileUrl,
+        ).catch((err) => console.warn(tag(), 'handleSalesNavConnectionRequest error:', err));
+        _pendingConnection = null;
+        return;
+      }
+    }
 
     // Flow 1 staging: "Invite [Name] to connect" link
     // Mirrors linkedin-tracker exactly: try ConnectionSearchCard (search page) then

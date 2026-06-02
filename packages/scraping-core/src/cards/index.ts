@@ -14,11 +14,17 @@ export { AcceptInvitationCard } from './accept-invitation-card.js';
 export { ChatOverlayCard } from './chat-overlay-card.js';
 export { MessengerPageCard } from './messenger-page-card.js';
 export { ProfilePageAcceptCard } from './profile-page-accept-card.js';
+export { SalesNavLeadCard } from './sales-nav-lead-card.js';
+export { SalesNavMenuCard } from './sales-nav-menu-card.js';
+export { SalesNavConnectModalCard } from './sales-nav-connect-modal-card.js';
 
 import { AcceptInvitationCard } from './accept-invitation-card.js';
 import { ChatOverlayCard } from './chat-overlay-card.js';
 import { MessengerPageCard } from './messenger-page-card.js';
 import { ProfilePageAcceptCard } from './profile-page-accept-card.js';
+import { SalesNavLeadCard } from './sales-nav-lead-card.js';
+import { SalesNavMenuCard } from './sales-nav-menu-card.js';
+import { SalesNavConnectModalCard } from './sales-nav-connect-modal-card.js';
 
 /**
  * Union of every card class. Phase 4's orchestrator narrows this when picking
@@ -29,7 +35,10 @@ export type CardClass =
   | typeof AcceptInvitationCard
   | typeof ChatOverlayCard
   | typeof MessengerPageCard
-  | typeof ProfilePageAcceptCard;
+  | typeof ProfilePageAcceptCard
+  | typeof SalesNavLeadCard
+  | typeof SalesNavMenuCard
+  | typeof SalesNavConnectModalCard;
 
 /**
  * Stable `Card` namespace handle. Phase 4 attaches the `from(target)` router
@@ -41,4 +50,7 @@ export const Card = {
   ChatOverlayCard,
   MessengerPageCard,
   ProfilePageAcceptCard,
+  SalesNavLeadCard,
+  SalesNavMenuCard,
+  SalesNavConnectModalCard,
 } as const;
