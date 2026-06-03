@@ -94,37 +94,10 @@ describe('recover() — never throws, returns null on every failure mode', () =>
     await expect(recover(input())).resolves.toBeNull();
   });
 
-  it('returns null when input usage exceeds the quota (gen-2 inputQuota API)', async () => {
-    installLanguageModel({ inputUsage: 9999, inputQuota: 10 });
-    await expect(recover(input())).resolves.toBeNull();
-  });
-
-  it('returns null when the prompt exceeds the context window (gen-3 contextWindow API)', async () => {
-    // contextWindow 6144, already 0 used, prompt needs 9000 → over budget.
-    installLanguageModel({ contextWindow: 6144, contextUsage: 0, inputUsage: 9000 });
-    await expect(recover(input())).resolves.toBeNull();
-  });
-
-  it('proceeds when the prompt fits the context window (gen-3 contextWindow API)', async () => {
-    // contextWindow 6144, used 100, prompt needs 200 → well within budget.
-    installLanguageModel({ contextWindow: 6144, contextUsage: 100, inputUsage: 200 });
-    const result = await recover(input());
-    expect(result).not.toBeNull();
-    expect(result?.filledEvent.name).toBe('Jane Doe');
-  });
-
   // AbortSignal.timeout is not controlled by vitest fake timers, so we stub it
   // to a tiny real duration — exercising the real abort→reject→null path fast.
   it('returns null when prompt() hangs past its AbortSignal timeout', async () => {
     installLanguageModel({ promptHangs: true });
-    const spy = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => AbortSignal.timeout(10));
-    await expect(recover(input())).resolves.toBeNull();
-    spy.mockRestore();
-  });
-
-  it('returns null when measureInputUsage() hangs past its timeout', async () => {
-    // inputQuota must be set for the quota guard (and thus measureInputUsage) to run.
-    installLanguageModel({ measureHangs: true, inputQuota: 100 });
     const spy = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => AbortSignal.timeout(10));
     await expect(recover(input())).resolves.toBeNull();
     spy.mockRestore();

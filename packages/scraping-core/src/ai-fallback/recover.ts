@@ -18,12 +18,7 @@ import type { PipelineEvent } from '../types.js';
 import type { LanguageModelSession, RecoverInput, RecoverResult } from './types.js';
 
 const CREATE_TIMEOUT_MS = 10_000;
-const MEASURE_TIMEOUT_MS = 5_000;
 const PROMPT_TIMEOUT_MS = 10_000;
-
-/** Tokens to leave free for the model's JSON response when checking the input
- * against the total context budget (maxTokens covers input + output). */
-const OUTPUT_TOKEN_RESERVE = 512;
 
 /** D-AI matrix: scraper wins for linkedin_url only when it's a canonical /in/ URL. */
 const LINKEDIN_PROFILE_RE = /^https?:\/\/(www\.)?linkedin\.com\/in\/[^/?#]+/;
@@ -139,28 +134,6 @@ function reconcile(candidate: PipelineEvent, ai: RawExtraction): PipelineEvent {
   };
 }
 
-/**
- * Returns false when `prompt` would overflow the model's context window.
- *
- * The Prompt API renamed its token-accounting surface twice, so we resolve
- * whichever generation the running Chrome build exposes (see LanguageModelSession).
- * When the build exposes neither a budget nor a measure method, we can't check
- * up front — return true and let prompt() reject if it's genuinely too large
- * (recover()'s outer try/catch turns that into a null result).
- */
-async function fitsContextWindow(session: LanguageModelSession, prompt: string): Promise<boolean> {
-  const total = session.contextWindow ?? session.inputQuota ?? session.maxTokens;
-  const used = session.contextUsage ?? session.inputUsage ?? session.tokensSoFar ?? 0;
-  const measure =
-    session.measureContextUsage ?? session.measureInputUsage ?? session.countPromptTokens;
-  if (typeof total !== 'number' || typeof measure !== 'function') return true;
-
-  const needed = await measure.call(session, prompt, {
-    signal: AbortSignal.timeout(MEASURE_TIMEOUT_MS),
-  });
-  return needed <= total - used - OUTPUT_TOKEN_RESERVE;
-}
-
 export async function recover(input: RecoverInput): Promise<RecoverResult | null> {
   try {
     if (typeof LanguageModel === 'undefined' || !LanguageModel) return null;
@@ -174,13 +147,12 @@ export async function recover(input: RecoverInput): Promise<RecoverResult | null
         expectedOutputs: [{ type: 'text', languages: ['en'] }],
       });
 
-      const prompt = buildPrompt(input);
-
-      // Skip the prompt entirely if it wouldn't fit — avoids a guaranteed
-      // QuotaExceededError round-trip on small on-device context windows.
-      if (!(await fitsContextWindow(session, prompt))) return null;
-
-      const raw = await session.prompt(prompt, {
+      // No up-front token measurement: measureContextUsage()/measureInputUsage()
+      // is unreliable across Chrome builds (it stalls on some), and the
+      // attribute-stripped input is small. prompt() enforces the real context
+      // limit — an overflow throws QuotaExceededError, which the catch below
+      // turns into a clean null (selectors-only row).
+      const raw = await session.prompt(buildPrompt(input), {
         signal: AbortSignal.timeout(PROMPT_TIMEOUT_MS),
         responseConstraint: RESPONSE_SCHEMA,
       });
