@@ -115,6 +115,13 @@ export interface BindOfferMessage {
 export interface BindAckMessage {
   type: 'bind-ack';
   bindingToken: string;
+  /**
+   * Email of the CareerSystems account completing the handshake. The app page
+   * knows the logged-in user server-side and includes it so the side panel can
+   * show "Connected <email>". Optional — an older app build omits it and the
+   * UI falls back to a date-only Connected line.
+   */
+  accountEmail?: string;
 }
 
 /**
@@ -134,7 +141,11 @@ export type AppPortInbound = BindAckMessage;
 function isBindAck(msg: unknown): msg is BindAckMessage {
   if (!msg || typeof msg !== 'object') return false;
   const m = msg as Record<string, unknown>;
-  return m.type === 'bind-ack' && typeof m.bindingToken === 'string';
+  return (
+    m.type === 'bind-ack' &&
+    typeof m.bindingToken === 'string' &&
+    (m.accountEmail === undefined || typeof m.accountEmail === 'string')
+  );
 }
 
 // --- Connection handling ---
@@ -224,7 +235,7 @@ async function handleInbound(port: chrome.runtime.Port, msg: unknown): Promise<v
       return;
     }
     try {
-      await confirmBinding(msg.bindingToken);
+      await confirmBinding(msg.bindingToken, msg.accountEmail);
     } catch (err) {
       // confirmBinding awaits bindingStore.set; storage failure (quota,
       // IO) would otherwise become an unhandled rejection in the SW
@@ -241,11 +252,16 @@ async function handleInbound(port: chrome.runtime.Port, msg: unknown): Promise<v
 
 /**
  * Flip the persisted binding to `confirmed` if the supplied token matches
- * the pending binding. Returns the new binding (or null when the ack didn't
- * match). Idempotent — re-acking an already-confirmed binding with the same
- * token is a no-op.
+ * the pending binding, recording the account email the app reported (if any).
+ * Returns the new binding (or null when the ack didn't match). Idempotent —
+ * re-acking an already-confirmed binding with the same token is a no-op, but
+ * a previously-missing email is still backfilled so a re-ack from an upgraded
+ * app build can attach the address.
  */
-export async function confirmBinding(bindingToken: string): Promise<ExtensionBinding | null> {
+export async function confirmBinding(
+  bindingToken: string,
+  accountEmail?: string,
+): Promise<ExtensionBinding | null> {
   const cur = await bindingStore.get();
   if (!cur) {
     console.warn(tag(), 'bind-ack received but no pending binding present');
@@ -255,10 +271,28 @@ export async function confirmBinding(bindingToken: string): Promise<ExtensionBin
     console.warn(tag(), 'bind-ack token mismatch — refusing to confirm');
     return null;
   }
-  if (cur.status === 'confirmed') return cur;
-  const next: ExtensionBinding = { ...cur, status: 'confirmed' };
+  // Normalize: treat an empty/whitespace email as absent so we never persist
+  // a blank string that would render as "Connected " with nothing after it.
+  const email = accountEmail?.trim() || undefined;
+  if (cur.status === 'confirmed') {
+    // Already confirmed: backfill the email only if we don't have one yet.
+    if (email && !cur.account_email) {
+      const patched: ExtensionBinding = { ...cur, account_email: email };
+      await bindingStore.set(patched);
+      return patched;
+    }
+    return cur;
+  }
+  const next: ExtensionBinding = {
+    ...cur,
+    status: 'confirmed',
+    ...(email ? { account_email: email } : {}),
+  };
   await bindingStore.set(next);
-  console.log(tag(), `binding confirmed, bound_at=${cur.bound_at}`);
+  console.log(
+    tag(),
+    `binding confirmed, bound_at=${cur.bound_at}, account_email=${next.account_email ?? '(none)'}`,
+  );
   return next;
 }
 
