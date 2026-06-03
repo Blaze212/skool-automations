@@ -18,6 +18,7 @@ import {
   StorageQuotaExceededError,
 } from './storage.ts';
 import { ts } from './logger.ts';
+import { scoreCapture } from './score-capture.ts';
 import { ConnectionSearchCard } from '../../linkedin-tracker/src/connection-search-card.ts';
 import { ProfilePageCard } from '../../linkedin-tracker/src/profile-page-card.ts';
 import { ProfilePageOwnerCard } from '../../linkedin-tracker/src/profile-page-owner-card.ts';
@@ -41,11 +42,9 @@ export { ProfilePageAcceptCard };
 export { ChatOverlayCard };
 export { MessengerPageCard };
 
-// Injected by build.ts via esbuild define. Undefined under vitest only when a
-// test forgets the define (the config sets it to 'internal'); treat absence as
-// internal so recovered_html persistence stays off by default.
-declare const BUILD_TARGET: 'internal' | 'publishable';
-const IS_PUBLISHABLE_BUILD = typeof BUILD_TARGET !== 'undefined' && BUILD_TARGET === 'publishable';
+// Spec 015 C7 — single unified build (formerly the "publishable" external
+// build). recovered_html is always carried for AI-recovered rows; the outbox is
+// pulled by app.cmcareersystems.com over externally_connectable.
 
 const tag = () => `[Pipeline Tracker - ${ts()}]`;
 
@@ -633,12 +632,19 @@ async function sendEvent(event: PipelineEvent, meta: SendEventMeta = {}): Promis
   // is the implicit default downstream, so only stamp the non-default value.
   if (meta.source === 'ai-recovered') event.source = 'ai-recovered';
 
-  // recovered_html carry-through is publishable-only. The accept flow (the sole
-  // caller passing recoveredHtml) is never a messenger card, so the D-AI-2
-  // side-channel closure can't trigger here; when DM/connection flows route
-  // through extract(), apply the capture_message_bodies guard at this seam.
-  const recoveredHtml =
-    IS_PUBLISHABLE_BUILD && meta.source === 'ai-recovered' ? meta.recoveredHtml : undefined;
+  // recovered_html is carried for AI-recovered rows so the app can re-run
+  // server-side reconciliation. The accept flow (the sole caller passing
+  // recoveredHtml) is never a messenger card, so the D-AI-2 side-channel closure
+  // can't trigger here; when DM/connection flows route through extract(), apply
+  // the capture_message_bodies guard at this seam.
+  const recoveredHtml = meta.source === 'ai-recovered' ? meta.recoveredHtml : undefined;
+
+  // Spec 090/015 A5.2 — cheap scraper-quality score. Stamped onto the wire
+  // event (→ tracker_events.scrape_confidence) and mirrored onto the outbox
+  // entry as needs_review. Low-confidence captures still sync for the MVP;
+  // they are only flagged (Part B's side-panel review UI consumes the flag).
+  const scrape_confidence = scoreCapture(event);
+  event.scrape_confidence = scrape_confidence;
 
   const historyId =
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -651,6 +657,8 @@ async function sendEvent(event: PipelineEvent, meta: SendEventMeta = {}): Promis
     event,
     enqueued_at: now,
     attempts: 0,
+    scrape_confidence,
+    needs_review: scrape_confidence === 'low',
   };
 
   const pendingHistoryEntry: HistoryEntry = {

@@ -22,6 +22,17 @@ export type EventType = 'connection_request' | 'accepted_connection' | 'direct_m
  */
 export type ExtractionSource = 'selectors' | 'ai-recovered';
 
+/**
+ * Cheap, AI-free scraper-quality signal computed in the content script
+ * (spec 090 / 015 A5.2). `'high'` means both the name and LinkedIn URL passed
+ * the structural heuristics; `'low'` flags a likely-degraded capture. Threaded
+ * onto the wire `PipelineEvent` (→ `tracker_events.scrape_confidence`) so the
+ * server has visibility into scraper degradation, and onto the OutboxEntry as
+ * `needs_review` for the Part B side-panel review UI. Absent = treat as `'high'`
+ * (pre-090 captures predate the signal).
+ */
+export type ScrapeConfidence = 'high' | 'low';
+
 export interface DebugPayload {
   button_aria_label: string;
   button_text: string;
@@ -50,4 +61,8 @@ export interface PipelineEvent {
   // PipelineEvent only at sync-pull / CSV export time (D-rev-28).
   source?: ExtractionSource;
   recovered_html?: string;
+  // Spec 090/015 A5.3 — cheap scraper-quality signal stamped by the content
+  // script's scoreCapture() at enqueue time. Maps to the tracker_events
+  // `scrape_confidence` column. Absent = treat as 'high' (pre-090 captures).
+  scrape_confidence?: ScrapeConfidence;
 }

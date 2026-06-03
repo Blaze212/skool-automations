@@ -34,7 +34,13 @@ export {
   type ExtractResult,
 } from './extract.js';
 
-export type { DebugPayload, EventType, ExtractionSource, PipelineEvent } from './types.js';
+export type {
+  DebugPayload,
+  EventType,
+  ExtractionSource,
+  PipelineEvent,
+  ScrapeConfidence,
+} from './types.js';
 
 export {
   recover,
