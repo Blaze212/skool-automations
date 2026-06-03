@@ -327,9 +327,30 @@ describe('binding section — confirmed', () => {
       clearBinding: vi.fn(),
     });
     const status = root.querySelector('.binding-status-confirmed') as HTMLElement;
-    expect(status.textContent).toMatch(/Connected/);
+    expect(status.textContent).toMatch(/Connected on/);
+    // No email present → no secondary bound-at line.
+    expect(root.querySelector('.binding-bound-at')).toBeNull();
     const disconnect = root.querySelector('.binding-secondary') as HTMLButtonElement;
     expect(disconnect.textContent).toBe('Disconnect');
+  });
+
+  it('shows the account email and a secondary date line when present', () => {
+    const binding: ExtensionBinding = {
+      token: 't',
+      bound_at: '2026-05-30T10:00:00Z',
+      status: 'confirmed',
+      account_email: 'jane@x.com',
+    };
+    renderBindingSection(root, {
+      binding,
+      startBinding: vi.fn(),
+      clearBinding: vi.fn(),
+    });
+    const status = root.querySelector('.binding-status-confirmed') as HTMLElement;
+    expect(status.textContent).toBe('Connected as jane@x.com');
+    const boundAt = root.querySelector('.binding-bound-at') as HTMLElement;
+    expect(boundAt).not.toBeNull();
+    expect(boundAt.textContent).toMatch(/^Connected on /);
   });
 
   it('calls clearBinding when the user clicks Disconnect', async () => {

@@ -236,6 +236,35 @@ describe('binding — bind-ack inbound', () => {
     expect(next?.status).toBe('confirmed');
   });
 
+  it('records the account email carried on the bind-ack', async () => {
+    installStatefulStorage();
+    await bindingStore.set({ token: 'abc', bound_at: 't', status: 'pending' });
+
+    const port = makePort({ sender: appSender(1) });
+    acceptAppPort(port as unknown as chrome.runtime.Port);
+
+    port._fireMessage({ type: 'bind-ack', bindingToken: 'abc', accountEmail: 'jane@x.com' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    const next = await bindingStore.get();
+    expect(next?.status).toBe('confirmed');
+    expect(next?.account_email).toBe('jane@x.com');
+  });
+
+  it('ignores a bind-ack whose accountEmail is not a string', async () => {
+    installStatefulStorage();
+    await bindingStore.set({ token: 'abc', bound_at: 't', status: 'pending' });
+
+    const port = makePort({ sender: appSender(1) });
+    acceptAppPort(port as unknown as chrome.runtime.Port);
+
+    port._fireMessage({ type: 'bind-ack', bindingToken: 'abc', accountEmail: 42 });
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Malformed ack is rejected by isBindAck — binding stays pending.
+    expect((await bindingStore.get())?.status).toBe('pending');
+  });
+
   it('ignores bind-ack with the wrong token', async () => {
     installStatefulStorage();
     await bindingStore.set({ token: 'abc', bound_at: 't', status: 'pending' });
@@ -273,6 +302,46 @@ describe('binding — confirmBinding', () => {
   it('returns null when no binding is present', async () => {
     installStatefulStorage();
     await expect(confirmBinding('tok')).resolves.toBeNull();
+  });
+
+  it('persists the account email when confirming a pending binding', async () => {
+    installStatefulStorage();
+    await bindingStore.set({ token: 'tok', bound_at: 't', status: 'pending' });
+
+    const next = await confirmBinding('tok', 'jane@x.com');
+    expect(next?.status).toBe('confirmed');
+    expect(next?.account_email).toBe('jane@x.com');
+    expect((await bindingStore.get())?.account_email).toBe('jane@x.com');
+  });
+
+  it('treats a blank email as absent', async () => {
+    installStatefulStorage();
+    await bindingStore.set({ token: 'tok', bound_at: 't', status: 'pending' });
+
+    const next = await confirmBinding('tok', '   ');
+    expect(next?.status).toBe('confirmed');
+    expect(next?.account_email).toBeUndefined();
+  });
+
+  it('backfills a missing email on re-ack of an already-confirmed binding', async () => {
+    installStatefulStorage();
+    await bindingStore.set({ token: 'tok', bound_at: 't', status: 'confirmed' });
+
+    const next = await confirmBinding('tok', 'jane@x.com');
+    expect(next?.account_email).toBe('jane@x.com');
+  });
+
+  it('does not overwrite an existing email on re-ack', async () => {
+    installStatefulStorage();
+    await bindingStore.set({
+      token: 'tok',
+      bound_at: 't',
+      status: 'confirmed',
+      account_email: 'first@x.com',
+    });
+
+    const next = await confirmBinding('tok', 'second@x.com');
+    expect(next?.account_email).toBe('first@x.com');
   });
 });
 
