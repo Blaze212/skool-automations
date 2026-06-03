@@ -194,7 +194,8 @@ function isExtensionBinding(v: unknown): v is ExtensionBinding {
     b.token.length > 0 &&
     typeof b.bound_at === 'string' &&
     typeof b.status === 'string' &&
-    BINDING_STATUS_SET.has(b.status as ExtensionBinding['status'])
+    BINDING_STATUS_SET.has(b.status as ExtensionBinding['status']) &&
+    (b.account_email === undefined || typeof b.account_email === 'string')
   );
 }
 

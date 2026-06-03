@@ -253,8 +253,21 @@ export function renderBindingSection(
 
     const status = document.createElement('div');
     status.className = 'binding-status binding-status-confirmed';
-    status.textContent = `${STATUS_TEXT.confirmed} on ${formatBoundAtDate(binding.bound_at)}`;
-    body.appendChild(status);
+    const dateText = `on ${formatBoundAtDate(binding.bound_at)}`;
+    // When the app reported the account email, lead with it and keep the date
+    // as a secondary line; otherwise fall back to the original date-only text.
+    if (binding.account_email) {
+      status.textContent = `${STATUS_TEXT.confirmed} as ${binding.account_email}`;
+      body.appendChild(status);
+
+      const boundOn = document.createElement('div');
+      boundOn.className = 'binding-bound-at';
+      boundOn.textContent = `Connected ${dateText}`;
+      body.appendChild(boundOn);
+    } else {
+      status.textContent = `${STATUS_TEXT.confirmed} ${dateText}`;
+      body.appendChild(status);
+    }
 
     const help = document.createElement('div');
     help.className = 'binding-help';
