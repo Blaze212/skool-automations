@@ -1,4 +1,5 @@
-// Spec 012 Phase 5 — publishable build badge logic + onInstalled setPanelBehavior.
+// Spec 012 Phase 5 / 015 C7 — toolbar badge logic + onInstalled setPanelBehavior
+// for the unified build (no BUILD_TARGET gate).
 //
 // Coverage:
 //   1. refreshPublishableBadge transitions:
@@ -6,28 +7,20 @@
 //        - N unsynced + no error    → text = "N" in BADGE_COLOR_PENDING
 //        - error highest severity   → ✕ in BADGE_COLOR_ERROR (overrides count)
 //        - partial highest severity → ! in BADGE_COLOR_PARTIAL (overrides count)
-//   2. handleMessage drain_outbox under publishable target refreshes the badge
-//      but does NOT call the webhook drain path.
-//   3. restoreBadgeOnStartup under publishable target paints the badge from
-//      outbox length, not from lastStatus.
-//   4. onInstalled callback under publishable target calls
+//   2. handleMessage drain_outbox refreshes the badge but does NOT drain.
+//   3. restoreBadgeOnStartup paints the badge from outbox length, not lastStatus.
+//   4. onInstalled callback calls
 //      chrome.sidePanel.setPanelBehavior({openPanelOnActionClick: true}).
-//   5. onInstalled callback under internal target does NOT call setPanelBehavior
-//      (the manifest doesn't declare the sidePanel permission for that build).
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  _setBuildTargetForTests,
   handleMessage,
   refreshPublishableBadge,
   restoreBadgeOnStartup,
 } from '../../../pipeline-tracker/src/background.ts';
 // Capture the onInstalled listener that was registered as a module-load side
-// effect of importing background.ts. Vitest defines BUILD_TARGET='internal' so
-// the alarm gate fired internal-build; the setPanelBehavior gate is INSIDE the
-// callback, evaluated at fire time — that's what _setBuildTargetForTests exists
-// for.
+// effect of importing background.ts.
 const _onInstalledListenerCalls = [
   ...(chrome.runtime.onInstalled.addListener as ReturnType<typeof vi.fn>).mock.calls,
 ];
@@ -108,11 +101,6 @@ function histErrorRow(): HistoryEntry {
 beforeEach(() => {
   vi.clearAllMocks();
   _resetInitLatchForTests();
-  _setBuildTargetForTests('publishable');
-});
-
-afterEach(() => {
-  _setBuildTargetForTests('internal');
 });
 
 describe('refreshPublishableBadge', () => {
@@ -157,7 +145,7 @@ describe('refreshPublishableBadge', () => {
   });
 });
 
-describe('handleMessage drain_outbox under publishable target', () => {
+describe('handleMessage drain_outbox', () => {
   it('refreshes the badge but does not trigger any fetch (no webhook drain)', async () => {
     installStatefulStorage({ [STORAGE_KEYS.OUTBOX]: outboxOf(2) });
     const fetchSpy = vi.fn();
@@ -171,13 +159,12 @@ describe('handleMessage drain_outbox under publishable target', () => {
   });
 });
 
-describe('restoreBadgeOnStartup under publishable target', () => {
+describe('restoreBadgeOnStartup', () => {
   it('paints the badge from outbox length, not from lastStatus', async () => {
     installStatefulStorage({
       [STORAGE_KEYS.OUTBOX]: outboxOf(4),
-      // lastStatus is internal-build noise; publishable must ignore it for the
-      // resting badge (severity override still wins via highestSeverity, but
-      // lastStatus alone shouldn't paint anything for publishable).
+      // lastStatus shouldn't paint anything on its own — the resting badge is
+      // the unsynced count (the severity override still wins via highestSeverity).
       [STORAGE_KEYS.LAST_STATUS]: 'ok',
     });
     await restoreBadgeOnStartup();
@@ -188,37 +175,22 @@ describe('restoreBadgeOnStartup under publishable target', () => {
   });
 });
 
-describe('chrome.runtime.onInstalled — setPanelBehavior gating', () => {
-  it('calls chrome.sidePanel.setPanelBehavior under publishable target', async () => {
+describe('chrome.runtime.onInstalled — setPanelBehavior', () => {
+  it('calls chrome.sidePanel.setPanelBehavior on install', async () => {
     installStatefulStorage();
-    _setBuildTargetForTests('publishable');
     expect(_onInstalledListenerCalls.length).toBeGreaterThan(0);
     const listener = _onInstalledListenerCalls[0][0] as (
       details: chrome.runtime.InstalledDetails,
     ) => void;
 
     listener({ reason: 'install' } as chrome.runtime.InstalledDetails);
-    // setPanelBehavior is called synchronously inside the listener after the
-    // build-target gate; the .catch is best-effort. Microtask drain to settle
-    // initThenDrain's chained promise.
+    // setPanelBehavior is called synchronously inside the listener; the .catch is
+    // best-effort. Microtask drain to settle the chained promise.
     await Promise.resolve();
     await Promise.resolve();
 
     expect(chrome.sidePanel.setPanelBehavior).toHaveBeenCalledWith({
       openPanelOnActionClick: true,
     });
-  });
-
-  it('does NOT call setPanelBehavior under internal target (no sidePanel permission in that manifest)', async () => {
-    installStatefulStorage();
-    _setBuildTargetForTests('internal');
-    const listener = _onInstalledListenerCalls[0][0] as (
-      details: chrome.runtime.InstalledDetails,
-    ) => void;
-
-    listener({ reason: 'install' } as chrome.runtime.InstalledDetails);
-    await Promise.resolve();
-
-    expect(chrome.sidePanel.setPanelBehavior).not.toHaveBeenCalled();
   });
 });
