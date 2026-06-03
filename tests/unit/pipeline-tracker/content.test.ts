@@ -123,6 +123,49 @@ describe('pipeline-tracker content script — handleConnectionRequest', () => {
     expect(payload.title).not.toContain('LinkedIn members are more likely');
   });
 
+  // Spec 090/015 A5.2 — scoreCapture wiring. sendEvent stamps scrape_confidence
+  // on the wire event AND mirrors it onto the outbox entry (with needs_review).
+  it('stamps scrape_confidence=high + needs_review=false on a clean capture', async () => {
+    const sendButton = document.createElement('button');
+    sendButton.setAttribute('aria-label', 'Send without a note');
+    document.body.appendChild(sendButton);
+
+    await handleConnectionRequest(
+      sendButton,
+      'Jane Smith',
+      'Staff Engineer',
+      'https://www.linkedin.com/in/jane-smith/',
+    );
+
+    const payload = lastEnqueuedEvent(local);
+    expect(payload.scrape_confidence).toBe('high');
+    const outbox = local[STORAGE_KEYS.OUTBOX] as OutboxEntry[];
+    const entry = outbox[outbox.length - 1];
+    expect(entry.scrape_confidence).toBe('high');
+    expect(entry.needs_review).toBe(false);
+  });
+
+  it('stamps scrape_confidence=low + needs_review=true on a degraded capture', async () => {
+    const sendButton = document.createElement('button');
+    sendButton.setAttribute('aria-label', 'Send without a note');
+    document.body.appendChild(sendButton);
+
+    // Junk name + non-profile URL → low confidence.
+    await handleConnectionRequest(
+      sendButton,
+      'Connect',
+      'Staff Engineer',
+      'https://www.linkedin.com/feed/',
+    );
+
+    const payload = lastEnqueuedEvent(local);
+    expect(payload.scrape_confidence).toBe('low');
+    const outbox = local[STORAGE_KEYS.OUTBOX] as OutboxEntry[];
+    const entry = outbox[outbox.length - 1];
+    expect(entry.scrape_confidence).toBe('low');
+    expect(entry.needs_review).toBe(true);
+  });
+
   it('pendingName/Title/ProfileUrl take priority over profile-page scrape', async () => {
     window.history.pushState({}, '', '/in/taniahansraj/');
 

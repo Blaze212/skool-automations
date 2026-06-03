@@ -3,7 +3,13 @@
 // popup, content.ts) so their import paths don't have to change and so spec
 // 012's publishable-build PR diff stays small.
 
-export type { DebugPayload, EventType, ExtractionSource, PipelineEvent } from '@cs/scraping-core';
+export type {
+  DebugPayload,
+  EventType,
+  ExtractionSource,
+  PipelineEvent,
+  ScrapeConfidence,
+} from '@cs/scraping-core';
 
 export const STORAGE_KEYS = {
   API_KEY: 'api_key',
@@ -42,6 +48,12 @@ export interface ExtensionBinding {
   token: string;
   bound_at: string; // ISO
   status: BindingStatus;
+  // Email of the CareerSystems account this install is bound to. Supplied by
+  // the app in its `bind-ack` (the page knows the logged-in user server-side)
+  // and surfaced in the side panel's Connected state. Optional: older bindings
+  // and any app build that doesn't send it leave this undefined, in which case
+  // the UI falls back to a date-only "Connected on …" line.
+  account_email?: string;
 }
 
 // `Severity` describes the badge state machine; it is extension-specific
@@ -49,7 +61,7 @@ export interface ExtensionBinding {
 // into @cs/scraping-core.
 export type Severity = 'ok' | 'partial' | 'error' | 'pending';
 
-import type { EventType, PipelineEvent } from '@cs/scraping-core';
+import type { EventType, PipelineEvent, ScrapeConfidence } from '@cs/scraping-core';
 
 export interface HistoryEntry {
   id: string;
@@ -73,6 +85,12 @@ export interface OutboxEntry {
   event: PipelineEvent;
   enqueued_at: string;
   attempts: number;
+  // Spec 090/015 A5.4 — scraper-quality signal from content's scoreCapture().
+  // Mirrors event.scrape_confidence; `needs_review` is set when confidence is
+  // 'low' so the Part B side-panel review UI can surface ⚠ items. Optional so
+  // pre-090 persisted outbox entries still validate (treat absence as 'high').
+  scrape_confidence?: ScrapeConfidence;
+  needs_review?: boolean;
 }
 
 export const HISTORY_CAP = 10;
