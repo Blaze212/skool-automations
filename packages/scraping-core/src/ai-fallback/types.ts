@@ -50,34 +50,8 @@ export interface LanguageModelPromptOptions {
   responseConstraint?: object;
 }
 
-/**
- * The Prompt API's token-accounting surface has been renamed twice. We support
- * all three generations defensively (verified against the Chrome docs +
- * webmachinelearning/prompt-api explainer, 2026-06):
- *
- *   Total budget       Used so far     Measure a prompt
- *   ----------------   -------------   ---------------------
- *   contextWindow      contextUsage    measureContextUsage()   ← current (Chrome ~141+, incl. 148)
- *   inputQuota         inputUsage      measureInputUsage()      ← interim
- *   maxTokens          tokensSoFar     countPromptTokens()      ← legacy
- *
- * All optional — guard each with `typeof` before use.
- */
 export interface LanguageModelSession {
   prompt(input: string, options?: LanguageModelPromptOptions): Promise<string>;
-
-  measureContextUsage?(input: string, options?: { signal?: AbortSignal }): Promise<number>;
-  measureInputUsage?(input: string, options?: { signal?: AbortSignal }): Promise<number>;
-  countPromptTokens?(input: string, options?: { signal?: AbortSignal }): Promise<number>;
-
-  readonly contextWindow?: number;
-  readonly inputQuota?: number;
-  readonly maxTokens?: number;
-
-  readonly contextUsage?: number;
-  readonly inputUsage?: number;
-  readonly tokensSoFar?: number;
-
   destroy?(): void;
 }
 
