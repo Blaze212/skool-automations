@@ -3,13 +3,10 @@ import { resolve } from 'path';
 
 export default defineConfig({
   define: {
+    // linkedin-tracker still uses a build-time webhook URL define. The
+    // pipeline-tracker BUILD_TARGET / PIPELINE_TRACKER_WEBHOOK_URL defines were
+    // retired with the unified single build (spec 015 C7).
     LINKEDIN_TRACKER_WEBHOOK_URL: JSON.stringify('http://localhost/test-webhook'),
-    PIPELINE_TRACKER_WEBHOOK_URL: JSON.stringify('http://localhost/test-pipeline-webhook'),
-    // Spec 012 Phase 4 — destination strategy is selected per-build via
-    // BUILD_TARGET. Tests default to the internal target so the existing
-    // webhook + drain + alarm behavior keeps running. Publishable-target
-    // tests can override locally via vi.stubGlobal or a per-file define.
-    BUILD_TARGET: JSON.stringify('internal'),
   },
   test: {
     globals: true,
