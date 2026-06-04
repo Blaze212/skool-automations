@@ -36,6 +36,12 @@ describe('getCachedAvailability', () => {
     expect(await getCachedAvailability()).toBe('downloadable');
   });
 
+  it('passes outputLanguage to availability() (silences Chrome warning on load)', async () => {
+    const fake = installLanguageModel({ availability: 'available' });
+    await getCachedAvailability();
+    expect(fake.lastArgs.availability).toEqual({ outputLanguage: 'en' });
+  });
+
   it('caches the result for 5 minutes', async () => {
     const fake = installLanguageModel({ availability: 'available' });
     expect(await getCachedAvailability()).toBe('available');

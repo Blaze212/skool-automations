@@ -12,6 +12,11 @@ import type { ValidationGap } from '../validate.js';
 
 export type AiAvailability = 'unavailable' | 'downloadable' | 'downloading' | 'available';
 
+/** BCP-47 output language passed to every LanguageModel request. The extension
+ * extracts English-only LinkedIn fields, so 'en' is correct. Must be one of
+ * Chrome's currently-supported output codes: de, en, es, fr, ja. */
+export const AI_OUTPUT_LANGUAGE = 'en';
+
 export interface DownloadProgressEvent {
   /** Fraction 0–1 of the model download completed. */
   readonly loaded: number;
@@ -31,17 +36,28 @@ export interface LanguageModelExpectation {
   languages?: string[];
 }
 
-export interface LanguageModelCreateOptions {
+/** Core options shared by `availability()` and `create()`. Shipped Chrome
+ * (unlike the W3C proposal, which only documents `expectedOutputs`) reads a
+ * top-level `outputLanguage` to attest output safety, and emits the runtime
+ * warning "No output language was specified in a LanguageModel API request"
+ * on ANY request — including `availability()` — that omits it. We pass it on
+ * every call. Supported codes today: de, en, es, fr, ja. */
+export interface LanguageModelCoreOptions {
+  /** BCP-47 output language code (e.g. 'en'). Silences the "No output language
+   * was specified" warning and improves output quality + safety attestation. */
+  outputLanguage?: string;
+  /** Expected input modalities/languages. */
+  expectedInputs?: LanguageModelExpectation[];
+  /** Expected output modalities/languages (spec-proposal capability hint;
+   * does NOT itself suppress the warning in shipped Chrome — see outputLanguage). */
+  expectedOutputs?: LanguageModelExpectation[];
+}
+
+export interface LanguageModelCreateOptions extends LanguageModelCoreOptions {
   /** Aborts the in-flight create() and tears the session down if it fires. */
   signal?: AbortSignal;
   /** Hook for download-progress events when availability is 'downloadable'. */
   monitor?: (monitor: CreateMonitor) => void;
-  /** Expected input modalities/languages. */
-  expectedInputs?: LanguageModelExpectation[];
-  /** Expected output modalities/languages. Declaring the output language
-   * silences Chrome's "No output language was specified" warning and improves
-   * output quality + safety attestation. */
-  expectedOutputs?: LanguageModelExpectation[];
 }
 
 export interface LanguageModelPromptOptions {
@@ -56,7 +72,7 @@ export interface LanguageModelSession {
 }
 
 export interface LanguageModelStatic {
-  availability(): Promise<AiAvailability>;
+  availability(options?: LanguageModelCoreOptions): Promise<AiAvailability>;
   create(options?: LanguageModelCreateOptions): Promise<LanguageModelSession>;
 }
 

@@ -8,6 +8,8 @@
 
 import type {
   AiAvailability,
+  LanguageModelCoreOptions,
+  LanguageModelCreateOptions,
   LanguageModelSession,
   LanguageModelStatic,
 } from '../../packages/scraping-core/src/ai-fallback/types.ts';
@@ -33,6 +35,12 @@ export interface FakeLanguageModel extends LanguageModelStatic {
     prompt: number;
     destroy: number;
   };
+  /** Options the most recent availability()/create() call received — lets tests
+   * assert the outputLanguage is passed (Chrome's output-language warning fix). */
+  lastArgs: {
+    availability?: LanguageModelCoreOptions;
+    create?: LanguageModelCreateOptions;
+  };
 }
 
 const DEFAULT_RESULT = JSON.stringify({
@@ -55,17 +63,21 @@ function hangUntilAborted<T>(signal: AbortSignal | undefined): Promise<T> {
 
 export function createFakeLanguageModel(config: FakeLanguageModelConfig = {}): FakeLanguageModel {
   const calls = { availability: 0, create: 0, prompt: 0, destroy: 0 };
+  const lastArgs: FakeLanguageModel['lastArgs'] = {};
 
   const fake: FakeLanguageModel = {
     calls,
-    async availability(): Promise<AiAvailability> {
+    lastArgs,
+    async availability(options): Promise<AiAvailability> {
       calls.availability++;
+      lastArgs.availability = options;
       if (config.availabilityThrows) throw new Error('availability boom');
       const a = config.availability ?? 'available';
       return typeof a === 'function' ? a() : a;
     },
     async create(options): Promise<LanguageModelSession> {
       calls.create++;
+      lastArgs.create = options;
       if (config.createThrows) throw new Error('create boom');
       options?.signal?.throwIfAborted?.();
 

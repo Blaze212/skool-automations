@@ -171,4 +171,11 @@ describe('recover() — reconciliation', () => {
     await recover(input());
     expect(fake.calls.destroy).toBe(1);
   });
+
+  it('passes outputLanguage to create() (silences Chrome output-language warning)', async () => {
+    const fake = installLanguageModel();
+    await recover(input());
+    expect(fake.lastArgs.create?.outputLanguage).toBe('en');
+    expect(fake.lastArgs.create?.expectedOutputs).toEqual([{ type: 'text', languages: ['en'] }]);
+  });
 });
