@@ -27,6 +27,7 @@ import { renderSettingsSection } from './settings-section.ts';
 import { renderBindingSection } from './binding-section.ts';
 import { renderRebindModal, type RebindChoice } from './rebind-modal.ts';
 import { renderReviewSection, type ReviewEntryEdits } from './review-section.ts';
+import { type EditableEventFields, buildEditableFields } from './editable-fields.ts';
 
 const SIDE_PANEL_LIST_LIMIT = 500;
 
@@ -120,18 +121,39 @@ function appendBadge(parent: HTMLElement, label: string, className: string): voi
  * Spec D-rev-30 — recovered_html is NOT consulted at any point. The row expand
  * (<details>) shows structured event fields only.
  */
+/**
+ * Spec 015 B2 (extended) — render the unsynced-events list.
+ *
+ * Every row is editable when `onEdit` is supplied: expanding a row reveals the
+ * captured name / title / LinkedIn URL / message as inputs with a Save button,
+ * routed (by the caller) through the same `review_outbox_entry` SW path the
+ * needs-review queue uses. Without `onEdit` the rows render read-only.
+ *
+ * Held-back review items (`needs_review && !user_reviewed`) are excluded here —
+ * they live in the needs-review queue above so each pending capture is editable
+ * in exactly one place. Once reviewed/approved they reappear in this list.
+ */
 export function renderUnsynced(
   list: HTMLElement,
   countEl: HTMLElement,
   outbox: OutboxEntry[],
-  opts: { captureMessageBodies?: boolean; now?: number } = {},
+  opts: {
+    captureMessageBodies?: boolean;
+    now?: number;
+    onEdit?: (historyId: string, edits: EditableEventFields) => void | Promise<void>;
+  } = {},
 ): number {
   const now = opts.now ?? Date.now();
   const captureMessageBodies = opts.captureMessageBodies ?? false;
+  const onEdit = opts.onEdit;
 
   list.replaceChildren();
 
-  const total = outbox.length;
+  // Exclude captures still awaiting review — they're shown (and edited) in the
+  // needs-review queue, not here. Reviewed/approved rows fall through to this list.
+  const pending = outbox.filter((e) => !(e.needs_review && !e.user_reviewed));
+
+  const total = pending.length;
   if (total === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
@@ -142,12 +164,13 @@ export function renderUnsynced(
   }
 
   // Capture order newest-first. content.ts appends, so reverse a copy.
-  const ordered = [...outbox].reverse();
+  const ordered = [...pending].reverse();
   const visible = ordered.slice(0, SIDE_PANEL_LIST_LIMIT);
 
   for (const entry of visible) {
     const wrap = document.createElement('details');
     wrap.className = 'row';
+    wrap.dataset.historyId = entry.history_id;
 
     const summary = document.createElement('summary');
     summary.className = 'row-head';
@@ -172,28 +195,10 @@ export function renderUnsynced(
     const meta = document.createElement('div');
     meta.className = 'meta';
 
-    if (entry.event.title) {
-      const titleLine = document.createElement('div');
-      titleLine.textContent = entry.event.title;
-      meta.appendChild(titleLine);
-    }
-
-    if (entry.event.linkedin_url) {
-      const urlLine = document.createElement('div');
-      if (isSafeLinkedInUrl(entry.event.linkedin_url)) {
-        const a = document.createElement('a');
-        a.href = entry.event.linkedin_url;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        a.textContent = entry.event.linkedin_url;
-        urlLine.appendChild(a);
-      } else {
-        // Display untrusted URLs as plain text — no click target. Keeps the
-        // panel honest about what we captured without giving a malformed or
-        // hostile value an active surface.
-        urlLine.textContent = entry.event.linkedin_url;
-      }
-      meta.appendChild(urlLine);
+    if (onEdit) {
+      renderEditableRowBody(meta, entry, onEdit);
+    } else {
+      renderReadonlyRowBody(meta, entry, captureMessageBodies);
     }
 
     // Spec 012 Phase 11 — captured timestamp in row expand.
@@ -201,15 +206,6 @@ export function renderUnsynced(
     tsLine.className = 'meta-timestamp';
     tsLine.textContent = `Captured: ${entry.enqueued_at}`;
     meta.appendChild(tsLine);
-
-    // Spec 012 Phase 11 — message_text shown only when capture_message_bodies
-    // is on and the field is non-empty. D-rev-30: recovered_html is never shown.
-    if (captureMessageBodies && entry.event.message_text) {
-      const msgLine = document.createElement('div');
-      msgLine.className = 'meta-message';
-      msgLine.textContent = entry.event.message_text;
-      meta.appendChild(msgLine);
-    }
 
     const sync = document.createElement('div');
     sync.className = 'sync-status';
@@ -229,6 +225,94 @@ export function renderUnsynced(
 
   countEl.textContent = total === visible.length ? `${total}` : `${visible.length} of ${total}`;
   return visible.length;
+}
+
+/** Read-only row body (no `onEdit`): structured fields as static text. */
+function renderReadonlyRowBody(
+  meta: HTMLElement,
+  entry: OutboxEntry,
+  captureMessageBodies: boolean,
+): void {
+  if (entry.event.title) {
+    const titleLine = document.createElement('div');
+    titleLine.textContent = entry.event.title;
+    meta.appendChild(titleLine);
+  }
+
+  if (entry.event.linkedin_url) {
+    const urlLine = document.createElement('div');
+    if (isSafeLinkedInUrl(entry.event.linkedin_url)) {
+      const a = document.createElement('a');
+      a.href = entry.event.linkedin_url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = entry.event.linkedin_url;
+      urlLine.appendChild(a);
+    } else {
+      // Display untrusted URLs as plain text — no click target. Keeps the
+      // panel honest about what we captured without giving a malformed or
+      // hostile value an active surface.
+      urlLine.textContent = entry.event.linkedin_url;
+    }
+    meta.appendChild(urlLine);
+  }
+
+  // Spec 012 Phase 11 — message_text shown only when capture_message_bodies
+  // is on and the field is non-empty. D-rev-30: recovered_html is never shown.
+  if (captureMessageBodies && entry.event.message_text) {
+    const msgLine = document.createElement('div');
+    msgLine.className = 'meta-message';
+    msgLine.textContent = entry.event.message_text;
+    meta.appendChild(msgLine);
+  }
+}
+
+/**
+ * Editable row body — name / title / LinkedIn URL / message inputs + a Save
+ * button. Save snapshots the trimmed values and hands them to `onEdit`, which
+ * the caller routes through `review_outbox_entry` (persists the edit, marks the
+ * row user_reviewed, drops any recovered_html). The button disables while in
+ * flight and re-enables on failure so the user can retry.
+ */
+function renderEditableRowBody(
+  meta: HTMLElement,
+  entry: OutboxEntry,
+  onEdit: (historyId: string, edits: EditableEventFields) => void | Promise<void>,
+): void {
+  const { rows, getEdits } = buildEditableFields({
+    name: entry.event.name ?? '',
+    title: entry.event.title ?? '',
+    linkedin_url: entry.event.linkedin_url ?? '',
+    message_text: entry.event.message_text ?? '',
+  });
+  meta.append(...rows);
+
+  const actions = document.createElement('div');
+  actions.className = 'review-actions';
+
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'review-save-btn';
+  saveBtn.textContent = 'Save';
+  saveBtn.addEventListener('click', () => {
+    saveBtn.disabled = true;
+    void Promise.resolve(onEdit(entry.history_id, getEdits())).catch((err: unknown) => {
+      saveBtn.disabled = false;
+      console.warn('[Pipeline Tracker side panel] edit save failed:', err);
+    });
+  });
+
+  actions.appendChild(saveBtn);
+  meta.appendChild(actions);
+}
+
+/**
+ * onEdit for the unsynced list — persist a user's correction to a pending row
+ * through the SW (same `review_outbox_entry` path the needs-review queue uses).
+ * Throws on a non-ok response so the row's Save button re-enables for a retry.
+ */
+function editUnsyncedEntry(historyId: string, edits: EditableEventFields): Promise<void> {
+  return sendReviewMessage({ kind: 'review_outbox_entry', historyId, edits });
 }
 
 export function renderActivity(
@@ -618,7 +702,9 @@ function mountUnsyncedListListener(
     if (!(STORAGE_KEYS.OUTBOX in changes)) return;
     void outboxStore
       .get()
-      .then((next) => renderUnsynced(list, countEl, next, { captureMessageBodies }));
+      .then((next) =>
+        renderUnsynced(list, countEl, next, { captureMessageBodies, onEdit: editUnsyncedEntry }),
+      );
   };
   chrome.storage.onChanged.addListener(listener);
   return () => chrome.storage.onChanged.removeListener(listener);
@@ -753,7 +839,10 @@ export async function initSidePanel(): Promise<void> {
   //   (2) If the modal hangs (commit keeps failing AND user never clicks
   //       Skip), initSidePanel must still resolve with a usable surface —
   //       events visible, badge cleared.
-  renderUnsynced(unsyncedList, unsyncedCount, outbox, { captureMessageBodies });
+  renderUnsynced(unsyncedList, unsyncedCount, outbox, {
+    captureMessageBodies,
+    onEdit: editUnsyncedEntry,
+  });
   renderActivity(activityList, history, { captureMessageBodies });
   // Spec 015 B2 — review queue for low-confidence captures. Empty → renders
   // nothing, so the section is invisible until something needs attention.

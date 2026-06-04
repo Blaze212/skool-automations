@@ -238,6 +238,68 @@ describe('side panel — renderUnsynced', () => {
   });
 });
 
+describe('side panel — renderUnsynced editable rows (spec 015 B2 extended)', () => {
+  it('renders editable inputs + a Save button for each row when onEdit is provided', () => {
+    const list = document.getElementById('unsynced-list') as HTMLElement;
+    const count = document.getElementById('unsynced-count') as HTMLElement;
+    renderUnsynced(list, count, [makeOutboxEntry(1)], { onEdit: vi.fn() });
+
+    const row = list.querySelector('details') as HTMLDetailsElement;
+    const fields = Array.from(row.querySelectorAll('.review-input')).map(
+      (el) => (el as HTMLInputElement | HTMLTextAreaElement).dataset.field,
+    );
+    expect(fields).toEqual(['name', 'title', 'linkedin_url', 'message_text']);
+    expect(row.querySelector('.review-save-btn')).not.toBeNull();
+  });
+
+  it('keeps rows read-only (no inputs) when onEdit is omitted', () => {
+    const list = document.getElementById('unsynced-list') as HTMLElement;
+    const count = document.getElementById('unsynced-count') as HTMLElement;
+    renderUnsynced(list, count, [makeOutboxEntry(1)]);
+    expect(list.querySelector('.review-input')).toBeNull();
+    expect(list.querySelector('.review-save-btn')).toBeNull();
+  });
+
+  it('Save passes the trimmed edited values to onEdit with the row history_id', () => {
+    const list = document.getElementById('unsynced-list') as HTMLElement;
+    const count = document.getElementById('unsynced-count') as HTMLElement;
+    const onEdit = vi.fn().mockResolvedValue(undefined);
+    renderUnsynced(list, count, [makeOutboxEntry(1)], { onEdit });
+
+    const row = list.querySelector('details') as HTMLDetailsElement;
+    const byField = (f: string) =>
+      row.querySelector(`[data-field="${f}"]`) as HTMLInputElement | HTMLTextAreaElement;
+    byField('name').value = '  Jane Doe  ';
+    byField('title').value = 'Engineer';
+    byField('linkedin_url').value = 'https://www.linkedin.com/in/jane';
+    byField('message_text').value = '  hi  ';
+    (row.querySelector('.review-save-btn') as HTMLButtonElement).click();
+
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(onEdit).toHaveBeenCalledWith('hist-1', {
+      name: 'Jane Doe',
+      title: 'Engineer',
+      linkedin_url: 'https://www.linkedin.com/in/jane',
+      message_text: 'hi',
+    });
+  });
+
+  it('excludes held-back review items (needs_review && !user_reviewed) but keeps reviewed ones', () => {
+    const list = document.getElementById('unsynced-list') as HTMLElement;
+    const count = document.getElementById('unsynced-count') as HTMLElement;
+    const outbox: OutboxEntry[] = [
+      { ...makeOutboxEntry(1) }, // plain → shown
+      { ...makeOutboxEntry(2), needs_review: true }, // held back → excluded
+      { ...makeOutboxEntry(3), needs_review: true, user_reviewed: true }, // reviewed → shown
+    ];
+    const rendered = renderUnsynced(list, count, outbox, { onEdit: vi.fn() });
+    expect(rendered).toBe(2);
+    const names = Array.from(list.querySelectorAll('.name')).map((n) => n.textContent);
+    expect(names).toEqual(['Person 3', 'Person 1']);
+    expect(count.textContent).toBe('2');
+  });
+});
+
 describe('side panel — renderActivity', () => {
   it('shows an empty-state message when history is empty', () => {
     const list = document.getElementById('activity-list') as HTMLElement;

@@ -13,13 +13,9 @@
 // value (never innerHTML) so a hostile scraped value can't inject markup.
 
 import type { OutboxEntry } from '../types.ts';
+import { type EditableEventFields, labeledInput, labeledTextarea } from './editable-fields.ts';
 
-export interface ReviewEntryEdits {
-  name: string;
-  title: string;
-  linkedin_url: string;
-  message_text: string;
-}
+export type ReviewEntryEdits = EditableEventFields;
 
 export interface RenderReviewSectionOptions {
   /** Outbox entries awaiting review — caller pre-filters to needs_review && !user_reviewed. */
@@ -35,52 +31,6 @@ export interface RenderReviewSectionOptions {
 const REVIEW_HELP =
   'These captures looked off (missing or odd name / URL). Fix anything wrong and ' +
   'Save, or approve as-is. Until then they stay on your device and are not synced.';
-
-function labeledInput(
-  labelText: string,
-  value: string,
-  field: string,
-): { row: HTMLElement; input: HTMLInputElement } {
-  const row = document.createElement('label');
-  row.className = 'review-field';
-
-  const span = document.createElement('span');
-  span.className = 'review-field-label';
-  span.textContent = labelText;
-  row.appendChild(span);
-
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'review-input';
-  input.value = value;
-  input.dataset.field = field;
-  row.appendChild(input);
-
-  return { row, input };
-}
-
-function labeledTextarea(
-  labelText: string,
-  value: string,
-  field: string,
-): { row: HTMLElement; textarea: HTMLTextAreaElement } {
-  const row = document.createElement('label');
-  row.className = 'review-field';
-
-  const span = document.createElement('span');
-  span.className = 'review-field-label';
-  span.textContent = labelText;
-  row.appendChild(span);
-
-  const textarea = document.createElement('textarea');
-  textarea.className = 'review-input review-textarea';
-  textarea.rows = 3;
-  textarea.value = value;
-  textarea.dataset.field = field;
-  row.appendChild(textarea);
-
-  return { row, textarea };
-}
 
 export function renderReviewSection(root: HTMLElement, opts: RenderReviewSectionOptions): void {
   root.replaceChildren();
