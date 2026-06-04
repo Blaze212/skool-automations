@@ -96,6 +96,10 @@ describe('renderReviewSection', () => {
     get('name').value = '  Jane Smith  ';
     get('title').value = 'Staff Engineer';
     get('linkedin_url').value = 'https://www.linkedin.com/in/jane-smith';
+    const message = root.querySelector(
+      'textarea[data-field="message_text"]',
+    ) as HTMLTextAreaElement;
+    message.value = '  Hi Jane — great to connect!  ';
 
     (root.querySelector('.review-save-btn') as HTMLButtonElement).click();
 
@@ -106,7 +110,20 @@ describe('renderReviewSection', () => {
       name: 'Jane Smith',
       title: 'Staff Engineer',
       linkedin_url: 'https://www.linkedin.com/in/jane-smith',
+      message_text: 'Hi Jane — great to connect!',
     });
+  });
+
+  it('pre-fills the message textarea from the captured event', () => {
+    renderReviewSection(
+      root,
+      handlers({ entries: [makeEntry('m-1', { message_text: 'Original note' })] }),
+    );
+
+    const message = root.querySelector(
+      'textarea[data-field="message_text"]',
+    ) as HTMLTextAreaElement;
+    expect(message.value).toBe('Original note');
   });
 
   it('"Sync this one" approves a single entry as-is', () => {

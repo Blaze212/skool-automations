@@ -337,7 +337,12 @@ describe('side panel — initSidePanel', () => {
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
       kind: 'review_outbox_entry',
       historyId: 'hist-1',
-      edits: { name: 'Corrected Name', title: 'Title 1', linkedin_url: expect.any(String) },
+      edits: {
+        name: 'Corrected Name',
+        title: 'Title 1',
+        linkedin_url: expect.any(String),
+        message_text: expect.any(String),
+      },
     });
   });
 

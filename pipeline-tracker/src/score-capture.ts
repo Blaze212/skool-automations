@@ -12,11 +12,30 @@
 
 import type { PipelineEvent, ScrapeConfidence } from '@cs/scraping-core';
 
-// Toolbar/affordance labels that LinkedIn's DOM occasionally yields in place of
-// a real person name when the scraper grabs the wrong node. Compared
-// case-insensitively. These are letters-only, so they pass the character regex
-// below — the junk set is what actually rejects them.
-const NAME_JUNK = new Set(['connect', 'follow', 'message', '1st', '2nd', '3rd', 'you']);
+// Toolbar/affordance labels, and the pronoun chips LinkedIn renders next to a
+// name, that the DOM occasionally yields in place of a real person name when the
+// scraper grabs the wrong node. Compared case-insensitively. The bare pronoun
+// tokens are letters-only, so they pass the character regex below — the junk set
+// is what actually rejects them. (The slash-joined chip forms are rejected by
+// the regex too, but are listed for belt-and-suspenders.)
+const NAME_JUNK = new Set([
+  'connect',
+  'follow',
+  'message',
+  '1st',
+  '2nd',
+  '3rd',
+  'you',
+  'he',
+  'him',
+  'she',
+  'her',
+  'they',
+  'them',
+  'he/him',
+  'she/her',
+  'they/them',
+]);
 
 // A plausible person name: starts with a letter (any script), followed by
 // letters, spaces, hyphens, apostrophes, or periods. The `u` flag makes \p{L}

@@ -745,6 +745,7 @@ export interface OutboxReviewEdits {
   name: string;
   title: string;
   linkedin_url: string;
+  message_text: string;
 }
 
 /**
@@ -772,6 +773,7 @@ export async function reviewOutboxEntry(
         name: edits.name,
         title: edits.title,
         linkedin_url: edits.linkedin_url,
+        message_text: edits.message_text,
       },
       user_reviewed: true,
     };
