@@ -15,6 +15,7 @@
  */
 
 import type { PipelineEvent } from '../types.js';
+import { AI_OUTPUT_LANGUAGE } from './types.js';
 import type { LanguageModelSession, RecoverInput, RecoverResult } from './types.js';
 
 const CREATE_TIMEOUT_MS = 10_000;
@@ -143,8 +144,9 @@ export async function recover(input: RecoverInput): Promise<RecoverResult | null
     try {
       session = await LanguageModel.create({
         signal: AbortSignal.timeout(CREATE_TIMEOUT_MS),
-        expectedInputs: [{ type: 'text', languages: ['en'] }],
-        expectedOutputs: [{ type: 'text', languages: ['en'] }],
+        outputLanguage: AI_OUTPUT_LANGUAGE,
+        expectedInputs: [{ type: 'text', languages: [AI_OUTPUT_LANGUAGE] }],
+        expectedOutputs: [{ type: 'text', languages: [AI_OUTPUT_LANGUAGE] }],
       });
 
       // No up-front token measurement: measureContextUsage()/measureInputUsage()

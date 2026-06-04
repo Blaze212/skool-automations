@@ -10,7 +10,7 @@
  * LanguageModel.* reference inside the ai-fallback module (spec 013 CI guard #1).
  */
 
-import type { AiAvailability } from './types.js';
+import { AI_OUTPUT_LANGUAGE, type AiAvailability } from './types.js';
 import { getCachedAvailability, invalidateAvailabilityCache } from './availability.js';
 
 export async function downloadModel(
@@ -19,7 +19,8 @@ export async function downloadModel(
   try {
     if (typeof LanguageModel === 'undefined' || !LanguageModel) return 'unavailable';
     const session = await LanguageModel.create({
-      expectedOutputs: [{ type: 'text', languages: ['en'] }],
+      outputLanguage: AI_OUTPUT_LANGUAGE,
+      expectedOutputs: [{ type: 'text', languages: [AI_OUTPUT_LANGUAGE] }],
       monitor(monitor) {
         monitor.addEventListener('downloadprogress', (event) => onProgress?.(event.loaded));
       },

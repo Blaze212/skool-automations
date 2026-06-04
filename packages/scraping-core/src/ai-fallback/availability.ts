@@ -9,7 +9,7 @@
  * Never throws: a thrown or absent LanguageModel resolves to 'unavailable'.
  */
 
-import type { AiAvailability } from './types.js';
+import { AI_OUTPUT_LANGUAGE, type AiAvailability } from './types.js';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -18,7 +18,10 @@ let cached: { value: AiAvailability; at: number } | null = null;
 async function probe(): Promise<AiAvailability> {
   try {
     if (typeof LanguageModel === 'undefined' || !LanguageModel) return 'unavailable';
-    return await LanguageModel.availability();
+    // Pass outputLanguage even to availability() — shipped Chrome emits the
+    // "No output language was specified" warning on any request that omits it,
+    // and this probe runs on side-panel load.
+    return await LanguageModel.availability({ outputLanguage: AI_OUTPUT_LANGUAGE });
   } catch {
     return 'unavailable';
   }
