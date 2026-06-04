@@ -14,7 +14,24 @@ describe('scoreCapture', () => {
   });
 
   describe('name junk set', () => {
-    for (const junk of ['Connect', 'Follow', 'Message', '1st', '2nd', '3rd', 'You']) {
+    for (const junk of [
+      'Connect',
+      'Follow',
+      'Message',
+      '1st',
+      '2nd',
+      '3rd',
+      'You',
+      'He',
+      'Him',
+      'She',
+      'Her',
+      'They',
+      'Them',
+      'He/Him',
+      'She/Her',
+      'They/Them',
+    ]) {
       it(`rejects junk label "${junk}"`, () => {
         expect(scoreCapture(cap(junk))).toBe('low');
       });

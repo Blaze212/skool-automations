@@ -18,6 +18,7 @@ export interface ReviewEntryEdits {
   name: string;
   title: string;
   linkedin_url: string;
+  message_text: string;
 }
 
 export interface RenderReviewSectionOptions {
@@ -56,6 +57,29 @@ function labeledInput(
   row.appendChild(input);
 
   return { row, input };
+}
+
+function labeledTextarea(
+  labelText: string,
+  value: string,
+  field: string,
+): { row: HTMLElement; textarea: HTMLTextAreaElement } {
+  const row = document.createElement('label');
+  row.className = 'review-field';
+
+  const span = document.createElement('span');
+  span.className = 'review-field-label';
+  span.textContent = labelText;
+  row.appendChild(span);
+
+  const textarea = document.createElement('textarea');
+  textarea.className = 'review-input review-textarea';
+  textarea.rows = 3;
+  textarea.value = value;
+  textarea.dataset.field = field;
+  row.appendChild(textarea);
+
+  return { row, textarea };
 }
 
 export function renderReviewSection(root: HTMLElement, opts: RenderReviewSectionOptions): void {
@@ -132,7 +156,12 @@ export function renderReviewSection(root: HTMLElement, opts: RenderReviewSection
       entry.event.linkedin_url ?? '',
       'linkedin_url',
     );
-    card.append(nameRow, titleRow, urlRow);
+    const { row: messageRow, textarea: messageInput } = labeledTextarea(
+      'Message',
+      entry.event.message_text ?? '',
+      'message_text',
+    );
+    card.append(nameRow, titleRow, urlRow, messageRow);
 
     const actions = document.createElement('div');
     actions.className = 'review-actions';
@@ -146,6 +175,7 @@ export function renderReviewSection(root: HTMLElement, opts: RenderReviewSection
         name: nameInput.value.trim(),
         title: titleInput.value.trim(),
         linkedin_url: urlInput.value.trim(),
+        message_text: messageInput.value.trim(),
       };
       saveBtn.disabled = true;
       void Promise.resolve(opts.onSave(entry.history_id, edits)).catch((err: unknown) => {

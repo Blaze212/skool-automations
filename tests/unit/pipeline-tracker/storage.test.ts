@@ -722,6 +722,7 @@ describe('pipeline-tracker storage facade', () => {
         name: 'Jane Smith',
         title: 'Staff Engineer',
         linkedin_url: 'https://www.linkedin.com/in/jane-smith',
+        message_text: 'Hi Jane — great to connect!',
       });
 
       expect(res).toEqual({ updated: true });
@@ -730,6 +731,7 @@ describe('pipeline-tracker storage facade', () => {
       expect(edited.event.name).toBe('Jane Smith');
       expect(edited.event.title).toBe('Staff Engineer');
       expect(edited.event.linkedin_url).toBe('https://www.linkedin.com/in/jane-smith');
+      expect(edited.event.message_text).toBe('Hi Jane — great to connect!');
       expect(edited.user_reviewed).toBe(true);
       // recovered_html for the edited row is gone; the other row is untouched.
       expect('recovered_html_h-1' in stores.local).toBe(false);
@@ -744,6 +746,7 @@ describe('pipeline-tracker storage facade', () => {
         name: 'x',
         title: '',
         linkedin_url: '',
+        message_text: '',
       });
 
       expect(res).toEqual({ updated: false });
