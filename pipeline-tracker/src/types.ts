@@ -91,6 +91,11 @@ export interface OutboxEntry {
   // pre-090 persisted outbox entries still validate (treat absence as 'high').
   scrape_confidence?: ScrapeConfidence;
   needs_review?: boolean;
+  // Spec 015 B2 — set true once the user has corrected/approved a flagged row in
+  // the side-panel review UI. sync-pull skips `needs_review && !user_reviewed`
+  // entries, so a low-confidence capture is held back from the app until the
+  // user has had a chance to fix it (or explicitly approve it as-is).
+  user_reviewed?: boolean;
 }
 
 export const HISTORY_CAP = 10;
@@ -107,3 +112,6 @@ export const BADGE_TEXT_COLOR = '#ffffff';
 export const BADGE_TEXT_OK = '✓';
 export const BADGE_TEXT_PARTIAL = '!';
 export const BADGE_TEXT_ERROR = '✕';
+// Spec 015 B2 — toolbar warning when low-confidence captures await review.
+export const BADGE_TEXT_REVIEW = '⚠';
+export const BADGE_COLOR_REVIEW = '#d97706';

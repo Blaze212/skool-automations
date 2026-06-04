@@ -564,11 +564,130 @@
         font-size: 11px;
         color: #94a3b8;
       }
+      /* ── Needs-review queue (spec 015 B2) ─────────────────────────────── */
+      .review-section {
+        border: 1px solid #fcd34d;
+        background: #fffbeb;
+        border-radius: 6px;
+        padding: 10px 12px;
+      }
+      .review-section .section-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .review-section h2 {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: #92400e;
+      }
+      .review-count {
+        background: #fef3c7;
+        color: #92400e;
+        border-radius: 10px;
+        padding: 0 7px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .review-sync-all-btn {
+        margin-left: auto;
+        appearance: none;
+        background: #92400e;
+        color: #fff;
+        border: none;
+        border-radius: 3px;
+        padding: 3px 9px;
+        font-size: 11px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .review-sync-all-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .review-help {
+        margin: 6px 0 8px;
+        font-size: 11px;
+        color: #92400e;
+        line-height: 1.4;
+      }
+      .review-card {
+        background: #fff;
+        border: 1px solid var(--cs-border);
+        border-radius: 5px;
+        padding: 8px;
+        margin-bottom: 8px;
+      }
+      .review-card:last-child {
+        margin-bottom: 0;
+      }
+      .review-card-head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 6px;
+      }
+      .badge-warn {
+        background: #fef3c7;
+        color: #92400e;
+      }
+      .review-field {
+        display: block;
+        margin-bottom: 6px;
+      }
+      .review-field-label {
+        display: block;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: var(--cs-muted);
+        margin-bottom: 2px;
+      }
+      .review-input {
+        width: 100%;
+        box-sizing: border-box;
+        font-size: 12px;
+        padding: 4px 6px;
+        border: 1px solid var(--cs-border);
+        border-radius: 3px;
+      }
+      .review-actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 4px;
+      }
+      .review-save-btn {
+        appearance: none;
+        background: var(--cs-brand-dark, #273d5c);
+        color: #fff;
+        border: none;
+        border-radius: 3px;
+        padding: 3px 10px;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      .review-sync-one-btn {
+        appearance: none;
+        background: transparent;
+        color: var(--cs-muted);
+        border: 1px solid var(--cs-border);
+        border-radius: 3px;
+        padding: 3px 9px;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      .review-save-btn:disabled,
+      .review-sync-one-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
     </style>
   </head>
   <body>
     <div id="settings-section"></div>
     <div id="binding-section"></div>
+    <div id="review-section"></div>
 
     <section id="unsynced-section" class="section">
       <div class="section-header">

@@ -12,17 +12,22 @@ import {
   BADGE_COLOR_OK,
   BADGE_COLOR_PARTIAL,
   BADGE_COLOR_PENDING,
+  BADGE_COLOR_REVIEW,
   BADGE_TEXT_COLOR,
   BADGE_TEXT_ERROR,
   BADGE_TEXT_PARTIAL,
+  BADGE_TEXT_REVIEW,
   type Severity,
 } from './types.ts';
 import {
   badgeStore,
   ensureInitialized,
   historyStore,
+  markOutboxReviewed,
   outboxStore,
+  type OutboxReviewEdits,
   recoveredHtmlStore,
+  reviewOutboxEntry,
   settingsStore,
 } from './storage.ts';
 import { buildCsv, getCsvFilename } from './csv.ts';
@@ -57,7 +62,16 @@ type BindingMessage =
   | { kind: 'clear_binding' }
   | { kind: 'wipe_unsynced' };
 
-type BgMessage = { kind: 'drain_outbox' } | { kind: 'export_csv' } | BindingMessage;
+/**
+ * Spec 015 B2 — side-panel review actions. `review_outbox_entry` applies the
+ * user's corrections to a flagged row; `mark_outbox_reviewed` approves rows
+ * as-is. Both set user_reviewed so sync-pull releases the entries.
+ */
+type ReviewMessage =
+  | { kind: 'review_outbox_entry'; historyId: string; edits: OutboxReviewEdits }
+  | { kind: 'mark_outbox_reviewed'; historyIds: string[] };
+
+type BgMessage = { kind: 'drain_outbox' } | { kind: 'export_csv' } | BindingMessage | ReviewMessage;
 
 interface StartBindingResult extends BackgroundResult {
   /** Number of app tabs the bind-offer reached. 0 → side panel shows "Open CareerSystems first" (Phase 8). */
@@ -84,18 +98,29 @@ interface WipeUnsyncedResult extends BackgroundResult {
  *   - highestSeverity === 'error'   → ✕ in BADGE_COLOR_ERROR (storage quota,
  *                                       extraction blow-up, etc.)
  *   - highestSeverity === 'partial' → ! in BADGE_COLOR_PARTIAL
+ *   - reviewPendingCount > 0        → ⚠ in BADGE_COLOR_REVIEW (spec 015 B2 —
+ *                                       low-confidence captures awaiting review)
  *   - otherwise                     → unsyncedCount (text) in BADGE_COLOR_PENDING,
  *                                       blank when zero
  */
 async function applyPublishableBadge(
   unsyncedCount: number,
   highestSeverity: Severity,
+  reviewPendingCount: number,
 ): Promise<void> {
   if (highestSeverity === 'error' || highestSeverity === 'partial') {
     const text = highestSeverity === 'error' ? BADGE_TEXT_ERROR : BADGE_TEXT_PARTIAL;
     const color = highestSeverity === 'error' ? BADGE_COLOR_ERROR : BADGE_COLOR_PARTIAL;
     await chrome.action.setBadgeText({ text });
     await chrome.action.setBadgeBackgroundColor({ color });
+    if (typeof chrome.action.setBadgeTextColor === 'function') {
+      await chrome.action.setBadgeTextColor({ color: BADGE_TEXT_COLOR });
+    }
+    return;
+  }
+  if (reviewPendingCount > 0) {
+    await chrome.action.setBadgeText({ text: BADGE_TEXT_REVIEW });
+    await chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR_REVIEW });
     if (typeof chrome.action.setBadgeTextColor === 'function') {
       await chrome.action.setBadgeTextColor({ color: BADGE_TEXT_COLOR });
     }
@@ -112,15 +137,20 @@ async function applyPublishableBadge(
   }
 }
 
+/** Count outbox entries still awaiting the user's review (spec 015 B2). */
+function countPendingReview(outbox: { needs_review?: boolean; user_reviewed?: boolean }[]): number {
+  return outbox.filter((e) => e.needs_review && !e.user_reviewed).length;
+}
+
 /**
  * Read outbox length + badge state and repaint the toolbar badge. Called after
  * every signal that may have changed the unsynced count: SW spin-up,
- * `drain_outbox` messages from content (= a new capture just landed), and
- * `sync-ack` removals.
+ * `drain_outbox` messages from content (= a new capture just landed),
+ * `sync-ack` removals, and review actions.
  */
 export async function refreshPublishableBadge(): Promise<void> {
   const [outbox, badge] = await Promise.all([outboxStore.get(), badgeStore.get()]);
-  await applyPublishableBadge(outbox.length, badge.highestSeverity);
+  await applyPublishableBadge(outbox.length, badge.highestSeverity, countPendingReview(outbox));
 }
 
 export async function restoreBadgeOnStartup(): Promise<void> {
@@ -252,6 +282,21 @@ export async function handleMessage(msg: BgMessage): Promise<BackgroundResult> {
   if ('kind' in msg && msg.kind === 'export_csv') {
     console.log(tag(), 'export_csv requested');
     return handleExportCsv();
+  }
+
+  // Spec 015 B2 — side-panel review actions. Routed through the SW so the
+  // recovered_html cleanup on edit stays out of the side panel (D-rev-30) and
+  // the toolbar badge is repainted from a fresh outbox snapshot.
+  if ('kind' in msg && msg.kind === 'review_outbox_entry') {
+    const { updated } = await reviewOutboxEntry(msg.historyId, msg.edits);
+    await refreshPublishableBadge();
+    return updated ? { ok: true } : { ok: false, message: 'entry not found' };
+  }
+
+  if ('kind' in msg && msg.kind === 'mark_outbox_reviewed') {
+    const { reviewedCount } = await markOutboxReviewed(msg.historyIds);
+    await refreshPublishableBadge();
+    return { ok: true, message: `reviewed ${reviewedCount}` };
   }
 
   if (

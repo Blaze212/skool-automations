@@ -739,3 +739,68 @@ export async function resolveOutboxBatch(syncedIds: string[]): Promise<{ ackedCo
 
   return { ackedCount };
 }
+
+/** Fields the side-panel review UI lets the user correct on a flagged row. */
+export interface OutboxReviewEdits {
+  name: string;
+  title: string;
+  linkedin_url: string;
+}
+
+/**
+ * Spec 015 B2 — apply a user's review edits to a flagged outbox entry.
+ *
+ * Overwrites the event's name/title/linkedin_url with the corrected values and
+ * marks the entry `user_reviewed` so sync-pull will release it. Because the user
+ * fixed the row by hand, the per-id recovered_html (the on-device AI carry) is
+ * dropped — no server-side reconciliation is needed for a human-approved row.
+ * Returns whether a matching entry was found. Unknown id is a no-op.
+ */
+export async function reviewOutboxEntry(
+  historyId: string,
+  edits: OutboxReviewEdits,
+): Promise<{ updated: boolean }> {
+  const outbox = await outboxStore.get();
+  let updated = false;
+  const next = outbox.map((entry) => {
+    if (entry.history_id !== historyId) return entry;
+    updated = true;
+    return {
+      ...entry,
+      event: {
+        ...entry.event,
+        name: edits.name,
+        title: edits.title,
+        linkedin_url: edits.linkedin_url,
+      },
+      user_reviewed: true,
+    };
+  });
+  if (!updated) return { updated: false };
+
+  await outboxStore.set(next);
+  // User-corrected → server AI fallback is unnecessary; drop the carried HTML.
+  await recoveredHtmlStore.remove(historyId);
+  return { updated: true };
+}
+
+/**
+ * Spec 015 B2 — approve flagged outbox entries as-is (no edits). Sets
+ * `user_reviewed` on each matching entry so sync-pull releases it on the next
+ * pull; recovered_html is left intact so the server can still reconcile.
+ * Returns how many entries were flipped.
+ */
+export async function markOutboxReviewed(historyIds: string[]): Promise<{ reviewedCount: number }> {
+  if (historyIds.length === 0) return { reviewedCount: 0 };
+  const idSet = new Set(historyIds);
+  const outbox = await outboxStore.get();
+  let reviewedCount = 0;
+  const next = outbox.map((entry) => {
+    if (!idSet.has(entry.history_id) || entry.user_reviewed) return entry;
+    reviewedCount += 1;
+    return { ...entry, user_reviewed: true };
+  });
+  if (reviewedCount === 0) return { reviewedCount: 0 };
+  await outboxStore.set(next);
+  return { reviewedCount };
+}

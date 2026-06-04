@@ -99,6 +99,7 @@ beforeEach(() => {
   document.body.innerHTML = `
     <div id="settings-section"></div>
     <div id="binding-section"></div>
+    <div id="review-section"></div>
     <section id="unsynced-section">
       <div style="display:flex;align-items:center;gap:6px;">
         <span id="unsynced-count"></span>
@@ -309,6 +310,35 @@ describe('side panel — initSidePanel', () => {
     expect(
       (document.getElementById('activity-list') as HTMLElement).querySelectorAll('.row'),
     ).toHaveLength(1);
+  });
+
+  it('renders the review queue for flagged unreviewed entries and routes Save to the SW (spec 015 B2)', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
+    local[STORAGE_KEYS.OUTBOX] = [
+      { ...makeOutboxEntry(1), needs_review: true }, // flagged, unreviewed → in queue
+      { ...makeOutboxEntry(2), needs_review: true, user_reviewed: true }, // already reviewed → not in queue
+      makeOutboxEntry(3), // clean → not in queue
+    ];
+
+    await initSidePanel();
+
+    const reviewRoot = document.getElementById('review-section') as HTMLElement;
+    const cards = reviewRoot.querySelectorAll('.review-card');
+    expect(cards).toHaveLength(1);
+
+    // Edit the name and Save → review_outbox_entry routed to the SW.
+    const nameInput = reviewRoot.querySelector('input[data-field="name"]') as HTMLInputElement;
+    nameInput.value = 'Corrected Name';
+    (reviewRoot.querySelector('.review-save-btn') as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
+      kind: 'review_outbox_entry',
+      historyId: 'hist-1',
+      edits: { name: 'Corrected Name', title: 'Title 1', linkedin_url: expect.any(String) },
+    });
   });
 
   it('re-renders activity list to ok when HISTORY storage change fires after sync', async () => {
