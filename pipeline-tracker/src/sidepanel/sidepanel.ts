@@ -26,6 +26,7 @@ import { renderFirstRunModal } from './first-run-modal.ts';
 import { renderSettingsSection } from './settings-section.ts';
 import { renderBindingSection } from './binding-section.ts';
 import { renderRebindModal, type RebindChoice } from './rebind-modal.ts';
+import { renderReviewSection, type ReviewEntryEdits } from './review-section.ts';
 
 const SIDE_PANEL_LIST_LIMIT = 500;
 
@@ -588,6 +589,10 @@ export function _resetBindingMountForTests(): void {
     _activityListUnsubscribe();
     _activityListUnsubscribe = null;
   }
+  if (_reviewListUnsubscribe) {
+    _reviewListUnsubscribe();
+    _reviewListUnsubscribe = null;
+  }
 }
 
 /**
@@ -660,9 +665,70 @@ function safelyMountActivityListener(list: HTMLElement, captureMessageBodies: bo
   }
 }
 
+// --- Spec 015 B2 — side-panel review queue ---
+
+/** Outbox entries the user still has to review (low-confidence, not yet approved). */
+function reviewEntriesOf(outbox: OutboxEntry[]): OutboxEntry[] {
+  return outbox.filter((e) => e.needs_review && !e.user_reviewed);
+}
+
+/** Route a review action through the SW; throw on a non-ok response so the
+ * review-section's per-button .catch re-enables the control. */
+async function sendReviewMessage(msg: {
+  kind: 'review_outbox_entry' | 'mark_outbox_reviewed';
+  historyId?: string;
+  historyIds?: string[];
+  edits?: ReviewEntryEdits;
+}): Promise<void> {
+  const resp = (await chrome.runtime.sendMessage(msg)) as
+    | { ok?: boolean; message?: string }
+    | undefined;
+  if (!resp?.ok) throw new Error(resp?.message ?? 'review action failed');
+}
+
+/** Render the review queue from an outbox snapshot, wiring actions to the SW. */
+export function renderReview(reviewRoot: HTMLElement, outbox: OutboxEntry[]): void {
+  renderReviewSection(reviewRoot, {
+    entries: reviewEntriesOf(outbox),
+    onSave: (historyId, edits) =>
+      sendReviewMessage({ kind: 'review_outbox_entry', historyId, edits }),
+    onSyncOne: (historyId) =>
+      sendReviewMessage({ kind: 'mark_outbox_reviewed', historyIds: [historyId] }),
+    onSyncAll: (historyIds) => sendReviewMessage({ kind: 'mark_outbox_reviewed', historyIds }),
+  });
+}
+
+let _reviewListUnsubscribe: (() => void) | null = null;
+
+function mountReviewListener(reviewRoot: HTMLElement): () => void {
+  const listener = (
+    changes: Record<string, chrome.storage.StorageChange>,
+    areaName: string,
+  ): void => {
+    if (areaName !== 'local') return;
+    if (!(STORAGE_KEYS.OUTBOX in changes)) return;
+    void outboxStore.get().then((next) => renderReview(reviewRoot, next));
+  };
+  chrome.storage.onChanged.addListener(listener);
+  return () => chrome.storage.onChanged.removeListener(listener);
+}
+
+function safelyMountReviewListener(reviewRoot: HTMLElement): void {
+  if (_reviewListUnsubscribe) {
+    _reviewListUnsubscribe();
+    _reviewListUnsubscribe = null;
+  }
+  try {
+    _reviewListUnsubscribe = mountReviewListener(reviewRoot);
+  } catch (err) {
+    console.error('[Pipeline Tracker side panel] mountReviewListener failed:', err);
+  }
+}
+
 export async function initSidePanel(): Promise<void> {
   const settingsRoot = document.getElementById('settings-section') as HTMLElement;
   const bindingRoot = document.getElementById('binding-section') as HTMLElement;
+  const reviewRoot = document.getElementById('review-section') as HTMLElement;
   const unsyncedList = document.getElementById('unsynced-list') as HTMLElement;
   const unsyncedCount = document.getElementById('unsynced-count') as HTMLElement;
   const activityList = document.getElementById('activity-list') as HTMLElement;
@@ -689,6 +755,9 @@ export async function initSidePanel(): Promise<void> {
   //       events visible, badge cleared.
   renderUnsynced(unsyncedList, unsyncedCount, outbox, { captureMessageBodies });
   renderActivity(activityList, history, { captureMessageBodies });
+  // Spec 015 B2 — review queue for low-confidence captures. Empty → renders
+  // nothing, so the section is invisible until something needs attention.
+  if (reviewRoot) renderReview(reviewRoot, outbox);
   await clearUnreadCounter();
 
   // Phase 11 — Export CSV button. Delegates to the SW (background handles
@@ -717,6 +786,10 @@ export async function initSidePanel(): Promise<void> {
   // flips HISTORY entries from 'pending' → 'ok'. Without this the panel
   // keeps showing "Queued — waiting to send" until the panel is reopened.
   safelyMountActivityListener(activityList, captureMessageBodies);
+
+  // Spec 015 B2 — keep the review queue live after Save / Sync actions mutate
+  // OUTBOX (via the SW) and after new low-confidence captures land.
+  if (reviewRoot) safelyMountReviewListener(reviewRoot);
 
   // Binding section mounts independently of the first-run modal: a user
   // can read the disclosure with the section visible behind it (the

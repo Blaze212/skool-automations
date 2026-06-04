@@ -138,6 +138,11 @@ async function handleSyncPull(msg: SyncPullExternalMessage): Promise<SyncPullRes
   const rows: PipelineEvent[] = [];
 
   for (const entry of outbox) {
+    // Spec 015 B2 — hold back low-confidence captures the user hasn't reviewed
+    // yet. They stay in the outbox (still counted, still editable in the side
+    // panel) and are released to the app only once user_reviewed flips true.
+    if (entry.needs_review && !entry.user_reviewed) continue;
+
     // D-rev-28: attach recovered_html lazily from the per-id keyed store.
     // Stays null/absent until spec 013 ships the AI-fallback writer.
     const html = await recoveredHtmlStore.get(entry.history_id);

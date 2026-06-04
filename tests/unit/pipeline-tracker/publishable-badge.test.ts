@@ -29,8 +29,10 @@ import {
   BADGE_COLOR_ERROR,
   BADGE_COLOR_PARTIAL,
   BADGE_COLOR_PENDING,
+  BADGE_COLOR_REVIEW,
   BADGE_TEXT_ERROR,
   BADGE_TEXT_PARTIAL,
+  BADGE_TEXT_REVIEW,
   STORAGE_KEYS,
   type HistoryEntry,
   type OutboxEntry,
@@ -141,6 +143,44 @@ describe('refreshPublishableBadge', () => {
     expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: BADGE_TEXT_PARTIAL });
     expect(chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({
       color: BADGE_COLOR_PARTIAL,
+    });
+  });
+
+  // Spec 015 B2 — review-pending warning state.
+  it('shows ⚠ in BADGE_COLOR_REVIEW when low-confidence captures await review', async () => {
+    const entries = outboxOf(3);
+    entries[0].needs_review = true; // one unreviewed flagged row
+    installStatefulStorage({ [STORAGE_KEYS.OUTBOX]: entries });
+    await refreshPublishableBadge();
+    expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: BADGE_TEXT_REVIEW });
+    expect(chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({
+      color: BADGE_COLOR_REVIEW,
+    });
+  });
+
+  it('does not warn once the flagged row has been reviewed (falls back to count)', async () => {
+    const entries = outboxOf(3);
+    entries[0].needs_review = true;
+    entries[0].user_reviewed = true;
+    installStatefulStorage({ [STORAGE_KEYS.OUTBOX]: entries });
+    await refreshPublishableBadge();
+    expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: '3' });
+    expect(chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({
+      color: BADGE_COLOR_PENDING,
+    });
+  });
+
+  it('error severity still wins over a pending review', async () => {
+    const entries = outboxOf(2);
+    entries[0].needs_review = true;
+    installStatefulStorage({
+      [STORAGE_KEYS.OUTBOX]: entries,
+      [STORAGE_KEYS.HIGHEST_SEVERITY]: 'error',
+    });
+    await refreshPublishableBadge();
+    expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: BADGE_TEXT_ERROR });
+    expect(chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({
+      color: BADGE_COLOR_ERROR,
     });
   });
 });

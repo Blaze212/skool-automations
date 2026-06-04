@@ -106,6 +106,76 @@ describe('pipeline-tracker background.handleMessage — routing', () => {
   });
 });
 
+describe('pipeline-tracker background.handleMessage — review actions (spec 015 B2)', () => {
+  function flagged(id: string): OutboxEntry {
+    return {
+      history_id: id,
+      enqueued_at: '2026-06-01T00:00:00Z',
+      attempts: 0,
+      scrape_confidence: 'low',
+      needs_review: true,
+      event: {
+        api_key: 'pk_test',
+        event_type: 'connection_request',
+        date: '2026-06-01',
+        name: 'Connect',
+        title: '',
+        linkedin_url: 'https://www.linkedin.com/feed/',
+        page_url: 'https://www.linkedin.com/feed/',
+        message_text: '',
+        scrape_confidence: 'low',
+      },
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    _resetInitLatchForTests();
+    installStatefulStorage();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('review_outbox_entry applies edits + marks reviewed', async () => {
+    const local = installStatefulStorage({ [STORAGE_KEYS.OUTBOX]: [flagged('h-1')] });
+
+    const result = await handleMessage({
+      kind: 'review_outbox_entry',
+      historyId: 'h-1',
+      edits: { name: 'Jane Smith', title: 'CEO', linkedin_url: 'https://www.linkedin.com/in/jane' },
+    });
+
+    expect(result.ok).toBe(true);
+    const entry = (local[STORAGE_KEYS.OUTBOX] as OutboxEntry[])[0];
+    expect(entry.event.name).toBe('Jane Smith');
+    expect(entry.user_reviewed).toBe(true);
+  });
+
+  it('review_outbox_entry returns ok:false for an unknown id', async () => {
+    installStatefulStorage({ [STORAGE_KEYS.OUTBOX]: [flagged('h-1')] });
+    const result = await handleMessage({
+      kind: 'review_outbox_entry',
+      historyId: 'missing',
+      edits: { name: 'x', title: '', linkedin_url: '' },
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('mark_outbox_reviewed approves the listed entries as-is', async () => {
+    const local = installStatefulStorage({
+      [STORAGE_KEYS.OUTBOX]: [flagged('a'), flagged('b')],
+    });
+
+    const result = await handleMessage({ kind: 'mark_outbox_reviewed', historyIds: ['a', 'b'] });
+
+    expect(result.ok).toBe(true);
+    const outbox = local[STORAGE_KEYS.OUTBOX] as OutboxEntry[];
+    expect(outbox.every((e) => e.user_reviewed)).toBe(true);
+  });
+});
+
 describe('pipeline-tracker onMessageHandler — unhandled rejection hardening', () => {
   beforeEach(() => {
     vi.clearAllMocks();

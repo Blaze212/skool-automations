@@ -12,9 +12,11 @@ import {
   ensureInitialized,
   historyStore,
   lastSyncedAtStore,
+  markOutboxReviewed,
   outboxStore,
   recordStorageQuotaError,
   recoveredHtmlStore,
+  reviewOutboxEntry,
   setHistoryAndBadge,
   setOutboxAndHistory,
   settingsStore,
@@ -686,6 +688,116 @@ describe('pipeline-tracker storage facade', () => {
       expect(seenArgs).toContain('shape mismatch');
       expect(seenArgs).not.toContain('SECRET-TOKEN-VALUE');
       warnSpy.mockRestore();
+    });
+  });
+
+  // ----- Spec 015 B2: review mutators -----
+  describe('reviewOutboxEntry', () => {
+    function flaggedEntry(id: string): OutboxEntry {
+      return {
+        history_id: id,
+        enqueued_at: '2026-06-01T00:00:00Z',
+        attempts: 0,
+        scrape_confidence: 'low',
+        needs_review: true,
+        event: {
+          api_key: 'pk',
+          event_type: 'connection_request',
+          date: '2026-06-01',
+          name: 'Connect',
+          title: '',
+          linkedin_url: 'https://www.linkedin.com/feed/',
+          page_url: 'https://www.linkedin.com/feed/',
+          message_text: '',
+          scrape_confidence: 'low',
+        },
+      };
+    }
+
+    it('applies edits, marks user_reviewed, and drops recovered_html', async () => {
+      stores.local[STORAGE_KEYS.OUTBOX] = [flaggedEntry('h-1'), flaggedEntry('h-2')];
+      stores.local['recovered_html_h-1'] = '<div>carry</div>';
+
+      const res = await reviewOutboxEntry('h-1', {
+        name: 'Jane Smith',
+        title: 'Staff Engineer',
+        linkedin_url: 'https://www.linkedin.com/in/jane-smith',
+      });
+
+      expect(res).toEqual({ updated: true });
+      const outbox = stores.local[STORAGE_KEYS.OUTBOX] as OutboxEntry[];
+      const edited = outbox.find((e) => e.history_id === 'h-1')!;
+      expect(edited.event.name).toBe('Jane Smith');
+      expect(edited.event.title).toBe('Staff Engineer');
+      expect(edited.event.linkedin_url).toBe('https://www.linkedin.com/in/jane-smith');
+      expect(edited.user_reviewed).toBe(true);
+      // recovered_html for the edited row is gone; the other row is untouched.
+      expect('recovered_html_h-1' in stores.local).toBe(false);
+      expect(outbox.find((e) => e.history_id === 'h-2')!.user_reviewed).toBeUndefined();
+    });
+
+    it('is a no-op for an unknown id (no write)', async () => {
+      stores.local[STORAGE_KEYS.OUTBOX] = [flaggedEntry('h-1')];
+      (chrome.storage.local.set as ReturnType<typeof vi.fn>).mockClear();
+
+      const res = await reviewOutboxEntry('nope', {
+        name: 'x',
+        title: '',
+        linkedin_url: '',
+      });
+
+      expect(res).toEqual({ updated: false });
+      expect(chrome.storage.local.set).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('markOutboxReviewed', () => {
+    function flaggedEntry(id: string, user_reviewed = false): OutboxEntry {
+      return {
+        history_id: id,
+        enqueued_at: '2026-06-01T00:00:00Z',
+        attempts: 0,
+        scrape_confidence: 'low',
+        needs_review: true,
+        user_reviewed,
+        event: {
+          api_key: 'pk',
+          event_type: 'connection_request',
+          date: '2026-06-01',
+          name: 'Connect',
+          title: '',
+          linkedin_url: '',
+          page_url: '',
+          message_text: '',
+        },
+      };
+    }
+
+    it('flips user_reviewed on the matching entries and counts them', async () => {
+      stores.local[STORAGE_KEYS.OUTBOX] = [flaggedEntry('a'), flaggedEntry('b'), flaggedEntry('c')];
+
+      const res = await markOutboxReviewed(['a', 'c']);
+
+      expect(res).toEqual({ reviewedCount: 2 });
+      const outbox = stores.local[STORAGE_KEYS.OUTBOX] as OutboxEntry[];
+      expect(outbox.find((e) => e.history_id === 'a')!.user_reviewed).toBe(true);
+      expect(outbox.find((e) => e.history_id === 'b')!.user_reviewed).toBe(false);
+      expect(outbox.find((e) => e.history_id === 'c')!.user_reviewed).toBe(true);
+    });
+
+    it('does not re-count already-reviewed entries and skips the write when nothing changes', async () => {
+      stores.local[STORAGE_KEYS.OUTBOX] = [flaggedEntry('a', true)];
+      (chrome.storage.local.set as ReturnType<typeof vi.fn>).mockClear();
+
+      const res = await markOutboxReviewed(['a']);
+
+      expect(res).toEqual({ reviewedCount: 0 });
+      expect(chrome.storage.local.set).not.toHaveBeenCalled();
+    });
+
+    it('empty id list is a no-op', async () => {
+      const res = await markOutboxReviewed([]);
+      expect(res).toEqual({ reviewedCount: 0 });
     });
   });
 });

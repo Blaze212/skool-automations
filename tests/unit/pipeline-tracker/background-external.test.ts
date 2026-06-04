@@ -358,6 +358,33 @@ describe('handleExternalMessage — sync-pull', () => {
     const second = (await handleExternalMessage(msg, validSender)) as { syncedIds: string[] };
     expect(second.syncedIds).toEqual(['h-2']);
   });
+
+  // Spec 015 B2 — low-confidence captures the user hasn't reviewed are held back.
+  it('skips needs_review && !user_reviewed entries, but releases reviewed/clean ones', async () => {
+    const flaggedUnreviewed: OutboxEntry = {
+      ...makeOutboxEntry('flagged'),
+      needs_review: true,
+    };
+    const flaggedReviewed: OutboxEntry = {
+      ...makeOutboxEntry('reviewed'),
+      needs_review: true,
+      user_reviewed: true,
+    };
+    const clean = makeOutboxEntry('clean');
+    installStatefulStorage({
+      [STORAGE_KEYS.BINDING]: makeBinding(),
+      [STORAGE_KEYS.OUTBOX]: [flaggedUnreviewed, flaggedReviewed, clean],
+    });
+
+    const result = (await handleExternalMessage(
+      { type: 'sync-pull', bindingToken: 'test-token-abc' },
+      validSender,
+    )) as { rows: { name: string }[]; syncedIds: string[] };
+
+    // 'flagged' (unreviewed) is withheld; the reviewed + clean rows pass through.
+    expect(result.syncedIds).toEqual(['reviewed', 'clean']);
+    expect(result.rows).toHaveLength(2);
+  });
 });
 
 // ─── sync-ack ───────────────────────────────────────────────────────────────
