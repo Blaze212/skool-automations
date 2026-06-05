@@ -198,34 +198,27 @@ describe('capture card — save', () => {
   });
 });
 
-describe('capture card — replace confirm (E-3)', () => {
-  it('replaces the card when confirmReplace returns true', async () => {
-    const confirmReplace = vi.fn(() => true);
-    handle = renderCaptureSection(root, { onSave: vi.fn(), confirmReplace });
-    fireDrop(dropZone(), { html: HTML_JANE });
-    await flush();
-    fireDrop(dropZone(), { html: '<h2>Bob Smith</h2><a href="https://x.com/bob">x</a>' });
-    await flush();
-    expect(confirmReplace).toHaveBeenCalled();
-    expect(inputFor('name').value).toBe('Bob Smith');
-  });
-
-  it('keeps the existing card when confirmReplace returns false', async () => {
+describe('capture card — new drop overwrites the pending one (temporary)', () => {
+  // Sample-collection mode: a new drop always replaces whatever is pending, with
+  // NO confirm prompt (confirmReplace is intentionally never consulted).
+  it('a second drop overwrites a Ready card without consulting confirmReplace', async () => {
     const confirmReplace = vi.fn(() => false);
     handle = renderCaptureSection(root, { onSave: vi.fn(), confirmReplace });
     fireDrop(dropZone(), { html: HTML_JANE });
     await flush();
     fireDrop(dropZone(), { html: '<h2>Bob Smith</h2><a href="https://x.com/bob">x</a>' });
     await flush();
-    expect(inputFor('name').value).toBe('Jane Doe');
+    expect(confirmReplace).not.toHaveBeenCalled();
+    expect(inputFor('name').value).toBe('Bob Smith');
   });
 
-  it('does not confirm on the first drop (Empty → Ready)', async () => {
+  it('does not consult confirmReplace on the first drop', async () => {
     const confirmReplace = vi.fn(() => true);
     handle = renderCaptureSection(root, { onSave: vi.fn(), confirmReplace });
     fireDrop(dropZone(), { html: HTML_JANE });
     await flush();
     expect(confirmReplace).not.toHaveBeenCalled();
+    expect(inputFor('name').value).toBe('Jane Doe');
   });
 });
 
@@ -303,23 +296,37 @@ describe('capture card — AI extraction (Phase 2)', () => {
     expect(inputFor('title').value).toBe('Founder @ Acme');
   });
 
-  it('ignores a new drop while extracting (toast) and keeps the original run', async () => {
-    const d = deferred<AiExtractionResult | null>();
-    const aiExtract = vi.fn(() => d.promise);
+  it('a new drop while extracting supersedes the stale extraction', async () => {
+    // Sample-collection mode: a drop mid-extraction starts a fresh extraction;
+    // the earlier (stale) one resolving must NOT clobber the newer card.
+    const first = deferred<AiExtractionResult | null>();
+    const second = deferred<AiExtractionResult | null>();
+    const aiExtract = vi
+      .fn<(input: unknown) => Promise<AiExtractionResult | null>>()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
     handle = renderCaptureSection(root, { onSave: vi.fn(), aiExtract });
-    fireDrop(dropZone(), { html: HTML_LOW });
+
+    fireDrop(dropZone(), { html: HTML_LOW }); // Jane, low conf → extraction #1
     await flush();
     expect(handle.getState()).toBe('extracting');
 
-    fireDrop(dropZone(), { html: '<h2>Bob Smith</h2>' });
+    fireDrop(dropZone(), { html: '<h2>Bob Smith</h2>' }); // low conf → extraction #2
     await flush();
-    // Still on the first extraction; the second drop did not start a new one.
-    expect(aiExtract).toHaveBeenCalledTimes(1);
-    expect((root.querySelector('.capture-toast') as HTMLElement).hidden).toBe(false);
+    expect(aiExtract).toHaveBeenCalledTimes(2);
 
-    d.resolve(AI_RESULT);
+    // Stale #1 resolves → discarded; we are still extracting #2, no Jane write.
+    first.resolve(AI_RESULT);
     await flush();
-    expect(inputFor('name').value).toBe('Jane Doe');
+    expect(handle.getState()).toBe('extracting');
+
+    second.resolve({
+      fields: { name: 'Bob Smith', title: '', linkedin_url: '', message_text: '' },
+      suggested_event_type: null,
+    });
+    await flush();
+    expect(handle.getState()).toBe('ready');
+    expect(inputFor('name').value).toBe('Bob Smith');
   });
 
   it('hides the AI button when no extractor is wired', async () => {

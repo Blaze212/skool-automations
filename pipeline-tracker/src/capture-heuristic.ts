@@ -11,6 +11,13 @@
 // re-uses the same site-agnostic NAME_RE / junk set heuristics, but gates the URL
 // on "any non-empty https: URL" instead of a LinkedIn profile path.
 
+import {
+  DEGREE_MARKER_RE,
+  MUTUAL_CONNECTION_RE,
+  PREMIUM_BADGE_RE,
+  OPEN_TO_WORK_RE,
+  FOLLOWER_COUNT_RE,
+} from '@cs/scraping-core';
 import type { EditableEventFields } from './sidepanel/editable-fields.ts';
 import type { ScrapeConfidence } from './types.ts';
 
@@ -65,6 +72,72 @@ function isHttpsUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+// UI-junk lines the title scan must skip — connection-degree markers, pronoun
+// chips, mutual-connection rollups, follower/connection counts, "Contact info",
+// and message-thread chrome (timestamps, "View X's profile"). Reuses the shared
+// noise regexes from @cs/scraping-core; the rest are local to title selection.
+const DEGREE_CONNECTION_RE = /\bdegree connection\b/i;
+const CONNECTION_COUNT_RE = /^[·•\s]*[\d,.]+\s*\+?\s*connections?$/i;
+const BULLET_ONLY_RE = /^[·•∙\s]+$/;
+const CONTACT_INFO_RE = /^contact info$/i;
+const PRONOUN_RE = /^\(?\s*(he|him|she|her|they|them)(\s*\/\s*(he|him|she|her|they|them))?\s*\)?$/i;
+const THREAD_CHROME_RE =
+  /(sent the following messages?|view .+? profile|^today$|^yesterday$|^(mon|tues|wednes|thurs|fri|satur|sun)day$|^\d{1,2}:\d{2}\s*(am|pm)$)/i;
+
+/** True when a text line is UI chrome rather than a real headline/role line. */
+function isJunkLine(line: string): boolean {
+  const s = line.trim();
+  if (!s) return true;
+  if (NAME_JUNK.has(s.toLowerCase())) return true;
+  return (
+    DEGREE_MARKER_RE.test(s) ||
+    MUTUAL_CONNECTION_RE.test(s) ||
+    PREMIUM_BADGE_RE.test(s) ||
+    OPEN_TO_WORK_RE.test(s) ||
+    FOLLOWER_COUNT_RE.test(s) ||
+    DEGREE_CONNECTION_RE.test(s) ||
+    CONNECTION_COUNT_RE.test(s) ||
+    BULLET_ONLY_RE.test(s) ||
+    CONTACT_INFO_RE.test(s) ||
+    PRONOUN_RE.test(s) ||
+    THREAD_CHROME_RE.test(s)
+  );
+}
+
+/**
+ * Canonicalize a profile URL by dropping tracking. LinkedIn keeps identity in
+ * the path (the `?lipi`/`?trk` params are pure tracking); for other hosts strip
+ * only known tracking params so we don't break identity-bearing query strings.
+ */
+function cleanUrl(url: string): string {
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    if (/(^|\.)linkedin\.com$/i.test(u.hostname)) return u.origin + u.pathname;
+    const TRACKING = /^(lipi|trk|utm_|original_referer|refId|miniProfileUrn)/i;
+    const drop: string[] = [];
+    u.searchParams.forEach((_v, k) => {
+      if (TRACKING.test(k)) drop.push(k);
+    });
+    for (const k of drop) u.searchParams.delete(k);
+    u.hash = '';
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * True when the fragment looks like a message thread (so the AI is still worth
+ * running for message_text + stage even when the heuristic nailed name/url).
+ * "X sent the following message" is LinkedIn's per-bubble attribution line and
+ * is present in every conversation capture but not in profile/search captures.
+ */
+const CONVERSATION_RE = /\bsent the following messages?\b/i;
+export function looksLikeConversation(html: string): boolean {
+  return CONVERSATION_RE.test(html ?? '');
 }
 
 const _utf8Encoder = new TextEncoder();
@@ -123,23 +196,26 @@ function extractFromHtml(html: string): EditableEventFields {
     return { name: '', title: '', linkedin_url: '', message_text: '' };
   }
 
-  const linkedin_url = firstUrl(doc);
-
-  // Name: prefer a heading / bold element (the most reliable "this is a person"
-  // signal across sites); fall back to the first text line.
-  const headingEl = doc.body.querySelector('h1,h2,h3,h4,strong,b');
-  const headingText = (headingEl?.textContent ?? '').replace(/\s+/g, ' ').trim();
-
+  const linkedin_url = cleanUrl(firstUrl(doc));
   const lines = collectTextLines(doc);
-  const name = headingText || lines[0] || '';
 
-  // Title: the first distinct line after the name that isn't the name itself or
-  // a bare URL line.
+  // Name: trust a real heading (h1–h4) first. Do NOT use <strong>/<b> — on a
+  // search-result card the only bold node is the "is a mutual connection" decoy,
+  // so trusting it picks the wrong person. Else: the first non-junk, non-URL line.
+  const headingEl = doc.body.querySelector('h1,h2,h3,h4');
+  let name = (headingEl?.textContent ?? '').replace(/\s+/g, ' ').trim();
+  if (!name) {
+    name = lines.find((l) => !isJunkLine(l) && !/^https?:\/\//i.test(l)) ?? lines[0] ?? '';
+  }
+
+  // Title: the first line after the name that isn't the name, a bare URL, or UI
+  // chrome (degree markers, pronoun chips, mutual-connection rollups, counts,
+  // thread timestamps) — so we skip "He/Him" / "· 2nd" / "1st degree connection".
   let title = '';
   const nameIdx = lines.findIndex((l) => l === name);
   for (let i = Math.max(0, nameIdx) + 1; i < lines.length; i++) {
     const l = lines[i];
-    if (l && l !== name && !/^https?:\/\//i.test(l)) {
+    if (l && l !== name && !/^https?:\/\//i.test(l) && !isJunkLine(l)) {
       title = l;
       break;
     }
@@ -153,17 +229,20 @@ function extractFromText(text: string): EditableEventFields {
     .split(/\r?\n/)
     .map((l) => l.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
-  const name = lines[0] ?? '';
-  // First following line that isn't a bare URL.
+  // Name: first non-junk, non-URL line (skips a leading pronoun/degree chip).
+  const name = lines.find((l) => !isJunkLine(l) && !/^https?:\/\//i.test(l)) ?? lines[0] ?? '';
+  // Title: first line after the name that isn't a bare URL or UI chrome.
   let title = '';
-  for (let i = 1; i < lines.length; i++) {
-    if (!/^https?:\/\//i.test(lines[i])) {
-      title = lines[i];
+  const nameIdx = lines.findIndex((l) => l === name);
+  for (let i = Math.max(0, nameIdx) + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (l && l !== name && !/^https?:\/\//i.test(l) && !isJunkLine(l)) {
+      title = l;
       break;
     }
   }
-  // A pasted plain-text URL line becomes the profile URL.
-  const url = lines.find((l) => /^https?:\/\//i.test(l)) ?? '';
+  // A pasted plain-text URL line becomes the profile URL (tracking stripped).
+  const url = cleanUrl(lines.find((l) => /^https?:\/\//i.test(l)) ?? '');
   return { name, title, linkedin_url: url, message_text: '' };
 }
 
