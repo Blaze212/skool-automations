@@ -135,3 +135,47 @@ Tracked improvements deferred from active implementation work.
 **Effort:** L (any convergence) or zero (if (a) is the answer)
 **Context:** Spec 010 Open Q #5. The scraping cores are already close (linkedin-tracker uses ConnectionSearchCard/ProfilePageCard/MessengerPageCard; pipeline-tracker adds accept-invitation + chat-overlay + profile-page-accept). Once spec 010's prereq scraping-core spec lands, option (c) is much cheaper. Convergence is mostly a _product_ question, not engineering: does fractional-client scope diverge from consumer scope, or are they the same surface?
 **Depends on:** Spec 010 v1.0 shipped; scraping-core extraction spec landed
+
+---
+
+## Pipeline Tracker — Manual Capture Pivot (spec 016)
+
+### [P2] Decide recovered_html subsystem fate — strip vs. repurpose for server-AI fallback
+
+**What:** After spec 016 deletes the LinkedIn scraper, the `recovered_html` subsystem (`setOutboxHistoryAndRecoveredHtml`, the whole `recoveredHtmlStore`, `RecoveredHtmlTooLargeError`, sync-pull's lazy attach, CSV's `ai-recovered` read, `wipe_unsynced`'s `removeAll`, `PipelineEvent.recovered_html`/`source`) has **no producer** — it's dormant, not dead-by-design. Decide between (a) **strip** it entirely, or (b) **repurpose** it as the carry channel for an opt-in **server-side AI fallback** for users whose on-device Gemini `LanguageModel` is unavailable.
+
+**Why:** Keeps the codebase honest about dormant code, and captures the open question of whether to add a backend extraction fallback. The MVP left it in place (spec-016 review decision 5A) precisely to keep this option open.
+
+**Pros:** Preserves a concrete future option without silently leaving a privacy-sensitive channel wired with no consumer.
+**Cons:** Repurposing **reverses spec-016 Decision 3's Limited-Use posture** — sending arbitrary cross-site HTML fragments to the backend is the exact data-use the pivot exists to avoid. It would require an explicit **per-capture consent gate** ("send this fragment to our server to extract?") and a Web Store data-use re-disclosure.
+
+**Context:** The heuristic runs with zero AI and the capture card is always editable, so "on-device AI unavailable" already degrades gracefully to _heuristic prefill + manual edit_ — capture is never blocked, only auto-fill quality drops. So server AI is a quality nicety, not a capture unblock. Let the beta produce on-device-AI reliability data before deciding.
+**Effort:** S (strip) or M (server fallback + consent gate + disclosure)
+**Depends on:** spec 016 shipped; beta on-device-AI reliability data
+
+---
+
+### [P3] Delete review-section.ts after legacy coexistence drains
+
+**What:** `review-section.ts` (spec 015 B2 needs-review queue) goes dormant under spec 016 — it self-empties for manual captures (all `user_reviewed:true`). Once beta users have synced/cleared their legacy low-confidence _scraped_ rows, it is pure dead UI and can be deleted along with the `needs_review`-queue plumbing (`countPendingReview`, the review-badge branch, `markOutboxReviewed`/`reviewOutboxEntry` if no other caller remains).
+
+**Why:** Removes dead UI and the misleading "reused as the capture editor" framing (spec 016 D-016-5). The actual reused piece is `editable-fields.ts`; the capture editor is the new `capture-section.ts`, and unsynced rows are already independently editable (commit `11e2f88`).
+
+**Pros:** One fewer editing surface; smaller, clearer side panel.
+**Cons:** Must confirm the legacy outbox is fully drained first or risk orphaning held-back rows (spec 016 Decision 7).
+**Effort:** S
+**Depends on:** spec 016 shipped; beta users confirmed to have drained legacy held-back rows
+
+---
+
+### [P3] Real scored eval harness for extractContact() before GA
+
+**What:** Spec 016 ships with a small committed real-fragment fixture set + manual spot-check (review decision T1-A). Before graduating beyond the handful of beta users (Web Store / GA), stand up a scored eval suite (fixtures + rubric + pass threshold) for the now-**primary** on-device extractor, seeded from the T1-A fixtures.
+
+**Why:** `extractContact()` produces every capture's prefill on arbitrary sites (promoted from spec-013 _fallback_ to _primary_). At GA scale, regressions in the generalized prompt or a Chrome model-version bump need an automated quality gate, not just mocks + spot-checks.
+
+**Pros:** Catches prompt/model regressions automatically; protects the primary codepath at scale.
+**Cons:** Real-model evals are slow/flaky in CI and need fixture curation; overkill while the card is always editable and the user base is tiny.
+**Context:** Reuse the T1-A fragments (LinkedIn + 2-3 other sites) as the seed corpus.
+**Effort:** M
+**Depends on:** decision to pursue Web Store / GA
