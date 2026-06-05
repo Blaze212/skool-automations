@@ -9,6 +9,7 @@ import {
   capFragment,
   extractHeuristic,
   heuristicConfidence,
+  looksLikeConversation,
 } from '../../../pipeline-tracker/src/capture-heuristic.ts';
 
 describe('extractHeuristic — text/html fragment', () => {
@@ -108,6 +109,58 @@ describe('heuristicConfidence — site-agnostic', () => {
     expect(heuristicConfidence({ name: 'Connect', linkedin_url: 'https://x.com/a' })).toBe('low');
     expect(heuristicConfidence({ name: 'Agent 007', linkedin_url: 'https://x.com/a' })).toBe('low');
     expect(heuristicConfidence({ name: '', linkedin_url: 'https://x.com/a' })).toBe('low');
+  });
+});
+
+describe('extractHeuristic — V2 reliability (spec 016 prompt-tuning)', () => {
+  it('ignores the bold "is a mutual connection" decoy and picks the primary contact', () => {
+    // A search-result card: the only <strong> is the mutual-connection decoy.
+    const html = `
+      <a href="https://www.linkedin.com/in/heather-hund/?lipi=urn%3Ali%3Apage">Heather Hund</a>
+      <p><span>Fractional Product Marketing | ex-BCG</span></p>
+      <p><span>San Francisco, California</span></p>
+      <p><span><a href="https://www.linkedin.com/in/lauradleach/"><strong>Laura Leach</strong></a> is a mutual connection</span></p>`;
+    const f = extractHeuristic({ html });
+    expect(f.name).toBe('Heather Hund');
+    expect(f.title).toBe('Fractional Product Marketing | ex-BCG');
+    expect(f.linkedin_url).toBe('https://www.linkedin.com/in/heather-hund/');
+  });
+
+  it('skips pronoun + degree chrome lines when choosing the title', () => {
+    const html = `<h2>Sean Boyce</h2><p>He/Him</p><p>· 2nd</p><p>Fractional Product and CFO Expert</p>`;
+    const f = extractHeuristic({ html });
+    expect(f.name).toBe('Sean Boyce');
+    expect(f.title).toBe('Fractional Product and CFO Expert');
+  });
+
+  it('leaves title empty for a bare name (never invents one) and strips URL tracking', () => {
+    const html =
+      '<a href="https://www.linkedin.com/in/jane/?lipi=urn%3Ali%3Apage%3Aabc">Jane Doe</a>';
+    const f = extractHeuristic({ html });
+    expect(f.name).toBe('Jane Doe');
+    expect(f.title).toBe('');
+    expect(f.linkedin_url).toBe('https://www.linkedin.com/in/jane/');
+  });
+
+  it('skips a leading pronoun chip when choosing the name (plain text)', () => {
+    const text = 'https://www.linkedin.com/in/jane/?trk=x\nJane Doe\n(She/Her)\nFounder at Acme';
+    const f = extractHeuristic({ text });
+    expect(f.name).toBe('Jane Doe');
+    expect(f.title).toBe('Founder at Acme');
+    expect(f.linkedin_url).toBe('https://www.linkedin.com/in/jane/');
+  });
+});
+
+describe('looksLikeConversation — AI gate for message threads', () => {
+  it('detects a thread by its per-bubble attribution line', () => {
+    expect(
+      looksLikeConversation('<span>Barton Holdridge sent the following message at 4:22 PM</span>'),
+    ).toBe(true);
+  });
+
+  it('is false for a plain profile / search capture', () => {
+    expect(looksLikeConversation('<h2>Jane Doe</h2><p>Founder at Acme</p>')).toBe(false);
+    expect(looksLikeConversation('')).toBe(false);
   });
 });
 

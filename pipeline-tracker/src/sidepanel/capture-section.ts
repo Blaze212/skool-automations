@@ -36,7 +36,13 @@
 import type { EventType } from '../types.ts';
 import type { ManualCaptureInput } from '../storage.ts';
 import { type EditableEventFields, buildEditableFields } from './editable-fields.ts';
-import { extractHeuristic, heuristicConfidence } from '../capture-heuristic.ts';
+import { stripHtmlForCarry } from '@cs/scraping-core';
+import {
+  capFragment,
+  extractHeuristic,
+  heuristicConfidence,
+  looksLikeConversation,
+} from '../capture-heuristic.ts';
 
 /** Result of the injected on-device AI extraction (Phase 2 wires extractContact). */
 export interface AiExtractionResult {
@@ -66,6 +72,13 @@ export interface CaptureSectionOptions {
   }) => Promise<AiExtractionResult | null>;
   /** Confirm replacing a populated card on a new drop. Default: window.confirm. */
   confirmReplace?: () => boolean;
+  /**
+   * Temporary debug hook (sample collection): called once per captured fragment
+   * (every drop/paste), BEFORE the heuristic runs, with the exact fragment that
+   * will feed the heuristic + LLM. The side panel uses it to log the LLM-bound
+   * stripped content. No-op in production wiring if unset.
+   */
+  debugLogFragment?: (frag: { html?: string; text?: string }) => void;
 }
 
 export type CaptureState = 'empty' | 'extracting' | 'ready' | 'saving';
@@ -99,6 +112,11 @@ export function renderCaptureSection(
   let pageUrl = '';
   let getEdits: (() => EditableEventFields) | null = null;
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  // Bumped on every new fragment. Lets an in-flight async step (page-url lookup,
+  // AI extraction, save) detect that a newer drop has superseded it and bail out
+  // instead of clobbering the newer card. Supports the "new drop overwrites the
+  // pending one" behavior below.
+  let captureGeneration = 0;
 
   root.replaceChildren();
 
@@ -255,7 +273,11 @@ export function renderCaptureSection(
     setControlsDisabled(false);
   }
 
-  async function runAi(candidate: EditableEventFields, currentFragment: Fragment): Promise<void> {
+  async function runAi(
+    candidate: EditableEventFields,
+    currentFragment: Fragment,
+    gen: number,
+  ): Promise<void> {
     if (!opts.aiExtract) {
       enterReady(candidate, null);
       return;
@@ -282,6 +304,9 @@ export function renderCaptureSection(
         console.warn('[Pipeline Tracker capture] AI extraction threw — using heuristic:', err);
         result = null;
       }
+      // A newer drop superseded this extraction — discard the stale result so it
+      // can't clobber the newer card.
+      if (gen !== captureGeneration) return;
       if (result) {
         enterReady(result.fields, result.suggested_event_type);
       } else {
@@ -290,34 +315,47 @@ export function renderCaptureSection(
       }
     } finally {
       // Card-lock release MUST be in finally — a thrown extraction still unlocks.
-      if (state === 'extracting') enterReady(candidate, null);
+      // Only if this is still the current capture (a newer drop owns the card now).
+      if (gen === captureGeneration && state === 'extracting') enterReady(candidate, null);
     }
   }
 
   async function onFragment(next: Fragment): Promise<void> {
-    if (state === 'extracting' || state === 'saving') {
-      showToast(state === 'extracting' ? 'Still extracting…' : 'Saving…');
-      return;
-    }
-    if (state === 'ready') {
-      const confirmFn = opts.confirmReplace ?? (() => window.confirm('Replace current card?'));
-      if (!confirmFn()) return;
-    }
+    // TEMPORARY (sample collection): a new drop always overwrites whatever is
+    // pending — no "still extracting" block, no replace-confirm. The generation
+    // bump invalidates any in-flight extraction/save so it can't clobber this
+    // newer card. (Restore the state guards + confirmReplace to revert.)
+    const gen = ++captureGeneration;
+
+    // Log the exact fragment that will feed the heuristic + LLM, for EVERY drop,
+    // before any early-return below — so even "nothing to capture" drops produce
+    // a collectable sample.
+    opts.debugLogFragment?.(next);
 
     clearError();
     fragment = next;
     pageUrl = opts.getPageUrl ? await safePageUrl() : '';
+    if (gen !== captureGeneration) return; // superseded during the await
 
-    const fields = extractHeuristic(next);
+    // Run the heuristic on the STRIPPED subtree (same input the model gets) —
+    // on the raw LinkedIn DOM the parser drowns in nav/button/decoy nodes; on
+    // the stripped subtree it reliably nails name/title/url. Fall back to the
+    // raw fragment if the strip yields nothing (over-cap or no HTML).
+    const strippedHtml = next.html ? stripHtmlForCarry(capFragment(next.html)) : '';
+    const fields = extractHeuristic(strippedHtml ? { html: strippedHtml } : next);
     if (!fields.name && !fields.title && !fields.linkedin_url) {
       showToast('Nothing to capture from that selection.');
-      if (state !== 'ready') resetToEmpty();
+      resetToEmpty();
       return;
     }
 
+    // The heuristic owns name/title/url. We still need the model for a message
+    // thread (message_text + stage), so run it when the heuristic is low-
+    // confidence OR the fragment looks like a conversation.
     const confidence = heuristicConfidence(fields);
-    if (opts.aiExtract && confidence === 'low') {
-      await runAi(fields, next);
+    const conversation = looksLikeConversation(strippedHtml || next.html || next.text || '');
+    if (opts.aiExtract && (confidence === 'low' || conversation)) {
+      await runAi(fields, next, gen);
     } else {
       enterReady(fields, null);
     }
@@ -373,7 +411,7 @@ export function renderCaptureSection(
 
   aiBtn.addEventListener('click', () => {
     if (state !== 'ready' || !fragment || !getEdits) return;
-    void runAi(getEdits(), fragment);
+    void runAi(getEdits(), fragment, captureGeneration);
   });
 
   discardBtn.addEventListener('click', () => {
@@ -390,13 +428,18 @@ export function renderCaptureSection(
       page_url: pageUrl,
     };
     clearError();
+    const gen = captureGeneration;
     state = 'saving';
     setControlsDisabled(true);
     void Promise.resolve(opts.onSave(capture))
       .then(() => {
+        // A new drop arrived mid-save and now owns the card — don't wipe it.
+        if (gen !== captureGeneration) return;
         resetToEmpty();
       })
       .catch((err: unknown) => {
+        // A newer drop superseded this save — leave the newer card alone.
+        if (gen !== captureGeneration) return;
         // Keep the card populated; surface an inline error (decision 2).
         state = 'ready';
         setControlsDisabled(false);
