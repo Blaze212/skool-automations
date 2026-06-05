@@ -56,6 +56,12 @@ export interface BindingSectionOptions {
    * actionable button alongside it (Phase 8 / D-rev-9).
    */
   openAppTab?: () => void;
+  /**
+   * Base URL of the CareerSystems app (env-specific — prod vs localhost). The
+   * confirmed state renders a "Visit the app (and click Sync)" link to
+   * `${appBaseUrl}/tracker-v2`. Defaults to the production origin.
+   */
+  appBaseUrl?: string;
   /** Inject a clock for tests. Defaults to Date.now / setTimeout / clearTimeout. */
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => unknown;
@@ -275,6 +281,17 @@ export function renderBindingSection(
       'Your CareerSystems app can pull captured events from this extension. Visit the app and ' +
       'click Sync there to deliver them.';
     body.appendChild(help);
+
+    // Env-aware deep link to the tracker page so the user can jump straight to
+    // the app and click Sync. Defaults to prod; localhost in dev builds.
+    const appBase = (opts.appBaseUrl ?? 'https://app.cmcareersystems.com').replace(/\/+$/, '');
+    const appLink = document.createElement('a');
+    appLink.className = 'binding-app-link';
+    appLink.href = `${appBase}/tracker-v2`;
+    appLink.target = '_blank';
+    appLink.rel = 'noopener';
+    appLink.textContent = 'Visit the app (and click Sync) →';
+    body.appendChild(appLink);
 
     const disconnect = document.createElement('button');
     disconnect.type = 'button';

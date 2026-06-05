@@ -47,6 +47,8 @@ export const DEFAULT_SETTINGS: Settings = {
   ai_model_downloaded: false,
   capture_message_bodies: false,
   first_run_completed: false,
+  owner_first_name: '',
+  owner_last_name: '',
 };
 
 // === Errors ===
@@ -168,7 +170,10 @@ function isSettings(v: unknown): v is Settings {
     typeof s.ai_fallback_enabled === 'boolean' &&
     typeof s.ai_model_downloaded === 'boolean' &&
     typeof s.capture_message_bodies === 'boolean' &&
-    typeof s.first_run_completed === 'boolean'
+    typeof s.first_run_completed === 'boolean' &&
+    // Optional (added later) — tolerate absent for back-compat, reject wrong type.
+    (s.owner_first_name === undefined || typeof s.owner_first_name === 'string') &&
+    (s.owner_last_name === undefined || typeof s.owner_last_name === 'string')
   );
 }
 

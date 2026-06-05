@@ -224,13 +224,33 @@
         margin-top: 2px;
         line-height: 1.4;
       }
-      .settings-row-error {
+      .settings-row-error,
+      .settings-name-error {
         font-size: 11px;
         color: #991b1b;
         background: #fee2e2;
         border-radius: 3px;
         padding: 4px 6px;
         margin: 4px 0;
+      }
+      .settings-name-inputs {
+        display: flex;
+        gap: 8px;
+        margin-top: 6px;
+      }
+      .settings-name-input {
+        flex: 1;
+        box-sizing: border-box;
+        font: inherit;
+        font-size: 12px;
+        padding: 5px 7px;
+        border: 1px solid var(--cs-border);
+        border-radius: 4px;
+      }
+      .settings-name-input:focus {
+        outline: none;
+        border-color: var(--cs-brand);
+        box-shadow: 0 0 0 2px rgba(46, 163, 242, 0.2);
       }
       .settings-subheading {
         font-size: 11px;
@@ -384,6 +404,74 @@
         background: #fee2e2;
         border-radius: 3px;
         padding: 6px 8px;
+      }
+
+      /* ── Compact "Connected as …" indicator on the main panel (spec 016) ── */
+      .connected-indicator {
+        font-size: 11px;
+        color: #166534;
+        font-weight: 600;
+        margin-bottom: 12px;
+        padding: 4px 8px;
+        background: #dcfce7;
+        border-radius: 4px;
+        display: inline-block;
+      }
+
+      /* ── CareerSystems sync moved into the Settings dropdown (spec 016) ─── */
+      .settings-binding-slot {
+        margin-top: 10px;
+        border-top: 1px solid #f0f0f0;
+        padding-top: 4px;
+      }
+      /* The binding section is now nested in Settings — drop its standalone
+         card chrome so it reads as part of the dropdown. */
+      .settings-binding-slot .binding-section {
+        margin-bottom: 0;
+        border: 0;
+        padding: 0;
+        background: transparent;
+      }
+      .binding-app-link {
+        display: inline-block;
+        margin: 2px 0 8px;
+        font-size: 12px;
+        color: var(--cs-brand);
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .binding-app-link:hover {
+        text-decoration: underline;
+      }
+
+      /* ── First-run name fields (spec 016) ─────────────────────────────── */
+      .first-run-namefield {
+        margin-bottom: 12px;
+      }
+      .first-run-name-label {
+        display: block;
+        font-weight: 600;
+        font-size: 12px;
+        color: var(--cs-text);
+        margin-bottom: 4px;
+      }
+      .first-run-name-row {
+        display: flex;
+        gap: 8px;
+      }
+      .first-run-input {
+        flex: 1;
+        box-sizing: border-box;
+        font: inherit;
+        font-size: 12px;
+        padding: 6px 8px;
+        border: 1px solid var(--cs-border);
+        border-radius: 4px;
+      }
+      .first-run-input:focus {
+        outline: none;
+        border-color: var(--cs-brand);
+        box-shadow: 0 0 0 2px rgba(46, 163, 242, 0.2);
       }
 
       /* ── Binding section (Phase 7) ────────────────────────────────────── */
@@ -703,12 +791,15 @@
         cursor: pointer;
         outline: none;
       }
-      .capture-dropzone:focus-visible {
-        box-shadow: 0 0 0 3px rgba(46, 163, 242, 0.3);
-      }
+      /* Clicking or focusing the card highlights it the same way a drag-over
+         does, so the user knows a paste (⌘/Ctrl-V) will land here. */
+      .capture-dropzone:focus,
       .capture-dropzone-over {
         background: rgba(46, 163, 242, 0.16);
         border-color: var(--cs-brand-dark);
+      }
+      .capture-dropzone:focus-visible {
+        box-shadow: 0 0 0 3px rgba(46, 163, 242, 0.3);
       }
       .capture-toast {
         font-size: 11px;

@@ -39,6 +39,15 @@ export interface Settings {
   ai_model_downloaded: boolean;
   capture_message_bodies: boolean;
   first_run_completed: boolean;
+  /**
+   * The account owner's first / last name, collected in the first-run modal.
+   * Threaded into the on-device extraction prompt (ownerName) so the model can
+   * tell the user's own messages from the contact's in a captured thread.
+   * Optional for back-compat with settings persisted before this field existed;
+   * absent ⇒ the prompt falls back to "the participant who is NOT the contact".
+   */
+  owner_first_name?: string;
+  owner_last_name?: string;
 }
 
 // Spec 012 D-rev-8 two-phase binding handshake.
