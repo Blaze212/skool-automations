@@ -864,27 +864,80 @@ async function aiExtractForCapture(input: {
   text?: string;
   candidate: ContactFields;
 }): Promise<AiExtractionResult | null> {
+  // Temporary verbose tracing — every early-exit announces itself so an AI
+  // extraction that silently degrades to the heuristic is never invisible.
+  const TAG = '[Pipeline Tracker AI]';
   try {
+    console.log(TAG, 'aiExtractForCapture START', {
+      hasHtml: Boolean(input.html),
+      hasText: Boolean(input.text),
+      candidate: input.candidate,
+    });
+
     const settings = await readSettingsOrDefault();
-    if (!settings.ai_fallback_enabled) return null;
-    if ((await getCachedAvailability()) !== 'available') return null;
+    if (!settings.ai_fallback_enabled) {
+      console.log(TAG, 'EXIT: ai_fallback_enabled is OFF — enable the AI toggle in Settings.');
+      return null;
+    }
+
+    const availability = await getCachedAvailability();
+    if (availability !== 'available') {
+      console.log(TAG, `EXIT: model availability is "${availability}" (need "available").`);
+      return null;
+    }
 
     const raw = input.html || input.text || '';
-    if (!raw.trim()) return null;
+    if (!raw.trim()) {
+      console.log(TAG, 'EXIT: dragged/pasted fragment is empty after trim.');
+      return null;
+    }
     const trimmedHtml = stripHtmlForCarry(capFragment(raw));
-    if (!trimmedHtml) return null;
+    if (!trimmedHtml) {
+      console.log(TAG, 'EXIT: fragment stripped to empty (capFragment/stripHtmlForCarry).');
+      return null;
+    }
 
+    console.log(TAG, `calling extractContact (trimmedHtml ${trimmedHtml.length} chars)`);
     const result = await extractContact({
       trimmedHtml,
       candidate: input.candidate,
       pageUrl: '',
     });
-    if (!result) return null;
+    if (!result) {
+      console.log(
+        TAG,
+        'EXIT: extractContact returned null — see [extractContact] logs above for why.',
+      );
+      return null;
+    }
+    console.log(TAG, 'SUCCESS: extractContact returned', result);
     return { fields: result.fields, suggested_event_type: result.suggested_event_type };
   } catch (err) {
     console.warn('[Pipeline Tracker side panel] AI extraction errored — using heuristic:', err);
     return null;
   }
+}
+
+/**
+ * Temporary sample-collection logger (spec 016 prompt tuning). Fires on EVERY
+ * drop/paste — regardless of AI toggle, model availability, or heuristic
+ * confidence — and logs both the raw fragment and the exact stripped content
+ * that WOULD be sent to the model (raw → capFragment → stripHtmlForCarry). Use
+ * the side panel's own DevTools console to copy these out as test fixtures.
+ */
+function debugLogCaptureFragment(frag: { html?: string; text?: string }): void {
+  const raw = frag.html || frag.text || '';
+  const trimmedHtml = raw.trim() ? stripHtmlForCarry(capFragment(raw)) : '';
+  console.log('[Pipeline Tracker capture] DROP — raw fragment', {
+    htmlLength: frag.html?.length ?? 0,
+    textLength: frag.text?.length ?? 0,
+    html: frag.html ?? null,
+    text: frag.text ?? null,
+  });
+  console.log(
+    `[Pipeline Tracker capture] DROP — LLM-bound content (${trimmedHtml.length} chars):\n` +
+      trimmedHtml,
+  );
 }
 
 let _captureHandle: CaptureSectionHandle | null = null;
@@ -899,6 +952,7 @@ function mountCaptureSection(root: HTMLElement): void {
       onSave: saveManualCapture,
       getPageUrl: getActivePageUrl,
       aiExtract: aiExtractForCapture,
+      debugLogFragment: debugLogCaptureFragment,
     });
   } catch (err) {
     console.error('[Pipeline Tracker side panel] mountCaptureSection failed:', err);

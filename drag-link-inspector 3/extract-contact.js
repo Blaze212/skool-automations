@@ -1,36 +1,28 @@
-/**
- * extractContact() — on-device contact extraction (spec 016).
- *
- * Promoted from spec 013's LinkedIn-anchored `recover()` AI *fallback* to the
- * *primary*, site-agnostic extractor for manual capture. Takes a stripped HTML
- * fragment a user dragged/pasted from any web page plus the heuristic candidate,
- * constrains the model to a JSON schema, reconciles the answer, and returns the
- * filled contact fields plus a suggested stage.
- *
- * LOAD-BEARING INVARIANT (D-AI-1): extractContact() NEVER throws. Every failure
- * mode — absent/throwing LanguageModel, create()/prompt() rejecting, invalid
- * JSON, schema mismatch, model refusal, AbortSignal timeout, over-quota input —
- * resolves to null. The caller treats null as "heuristic values stand"; the
- * card is always editable, so nothing is ever dropped.
- */
+// Standalone port of packages/scraping-core/src/ai-fallback/extract-contact.ts
+// for the eval. NO build step: plain ES module loaded by eval.html, run in an
+// extension page where Chrome's on-device `LanguageModel` (Gemini Nano) global
+// exists — exactly the surface the pipeline-tracker sidepanel uses.
+//
+// The response schema + parse/coerce logic below mirror production. The PROMPT
+// is the iteration surface: refining buildPrompt() HERE and re-running the eval
+// is a faithful preview of the shipped pipeline. Once validated, port the same
+// buildPrompt() back into production extract-contact.ts.
+//
+// NOTE: this buildPrompt() is currently AHEAD of production — it adds (1) an
+// ${ownerName} identity block + "most recent message WE sent" rule for
+// message_text, (2) "Pending = invite sent" / greeting = accepted_connection
+// hints for suggested_event_type, and (3) "copy the entire headline verbatim"
+// for title. Port these back when satisfied with the eval scores.
+//
+// Difference from production: we do NOT reconcile against a heuristic candidate
+// (the eval has no candidate — it scores the model's raw extraction against the
+// truth labels). null is preserved (not coerced to '') so the scorer can treat
+// "model said null" and "truth is null" as a match.
 
-import type { EventType } from '../types.js';
-import { AI_OUTPUT_LANGUAGE } from './types.js';
-import type {
-  ContactFields,
-  ExtractContactInput,
-  ExtractContactResult,
-  LanguageModelSession,
-} from './types.js';
+const CREATE_TIMEOUT_MS = 15_000; // a touch higher than prod (10s) — cold model
+const PROMPT_TIMEOUT_MS = 20_000; // headroom for the longer message-thread cases
 
-const CREATE_TIMEOUT_MS = 10_000;
-const PROMPT_TIMEOUT_MS = 10_000;
-
-const EVENT_TYPES = new Set<EventType>([
-  'connection_request',
-  'accepted_connection',
-  'direct_message',
-]);
+const EVENT_TYPES = new Set(['connection_request', 'accepted_connection', 'direct_message']);
 
 /** Responses constrained to this schema. null ≠ "" (reconciliation depends on it). */
 const RESPONSE_SCHEMA = {
@@ -44,35 +36,13 @@ const RESPONSE_SCHEMA = {
   },
   required: ['name', 'title', 'linkedin_url', 'message_text', 'suggested_event_type'],
   additionalProperties: false,
-} as const;
+};
 
-interface RawExtraction {
-  name: string | null;
-  title: string | null;
-  linkedin_url: string | null;
-  message_text: string | null;
-  suggested_event_type: string | null;
-}
-
-type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-
-function buildPrompt(input: ExtractContactInput): string {
-  // Deliberately NO heuristic-candidate block: feeding the cheap heuristic's
-  // guesses into the prompt anchors the model on them (it copied a wrong
-  // "is a mutual connection" title and the wrong person's name verbatim). The
-  // model reads the raw HTML itself; the heuristic survives only as the code-side
-  // reconcile() fallback when the model returns null.
-  //
-  // Prompt tuned against the on-device eval (drag-link-inspector eval harness):
-  //   - an anti-fabrication guard (small models invent titles/URLs when pushed
-  //     to fill a field — "null over a guess"),
-  //   - title null-when-absent (never invent a headline for a bare name),
-  //   - message_text = the most recent message WE sent (the non-contact party),
-  //   - stage only when the fragment actually shows an interaction.
-  const owner = (input.ownerName ?? '').trim();
-  // Identity block: lets the model tell OUR messages from the other person's in
-  // a thread. When no name is configured, fall back to "the participant who is
-  // NOT the primary contact" — still unambiguous in a 1:1 thread.
+// ─── Prompt (rev 2) — port to production extract-contact.ts when satisfied ────
+function buildPrompt(input) {
+  const owner = (input.ownerName || '').trim();
+  // Identity block only emitted when the owner's name is known — lets the model
+  // tell OUR messages from the other person's in a thread (message_text rule).
   const ownerBlock = owner
     ? [
         `The account owner (the person doing the capturing) is ${owner}. In a`,
@@ -81,8 +51,7 @@ function buildPrompt(input: ExtractContactInput): string {
         '',
       ]
     : [];
-  const ownerRef =
-    owner || 'the account owner (you — the thread participant who is NOT the primary contact)';
+  const ownerRef = owner || 'the account owner (the person capturing this)';
 
   return [
     'You are extracting a single contact from an HTML fragment a user selected',
@@ -151,8 +120,9 @@ function buildPrompt(input: ExtractContactInput): string {
     input.trimmedHtml,
   ].join('\n');
 }
+// ─────────────────────────────────────────────────────────────────────────────
 
-function readField(obj: { [key: string]: JsonValue }, key: string): string | null | undefined {
+function readField(obj, key) {
   if (!(key in obj)) return undefined;
   const value = obj[key];
   if (value === null) return null;
@@ -161,17 +131,15 @@ function readField(obj: { [key: string]: JsonValue }, key: string): string | nul
 }
 
 /** Parse + schema-validate the model output. Returns null on any deviation. */
-function parseExtraction(raw: string): RawExtraction | null {
-  if (!raw || !raw.trim()) return null; // empty string ⇒ model refusal
-
-  let parsed: JsonValue;
+function parseExtraction(raw) {
+  if (!raw || !raw.trim()) return null;
+  let parsed;
   try {
-    parsed = JSON.parse(raw) as JsonValue;
+    parsed = JSON.parse(raw);
   } catch {
     return null;
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
-
   const name = readField(parsed, 'name');
   const title = readField(parsed, 'title');
   const linkedinUrl = readField(parsed, 'linkedin_url');
@@ -195,103 +163,54 @@ function parseExtraction(raw: string): RawExtraction | null {
   };
 }
 
-/** A "clean canonical URL" the heuristic yielded — an absolute https URL. */
-function isCleanUrl(url: string): boolean {
-  try {
-    return new URL(url).protocol === 'https:';
-  } catch {
-    return false;
-  }
+function coerceEventType(value) {
+  return value !== null && EVENT_TYPES.has(value) ? value : null;
 }
 
 /**
- * Review S-1 — `responseConstraint` enum annotations may be ignored by Chrome,
- * so re-validate the model's `suggested_event_type` against the real union and
- * coerce anything else (including null/garbage) to null.
+ * Run the on-device model over one eval input. Returns:
+ *   { ok: true, extraction, ms, raw }   on success
+ *   { ok: false, reason, ms }           on any failure (mirrors prod's null path)
  */
-function coerceEventType(value: string | null): EventType | null {
-  return value !== null && EVENT_TYPES.has(value as EventType) ? (value as EventType) : null;
-}
-
-/**
- * Reconciliation (de-LinkedIn — D-016-4):
- *   name / title / message_text → AI wins; null falls back to the candidate.
- *   linkedin_url → prefer the heuristic's clean canonical URL when it has one,
- *                  else the AI's URL (no linkedin.com anchoring).
- */
-function reconcile(candidate: ContactFields, ai: RawExtraction): ContactFields {
-  const linkedin_url = isCleanUrl(candidate.linkedin_url)
-    ? candidate.linkedin_url
-    : (ai.linkedin_url ?? candidate.linkedin_url);
-
-  return {
-    name: ai.name ?? candidate.name,
-    title: ai.title ?? candidate.title,
-    message_text: ai.message_text ?? candidate.message_text,
-    linkedin_url,
-  };
-}
-
-export async function extractContact(
-  input: ExtractContactInput,
-): Promise<ExtractContactResult | null> {
+export async function runExtraction(input) {
+  const t0 = performance.now();
+  const elapsed = () => Math.round(performance.now() - t0);
   try {
     if (typeof LanguageModel === 'undefined' || !LanguageModel) {
-      console.log('[extractContact] EXIT: LanguageModel global is undefined in this context.');
-      return null;
+      return { ok: false, reason: 'LanguageModel global is undefined in this context', ms: elapsed() };
     }
     const availability = await LanguageModel.availability();
     if (availability !== 'available') {
-      console.log(
-        `[extractContact] EXIT: LanguageModel.availability() = "${availability}" (need "available").`,
-      );
-      return null;
+      return { ok: false, reason: `availability() = "${availability}" (need "available")`, ms: elapsed() };
     }
 
-    let session: LanguageModelSession | null = null;
+    let session = null;
     try {
       session = await LanguageModel.create({
         signal: AbortSignal.timeout(CREATE_TIMEOUT_MS),
-        outputLanguage: AI_OUTPUT_LANGUAGE,
-        expectedInputs: [{ type: 'text', languages: [AI_OUTPUT_LANGUAGE] }],
-        expectedOutputs: [{ type: 'text', languages: [AI_OUTPUT_LANGUAGE] }],
+        outputLanguage: 'en',
+        expectedInputs: [{ type: 'text', languages: ['en'] }],
+        expectedOutputs: [{ type: 'text', languages: ['en'] }],
       });
 
-      // No up-front token measurement: measureInputUsage() stalls on some Chrome
-      // builds and the attribute-stripped input is small. prompt() enforces the
-      // real context limit — an overflow throws QuotaExceededError, which the
-      // catch below turns into a clean null (heuristic values stand).
       const promptText = buildPrompt(input);
-      // Temporary: log the entire prompt sent to the on-device model so we can
-      // inspect exactly what the AI sees during manual capture debugging.
-      console.log('[extractContact] AI input prompt:\n' + promptText);
       const raw = await session.prompt(promptText, {
         signal: AbortSignal.timeout(PROMPT_TIMEOUT_MS),
         responseConstraint: RESPONSE_SCHEMA,
       });
-      // Temporary: log the raw model output alongside the input above.
-      console.log('[extractContact] AI raw output:\n' + raw);
 
       const parsed = parseExtraction(raw);
       if (!parsed) {
-        console.log(
-          '[extractContact] EXIT: parseExtraction returned null — output was empty, not JSON, ' +
-            'or failed schema validation (see raw output above).',
-        );
-        return null;
+        return { ok: false, reason: 'parse/schema-validation failed', ms: elapsed(), raw };
       }
-
-      return {
-        fields: reconcile(input.candidate, parsed),
-        suggested_event_type: coerceEventType(parsed.suggested_event_type),
-      };
+      parsed.suggested_event_type = coerceEventType(parsed.suggested_event_type);
+      return { ok: true, extraction: parsed, ms: elapsed(), raw };
     } finally {
       session?.destroy?.();
     }
   } catch (err) {
-    // D-AI-1 still holds (we resolve to null), but never silently — surface the
-    // real failure (create()/prompt() rejection, timeout, QuotaExceededError…).
-    console.log('[extractContact] EXIT: threw, degrading to null. Error:', err);
-    return null;
+    return { ok: false, reason: String(err?.message || err), ms: elapsed() };
   }
 }
+
+export { buildPrompt };

@@ -12,3 +12,7 @@ resumes
 .venv
 n8n
 .claude
+
+# Spec 016 prompt-eval harness fixtures (raw capture log + generated dataset)
+LinkedInRawCapturesForPromptTesting.html
+drag-link-inspector 3

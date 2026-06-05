@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drag Link Inspector</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0; padding: 12px; color: #1a1a2e; background: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e7e9ee; background: #1c1f26; }
+    pre { background: #2a2e38 !important; }
+    .pick { background: #14361f !important; border-color: #2f7d4f !important; }
+    #zone { border-color: #555 !important; color: #aaa !important; }
+    .btn { background: #2a2e38; color: #e7e9ee; border-color: #3a3f4b; }
+  }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  p.sub { margin: 0 0 12px; color: #6b7280; font-size: 12.5px; }
+  #zone {
+    border: 2px dashed #9aa0aa; border-radius: 12px; padding: 28px 12px;
+    text-align: center; color: #555; transition: .12s; user-select: none;
+  }
+  #zone.over { border-color: #2563eb; background: #eff6ff; color: #2563eb; }
+  .flavor { margin: 12px 0; }
+  .flavor h3 {
+    margin: 0 0 4px; font-size: 11px; text-transform: uppercase;
+    letter-spacing: .04em; color: #6b7280;
+  }
+  pre {
+    background: #f3f4f6; padding: 8px 10px; border-radius: 8px; margin: 0;
+    overflow-x: auto; white-space: pre-wrap; word-break: break-all; font-size: 12.5px;
+  }
+  .pick { background: #ecfdf5; border: 1px solid #6ee7b7; }
+  .btns { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .btn {
+    font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 7px;
+    border: 1px solid #d1d5db; background: #fff; cursor: pointer;
+  }
+  .btn:active { transform: translateY(1px); }
+  .note { color: #9aa0aa; font-size: 12.5px; }
+</style>
+</head>
+<body>
+  <h1>Drag Link Inspector</h1>
+  <p class="sub">Drag a hyperlink (e.g. a LinkedIn profile) from the page into the box below.</p>
+  <p class="sub"><a href="eval.html" target="_blank" rel="noopener">▶ Open on-device extraction eval</a> — score the production prompt against the capture fixtures.</p>
+  <div id="zone">Drop a dragged link here</div>
+  <div id="out"></div>
+  <script src="sidepanel.js"></script>
+</body>
+</html>
