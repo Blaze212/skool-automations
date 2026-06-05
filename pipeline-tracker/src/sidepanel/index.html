@@ -687,11 +687,118 @@
         opacity: 0.5;
         cursor: not-allowed;
       }
+
+      /* ── Manual capture card (spec 016) ───────────────────────────────── */
+      .capture-section {
+        margin-bottom: 16px;
+      }
+      .capture-dropzone {
+        border: 2px dashed var(--cs-brand);
+        border-radius: 6px;
+        background: rgba(46, 163, 242, 0.06);
+        color: var(--cs-muted);
+        font-size: 12px;
+        text-align: center;
+        padding: 16px 12px;
+        cursor: pointer;
+        outline: none;
+      }
+      .capture-dropzone:focus-visible {
+        box-shadow: 0 0 0 3px rgba(46, 163, 242, 0.3);
+      }
+      .capture-dropzone-over {
+        background: rgba(46, 163, 242, 0.16);
+        border-color: var(--cs-brand-dark);
+      }
+      .capture-toast {
+        font-size: 11px;
+        color: #6b21a8;
+        margin-top: 6px;
+        font-style: italic;
+      }
+      .capture-card {
+        margin-top: 10px;
+        background: #fff;
+        border: 1px solid var(--cs-border);
+        border-radius: 6px;
+        padding: 10px 12px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+      }
+      .capture-extracting {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--cs-brand-dark);
+        background: rgba(46, 163, 242, 0.12);
+        border-radius: 4px;
+        padding: 6px 8px;
+        margin-bottom: 8px;
+      }
+      .capture-stage {
+        display: block;
+        margin-bottom: 8px;
+      }
+      .capture-stage-select {
+        width: 100%;
+        box-sizing: border-box;
+        font-size: 12px;
+        padding: 5px 6px;
+        border: 1px solid var(--cs-border);
+        border-radius: 3px;
+        background: #fff;
+      }
+      .capture-error {
+        font-size: 11px;
+        color: #991b1b;
+        background: #fee2e2;
+        border-radius: 3px;
+        padding: 6px 8px;
+        margin-bottom: 8px;
+      }
+      .capture-actions {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .capture-save-btn {
+        appearance: none;
+        background: var(--cs-brand);
+        color: #fff;
+        border: none;
+        border-radius: 3px;
+        padding: 5px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .capture-save-btn:hover:not(:disabled) {
+        background: #1a8fd6;
+      }
+      .capture-ai-btn,
+      .capture-discard-btn {
+        appearance: none;
+        background: transparent;
+        color: var(--cs-muted);
+        border: 1px solid var(--cs-border);
+        border-radius: 3px;
+        padding: 5px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .capture-discard-btn {
+        margin-left: auto;
+      }
+      .capture-save-btn:disabled,
+      .capture-ai-btn:disabled,
+      .capture-discard-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
     </style>
   </head>
   <body>
     <div id="settings-section"></div>
     <div id="binding-section"></div>
+    <div id="capture-section"></div>
     <div id="review-section"></div>
 
     <section id="unsynced-section" class="section">
