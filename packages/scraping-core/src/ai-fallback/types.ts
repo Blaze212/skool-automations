@@ -100,6 +100,13 @@ export interface ExtractContactInput {
   candidate: ContactFields;
   /** The page the fragment was selected from (best-effort; '' is fine). */
   pageUrl: string;
+  /**
+   * The account owner's display name (the person doing the capturing). Used to
+   * identify which messages in a thread are "ours" so message_text picks the
+   * most recent message WE sent. Optional — when absent the prompt falls back to
+   * "the participant who is NOT the primary contact". '' is fine.
+   */
+  ownerName?: string;
 }
 
 export interface ExtractContactResult {
