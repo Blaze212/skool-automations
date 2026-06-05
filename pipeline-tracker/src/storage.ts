@@ -26,10 +26,13 @@
 
 import {
   HISTORY_CAP,
+  OUTBOX_CAP,
   STORAGE_KEYS,
+  type EventType,
   type ExtensionBinding,
   type HistoryEntry,
   type OutboxEntry,
+  type PipelineEvent,
   type Severity,
   type Settings,
 } from './types.ts';
@@ -52,6 +55,22 @@ export class StorageQuotaExceededError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'StorageQuotaExceededError';
+  }
+}
+
+/**
+ * Spec 016 CEO-review decision 2 — thrown by enqueueManualCapture when the
+ * outbox is already at OUTBOX_CAP. Unlike the legacy scraper enqueue (which
+ * drops the oldest entry to make room), a manual capture is user-authored, so
+ * silently evicting another row would be data loss. The capture card stays
+ * populated and the panel shows an inline "sync or clear, then retry" error.
+ */
+export class OutboxFullError extends Error {
+  readonly cap: number;
+  constructor(cap: number) {
+    super(`Outbox is full (${cap} unsynced events) — sync or clear before capturing more`);
+    this.name = 'OutboxFullError';
+    this.cap = cap;
   }
 }
 
@@ -805,4 +824,99 @@ export async function markOutboxReviewed(historyIds: string[]): Promise<{ review
   if (reviewedCount === 0) return { reviewedCount: 0 };
   await outboxStore.set(next);
   return { reviewedCount };
+}
+
+// === Spec 016 — manual capture enqueue (CEO-review decision 1) ===
+
+/** The user-supplied + heuristic/AI-filled fields a manual capture carries. */
+export interface ManualCaptureInput {
+  name: string;
+  title: string;
+  /** Wire field name kept for back-compat; may be any-site https URL (D-016-4). */
+  linkedin_url: string;
+  message_text: string;
+  /** Human-selected via the Stage dropdown (AI-suggested default). */
+  event_type: EventType;
+  /** Best-effort active-tab URL; '' when unavailable (not used for dedup). */
+  page_url: string;
+}
+
+function freshHistoryId(): string {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${new Date().toISOString()}-${Math.round(Math.random() * 1e9)}`;
+}
+
+/**
+ * Spec 016 D-016-5/6 — the ONE typed path a manual capture takes into the
+ * outbox. It hard-codes the wire invariant so capture-section.ts cannot
+ * construct a wrong row (the AI-fallback/review surface is a recurring-edit
+ * hotspot — a comment-only invariant there is a silent-regression risk):
+ *
+ *   scrape_confidence: 'high'   — the card editor IS the review step
+ *   needs_review: false         — never routed into the held-back review queue
+ *   user_reviewed: true         — released to the app on the next sync-pull
+ *   api_key: ''                 — legacy field, ignored by tracker-import
+ *   fresh history_id            — server dedups on (user_id, history_id)
+ *
+ * It ALWAYS calls setOutboxAndHistory — NEVER setOutboxHistoryAndRecoveredHtml
+ * (decision 3: a manual capture never persists/syncs recovered_html; the
+ * dropped fragment can be arbitrary private content and has no server consumer)
+ * and NEVER reviewOutboxEntry (its OutboxReviewEdits shape omits event_type and
+ * would drop the dropdown selection — review N-4).
+ *
+ * Throws OutboxFullError at OUTBOX_CAP and StorageQuotaExceededError on a quota
+ * failure (from setOutboxAndHistory). Both leave storage untouched, so the
+ * caller can keep the card populated and surface an inline error (decision 2).
+ */
+export async function enqueueManualCapture(
+  input: ManualCaptureInput,
+): Promise<{ historyId: string }> {
+  const [prevOutbox, prevHistory] = await Promise.all([outboxStore.get(), historyStore.get()]);
+  if (prevOutbox.length >= OUTBOX_CAP) {
+    throw new OutboxFullError(OUTBOX_CAP);
+  }
+
+  const historyId = freshHistoryId();
+  const now = new Date().toISOString();
+
+  const event: PipelineEvent = {
+    api_key: '',
+    event_type: input.event_type,
+    date: now.slice(0, 10),
+    name: input.name,
+    title: input.title,
+    linkedin_url: input.linkedin_url,
+    page_url: input.page_url,
+    message_text: input.message_text,
+    scrape_confidence: 'high',
+  };
+
+  const outboxEntry: OutboxEntry = {
+    history_id: historyId,
+    event,
+    enqueued_at: now,
+    attempts: 0,
+    scrape_confidence: 'high',
+    needs_review: false,
+    user_reviewed: true,
+  };
+
+  const pendingHistoryEntry: HistoryEntry = {
+    id: historyId,
+    ts: now,
+    status: 'pending',
+    event_type: input.event_type,
+    name: input.name,
+    page_url: input.page_url,
+    message: 'Queued — waiting to sync',
+    warnings: [],
+    title: input.title,
+  };
+
+  const outbox = [...prevOutbox, outboxEntry];
+  const history = [pendingHistoryEntry, ...prevHistory].slice(0, HISTORY_CAP);
+
+  await setOutboxAndHistory(outbox, history);
+  return { historyId };
 }

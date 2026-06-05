@@ -17,11 +17,14 @@ import { STORAGE_KEYS } from '../types.ts';
 import {
   DEFAULT_SETTINGS,
   bindingStore,
+  enqueueManualCapture,
   historyStore,
   outboxStore,
   badgeStore,
   settingsStore,
+  type ManualCaptureInput,
 } from '../storage.ts';
+import { renderCaptureSection, type CaptureSectionHandle } from './capture-section.ts';
 import { renderFirstRunModal } from './first-run-modal.ts';
 import { renderSettingsSection } from './settings-section.ts';
 import { renderBindingSection } from './binding-section.ts';
@@ -677,6 +680,10 @@ export function _resetBindingMountForTests(): void {
     _reviewListUnsubscribe();
     _reviewListUnsubscribe = null;
   }
+  if (_captureHandle) {
+    _captureHandle.destroy();
+    _captureHandle = null;
+  }
 }
 
 /**
@@ -811,9 +818,51 @@ function safelyMountReviewListener(reviewRoot: HTMLElement): void {
   }
 }
 
+// --- Spec 016 — manual capture card ---
+
+/**
+ * Best-effort active-tab URL via `activeTab` (auto-granted when the panel is
+ * opened from the toolbar icon) — NOT the broad `tabs` permission (review S-6).
+ * Drops to '' when unavailable rather than escalating the permission.
+ */
+async function getActivePageUrl(): Promise<string> {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    return tabs[0]?.url ?? '';
+  } catch (err) {
+    console.warn('[Pipeline Tracker side panel] activeTab url unavailable:', err);
+    return '';
+  }
+}
+
+/** onSave for the capture card — the typed manual-capture enqueue (decision 1).
+ * Throws OutboxFullError / StorageQuotaExceededError, which the capture card
+ * catches to keep the card populated and show an inline error (decision 2). */
+async function saveManualCapture(capture: ManualCaptureInput): Promise<void> {
+  await enqueueManualCapture(capture);
+}
+
+let _captureHandle: CaptureSectionHandle | null = null;
+
+function mountCaptureSection(root: HTMLElement): void {
+  if (_captureHandle) {
+    _captureHandle.destroy();
+    _captureHandle = null;
+  }
+  try {
+    _captureHandle = renderCaptureSection(root, {
+      onSave: saveManualCapture,
+      getPageUrl: getActivePageUrl,
+    });
+  } catch (err) {
+    console.error('[Pipeline Tracker side panel] mountCaptureSection failed:', err);
+  }
+}
+
 export async function initSidePanel(): Promise<void> {
   const settingsRoot = document.getElementById('settings-section') as HTMLElement;
   const bindingRoot = document.getElementById('binding-section') as HTMLElement;
+  const captureRoot = document.getElementById('capture-section') as HTMLElement | null;
   const reviewRoot = document.getElementById('review-section') as HTMLElement;
   const unsyncedList = document.getElementById('unsynced-list') as HTMLElement;
   const unsyncedCount = document.getElementById('unsynced-count') as HTMLElement;
@@ -847,6 +896,9 @@ export async function initSidePanel(): Promise<void> {
   // Spec 015 B2 — review queue for low-confidence captures. Empty → renders
   // nothing, so the section is invisible until something needs attention.
   if (reviewRoot) renderReview(reviewRoot, outbox);
+  // Spec 016 — manual drag/paste capture card. Mounts independently of binding
+  // and storage state; captures queue into the outbox even before binding.
+  if (captureRoot) mountCaptureSection(captureRoot);
   await clearUnreadCounter();
 
   // Phase 11 — Export CSV button. Delegates to the SW (background handles
