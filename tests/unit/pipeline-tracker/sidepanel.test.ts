@@ -215,24 +215,24 @@ describe('side panel — renderUnsynced', () => {
     expect(details.textContent).not.toContain('secret message');
   });
 
-  it('refuses to render a clickable anchor for non-https/non-linkedin URLs (XSS guard)', () => {
+  it('renders any https URL as a clickable anchor but refuses non-https schemes (spec 016 S-2)', () => {
     const list = document.getElementById('unsynced-list') as HTMLElement;
     const count = document.getElementById('unsynced-count') as HTMLElement;
-    const hostile = [
-      makeOutboxEntry(1, { linkedin_url: 'javascript:alert(1)' }),
-      makeOutboxEntry(2, { linkedin_url: 'data:text/html,<script>alert(2)</script>' }),
+    const mixed = [
+      makeOutboxEntry(1, { linkedin_url: 'javascript:alert(1)' }), // unsafe scheme
+      makeOutboxEntry(2, { linkedin_url: 'data:text/html,<script>alert(2)</script>' }), // unsafe
       makeOutboxEntry(3, { linkedin_url: 'http://www.linkedin.com/in/foo' }), // http, not https
-      makeOutboxEntry(4, { linkedin_url: 'https://evil.example.com/in/foo' }), // wrong host
-      makeOutboxEntry(5, { linkedin_url: 'https://www.linkedin.com/in/jane' }), // good
+      makeOutboxEntry(4, { linkedin_url: 'https://github.com/jane' }), // non-LinkedIn https → OK
+      makeOutboxEntry(5, { linkedin_url: 'https://www.linkedin.com/in/jane' }), // LinkedIn https → OK
     ];
-    renderUnsynced(list, count, hostile);
+    renderUnsynced(list, count, mixed);
     const anchors = Array.from(list.querySelectorAll('a'));
-    // Only the well-formed https://www.linkedin.com row becomes an anchor.
-    expect(anchors).toHaveLength(1);
-    expect(anchors[0].href).toBe('https://www.linkedin.com/in/jane');
+    // Both https rows (any host) become anchors; the unsafe-scheme + http rows do not.
+    const hrefs = anchors.map((a) => a.href).sort();
+    expect(hrefs).toEqual(['https://github.com/jane', 'https://www.linkedin.com/in/jane']);
     expect(anchors[0].rel).toBe('noopener noreferrer');
-    // The hostile values are still SHOWN (as plain text) so the user can see
-    // what the extension captured — but they aren't a click target.
+    // The unsafe values are still SHOWN (as plain text) so the user can see what
+    // was captured — but they aren't a click target.
     expect(list.textContent).toMatch(/javascript:alert\(1\)/);
     expect(list.textContent).toMatch(/data:text\/html/);
   });

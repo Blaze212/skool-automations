@@ -1,6 +1,6 @@
-// Public API for the on-device AI fallback (spec 013).
+// Public API for the on-device AI extractor (spec 013 → generalized in spec 016).
 
-export { recover } from './recover.js';
+export { extractContact } from './extract-contact.js';
 export { stripHtmlForCarry, RECOVERED_HTML_CAP_BYTES } from './strip-html.js';
 export {
   getCachedAvailability,
@@ -10,8 +10,9 @@ export {
 export { downloadModel } from './download.js';
 export type {
   AiAvailability,
+  ContactFields,
+  ExtractContactInput,
+  ExtractContactResult,
   LanguageModelSession,
   LanguageModelStatic,
-  RecoverInput,
-  RecoverResult,
 } from './types.js';

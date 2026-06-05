@@ -1,5 +1,7 @@
 // Spec 016 D-016-5/6 — enqueueManualCapture wire invariant (CEO-review decision 1).
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   OutboxFullError,
@@ -112,6 +114,32 @@ describe('enqueueManualCapture — wire invariant', () => {
     await enqueueManualCapture({ ...baseInput, event_type: 'connection_request' });
     const outbox = local[STORAGE_KEYS.OUTBOX] as OutboxEntry[];
     expect(outbox[0].event.event_type).toBe('connection_request');
+  });
+});
+
+describe('enqueueManualCapture — wire-shape oracle (CEO decision 6 / Acceptance)', () => {
+  const oraclePath = fileURLToPath(
+    new URL('../../fixtures/pipeline-tracker/manual-capture-wire-oracle.json', import.meta.url),
+  );
+  const oracle = JSON.parse(readFileSync(oraclePath, 'utf8')).event as Record<string, unknown>;
+
+  it('emits exactly the field set tracker-import consumes — no extra keys', async () => {
+    const { local } = installStatefulStorage();
+    await enqueueManualCapture({
+      name: 'Jane Doe',
+      title: 'Head of Growth',
+      linkedin_url: 'https://github.com/jane',
+      message_text: 'hi there',
+      event_type: 'connection_request',
+      page_url: 'https://example.com/jane',
+    });
+    const event = (local[STORAGE_KEYS.OUTBOX] as OutboxEntry[])[0].event as Record<string, unknown>;
+
+    // No recovered_html / source / debug leak onto the wire event.
+    expect(Object.keys(event).sort()).toEqual(Object.keys(oracle).sort());
+    // Field-for-field match (date is dynamic — normalize to the oracle's value).
+    expect({ ...event, date: oracle.date }).toEqual(oracle);
+    expect(event.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
 

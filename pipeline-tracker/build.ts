@@ -1,13 +1,14 @@
-// Spec 015 C7 — single unified build for the Pipeline Tracker extension.
+// Spec 016 — single unified build for the Pipeline Tracker extension.
 //
 // Usage:
 //   tsx pipeline-tracker/build.ts   → dist/
 //
-// The internal/publishable BUILD_TARGET split (spec 012 Phase 4) is retired:
-// internal pipeline behavior is now server-side via tracker_clients.sheet_layout,
-// so there is one Chrome Web Store-publishable build. It has no webhook host
-// permission and no popup; events sit in the outbox until app.cmcareersystems.com
-// pulls them over externally_connectable (binding handshake + sync-pull/ack).
+// Spec 016 retired the LinkedIn DOM-scraping content script: capture is now a
+// manual drag/paste into the side panel, so there is no `content.js` bundle and
+// no `host_permissions` / `content_scripts` in the manifest. The build is just
+// the background service worker + the side panel. Events sit in the outbox until
+// app.cmcareersystems.com pulls them over externally_connectable (binding
+// handshake + sync-pull/ack).
 
 import * as esbuild from 'esbuild';
 import { copyFileSync, mkdirSync, readdirSync } from 'fs';
@@ -16,13 +17,6 @@ const distDir = 'pipeline-tracker/dist';
 
 mkdirSync(`${distDir}/icons`, { recursive: true });
 mkdirSync(`${distDir}/sidepanel`, { recursive: true });
-
-await esbuild.build({
-  entryPoints: ['pipeline-tracker/src/content.ts'],
-  bundle: true,
-  format: 'iife',
-  outfile: `${distDir}/content.js`,
-});
 
 await esbuild.build({
   entryPoints: ['pipeline-tracker/src/background.ts'],

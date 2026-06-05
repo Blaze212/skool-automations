@@ -1,18 +1,10 @@
 // Public API surface for @cs/scraping-core.
-// Populated by spec 011. Phase 4 adds the extract() orchestrator; Phase 5
-// adds ExtractionSource + the CI guard.
-
-export {
-  AcceptInvitationCard,
-  Card,
-  type CardClass,
-  ChatOverlayCard,
-  MessengerPageCard,
-  ProfilePageAcceptCard,
-  SalesNavLeadCard,
-  SalesNavMenuCard,
-  SalesNavConnectModalCard,
-} from './cards/index.js';
+//
+// Spec 016 retired the LinkedIn DOM-scraping path (Cards + the extract()
+// orchestrator). What remains is the shared wire types, the validation helper,
+// and the on-device AI extractor (`extractContact`, promoted from spec 013's
+// LinkedIn-anchored `recover()` to the primary, site-agnostic extractor) plus
+// its HTML-strip / availability / download helpers.
 
 export {
   validate,
@@ -26,14 +18,6 @@ export {
   FOLLOWER_COUNT_RE,
 } from './validate.js';
 
-export {
-  extract,
-  type AiRecoveryOptions,
-  type ExtractEventHint,
-  type ExtractInput,
-  type ExtractResult,
-} from './extract.js';
-
 export type {
   DebugPayload,
   EventType,
@@ -43,7 +27,7 @@ export type {
 } from './types.js';
 
 export {
-  recover,
+  extractContact,
   stripHtmlForCarry,
   RECOVERED_HTML_CAP_BYTES,
   getCachedAvailability,
@@ -51,8 +35,9 @@ export {
   refreshAvailability,
   downloadModel,
   type AiAvailability,
+  type ContactFields,
+  type ExtractContactInput,
+  type ExtractContactResult,
   type LanguageModelSession,
   type LanguageModelStatic,
-  type RecoverInput,
-  type RecoverResult,
 } from './ai-fallback/index.js';

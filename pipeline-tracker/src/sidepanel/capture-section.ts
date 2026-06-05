@@ -269,11 +269,19 @@ export function renderCaptureSection(
     setControlsDisabled(true);
 
     try {
-      const result = await opts.aiExtract({
-        html: currentFragment.html,
-        text: currentFragment.text,
-        candidate,
-      });
+      let result: AiExtractionResult | null = null;
+      try {
+        result = await opts.aiExtract({
+          html: currentFragment.html,
+          text: currentFragment.text,
+          candidate,
+        });
+      } catch (err) {
+        // The extractor is contracted never to throw (D-AI-1), but guard anyway
+        // so a rejection degrades to the heuristic instead of escaping unhandled.
+        console.warn('[Pipeline Tracker capture] AI extraction threw — using heuristic:', err);
+        result = null;
+      }
       if (result) {
         enterReady(result.fields, result.suggested_event_type);
       } else {
