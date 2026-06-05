@@ -181,6 +181,14 @@ export function renderCaptureSection(
   stageRow.appendChild(stageSelect);
   card.appendChild(stageRow);
 
+  // Paint the dropdown as a colored "bubble" matching the row badges
+  // (connect = dark, accepted = green, dm = blue) for the selected stage.
+  function paintStage(): void {
+    for (const o of STAGE_OPTIONS) stageSelect.classList.remove(`stage-${o.value}`);
+    stageSelect.classList.add(`stage-${stageSelect.value}`);
+  }
+  stageSelect.addEventListener('change', paintStage);
+
   const errorEl = document.createElement('div');
   errorEl.className = 'capture-error';
   errorEl.hidden = true;
@@ -242,6 +250,7 @@ export function renderCaptureSection(
     fieldsHost.replaceChildren(...built.rows);
     getEdits = built.getEdits;
     stageSelect.value = suggested ?? DEFAULT_EVENT_TYPE;
+    paintStage();
   }
 
   function clearError(): void {

@@ -770,8 +770,23 @@
         font-size: 11px;
         cursor: pointer;
       }
+      .review-delete-btn {
+        appearance: none;
+        background: transparent;
+        color: #b91c1c;
+        border: 1px solid #fca5a5;
+        border-radius: 3px;
+        padding: 3px 9px;
+        font-size: 11px;
+        cursor: pointer;
+        margin-left: auto;
+      }
+      .review-delete-btn:hover:not(:disabled) {
+        background: #fee2e2;
+      }
       .review-save-btn:disabled,
-      .review-sync-one-btn:disabled {
+      .review-sync-one-btn:disabled,
+      .review-delete-btn:disabled {
         opacity: 0.5;
         cursor: not-allowed;
       }
@@ -828,14 +843,31 @@
         display: block;
         margin-bottom: 8px;
       }
+      /* Stage dropdown styled as a colored "bubble" matching the row badges
+         (connect = dark, accepted = green, dm = blue), keeping the full labels. */
       .capture-stage-select {
         width: 100%;
         box-sizing: border-box;
         font-size: 12px;
-        padding: 5px 6px;
-        border: 1px solid var(--cs-border);
-        border-radius: 3px;
-        background: #fff;
+        font-weight: 600;
+        padding: 6px 8px;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        background: var(--cs-surface-muted);
+        color: var(--cs-text);
+        cursor: pointer;
+      }
+      .capture-stage-select.stage-connection_request {
+        background: rgba(39, 61, 92, 0.1);
+        color: var(--cs-brand-dark);
+      }
+      .capture-stage-select.stage-accepted_connection {
+        background: #dcfce7;
+        color: #166534;
+      }
+      .capture-stage-select.stage-direct_message {
+        background: rgba(46, 163, 242, 0.15);
+        color: #0369a1;
       }
       .capture-error {
         font-size: 11px;

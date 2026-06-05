@@ -284,6 +284,51 @@ describe('side panel — renderUnsynced editable rows (spec 015 B2 extended)', (
     });
   });
 
+  it('re-enables the Save button after a successful save (shows a brief confirmation)', async () => {
+    const list = document.getElementById('unsynced-list') as HTMLElement;
+    const count = document.getElementById('unsynced-count') as HTMLElement;
+    const onEdit = vi.fn().mockResolvedValue(undefined);
+    renderUnsynced(list, count, [makeOutboxEntry(1)], { onEdit });
+
+    const saveBtn = list.querySelector('.review-save-btn') as HTMLButtonElement;
+    saveBtn.click();
+    expect(saveBtn.disabled).toBe(true); // disabled while in flight
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(saveBtn.disabled).toBe(false); // re-enabled on success (was the bug)
+    expect(saveBtn.textContent).toMatch(/Saved/);
+  });
+
+  it('renders a Delete button only when onDelete is provided, and calls it with the history_id', () => {
+    const list = document.getElementById('unsynced-list') as HTMLElement;
+    const count = document.getElementById('unsynced-count') as HTMLElement;
+
+    // No onDelete → no Delete button.
+    renderUnsynced(list, count, [makeOutboxEntry(1)], { onEdit: vi.fn() });
+    expect(list.querySelector('.review-delete-btn')).toBeNull();
+
+    // With onDelete → Delete button calls back with the row's history_id.
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderUnsynced(list, count, [makeOutboxEntry(1)], { onEdit: vi.fn(), onDelete });
+    const delBtn = list.querySelector('.review-delete-btn') as HTMLButtonElement;
+    expect(delBtn).not.toBeNull();
+    delBtn.click();
+    expect(onDelete).toHaveBeenCalledWith('hist-1');
+    confirmSpy.mockRestore();
+  });
+
+  it('does not delete when the confirm dialog is dismissed', () => {
+    const list = document.getElementById('unsynced-list') as HTMLElement;
+    const count = document.getElementById('unsynced-count') as HTMLElement;
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderUnsynced(list, count, [makeOutboxEntry(1)], { onEdit: vi.fn(), onDelete });
+    (list.querySelector('.review-delete-btn') as HTMLButtonElement).click();
+    expect(onDelete).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
   it('excludes held-back review items (needs_review && !user_reviewed) but keeps reviewed ones', () => {
     const list = document.getElementById('unsynced-list') as HTMLElement;
     const count = document.getElementById('unsynced-count') as HTMLElement;

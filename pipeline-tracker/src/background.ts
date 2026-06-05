@@ -69,7 +69,8 @@ type BindingMessage =
  */
 type ReviewMessage =
   | { kind: 'review_outbox_entry'; historyId: string; edits: OutboxReviewEdits }
-  | { kind: 'mark_outbox_reviewed'; historyIds: string[] };
+  | { kind: 'mark_outbox_reviewed'; historyIds: string[] }
+  | { kind: 'delete_outbox_entry'; historyId: string };
 
 type BgMessage = { kind: 'drain_outbox' } | { kind: 'export_csv' } | BindingMessage | ReviewMessage;
 
@@ -255,6 +256,34 @@ async function handleExportCsv(): Promise<BackgroundResult> {
   return { ok: true };
 }
 
+/**
+ * Delete a single unsynced outbox entry (side panel row "Delete"). Routed
+ * through the SW for the same reasons as wipe_unsynced: keep recovered_html
+ * cleanup out of the side panel (D-rev-30) and repaint the badge from a fresh
+ * snapshot. Order (history → outbox → recovered_html) mirrors handleWipeUnsynced
+ * so a crash between writes can't strand a pending history row.
+ */
+async function handleDeleteOutboxEntry(historyId: string): Promise<BackgroundResult> {
+  const outbox = await outboxStore.get();
+  const remaining = outbox.filter((e) => e.history_id !== historyId);
+  if (remaining.length === outbox.length) {
+    return { ok: false, message: 'entry not found' };
+  }
+
+  const history = await historyStore.get();
+  const survivingHistory = history.filter((h) => !(h.status === 'pending' && h.id === historyId));
+  if (survivingHistory.length !== history.length) {
+    await historyStore.set(survivingHistory);
+  }
+
+  await outboxStore.set(remaining);
+  await recoveredHtmlStore.remove(historyId);
+  await refreshPublishableBadge();
+
+  console.log(tag(), `delete_outbox_entry complete: ${historyId}`);
+  return { ok: true };
+}
+
 // --- Message handling ---
 
 export async function handleMessage(msg: BgMessage): Promise<BackgroundResult> {
@@ -297,6 +326,10 @@ export async function handleMessage(msg: BgMessage): Promise<BackgroundResult> {
     const { reviewedCount } = await markOutboxReviewed(msg.historyIds);
     await refreshPublishableBadge();
     return { ok: true, message: `reviewed ${reviewedCount}` };
+  }
+
+  if ('kind' in msg && msg.kind === 'delete_outbox_entry') {
+    return handleDeleteOutboxEntry(msg.historyId);
   }
 
   if (
