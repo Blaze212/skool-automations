@@ -147,6 +147,19 @@ describe('capture card — Stage dropdown', () => {
     expect(stageSelect().value).toBe('connection_request');
   });
 
+  it('paints a color-bubble class matching the selected stage (badge colors)', async () => {
+    handle = renderCaptureSection(root, { onSave: vi.fn() });
+    fireDrop(dropZone(), { html: HTML_JANE });
+    await flush();
+    // Default stage → its color class is applied.
+    expect(stageSelect().classList.contains('stage-connection_request')).toBe(true);
+    // Changing the stage swaps the class (and drops the old one).
+    stageSelect().value = 'direct_message';
+    stageSelect().dispatchEvent(new Event('change'));
+    expect(stageSelect().classList.contains('stage-direct_message')).toBe(true);
+    expect(stageSelect().classList.contains('stage-connection_request')).toBe(false);
+  });
+
   it('maps the chosen label to the wire event_type on save', async () => {
     const onSave = vi.fn(async () => {});
     handle = renderCaptureSection(root, { onSave, getPageUrl: async () => 'https://example.com' });

@@ -150,11 +150,13 @@ export function renderUnsynced(
     captureMessageBodies?: boolean;
     now?: number;
     onEdit?: (historyId: string, edits: EditableEventFields) => void | Promise<void>;
+    onDelete?: (historyId: string) => void | Promise<void>;
   } = {},
 ): number {
   const now = opts.now ?? Date.now();
   const captureMessageBodies = opts.captureMessageBodies ?? false;
   const onEdit = opts.onEdit;
+  const onDelete = opts.onDelete;
 
   list.replaceChildren();
 
@@ -205,7 +207,7 @@ export function renderUnsynced(
     meta.className = 'meta';
 
     if (onEdit) {
-      renderEditableRowBody(meta, entry, onEdit);
+      renderEditableRowBody(meta, entry, onEdit, onDelete);
     } else {
       renderReadonlyRowBody(meta, entry, captureMessageBodies);
     }
@@ -287,6 +289,7 @@ function renderEditableRowBody(
   meta: HTMLElement,
   entry: OutboxEntry,
   onEdit: (historyId: string, edits: EditableEventFields) => void | Promise<void>,
+  onDelete?: (historyId: string) => void | Promise<void>,
 ): void {
   const { rows, getEdits } = buildEditableFields({
     name: entry.event.name ?? '',
@@ -303,15 +306,59 @@ function renderEditableRowBody(
   saveBtn.type = 'button';
   saveBtn.className = 'review-save-btn';
   saveBtn.textContent = 'Save';
+  let savedTimer: ReturnType<typeof setTimeout> | null = null;
   saveBtn.addEventListener('click', () => {
+    if (savedTimer) {
+      clearTimeout(savedTimer);
+      savedTimer = null;
+    }
     saveBtn.disabled = true;
-    void Promise.resolve(onEdit(entry.history_id, getEdits())).catch((err: unknown) => {
-      saveBtn.disabled = false;
-      console.warn('[Pipeline Tracker side panel] edit save failed:', err);
-    });
+    saveBtn.textContent = 'Saving…';
+    void Promise.resolve(onEdit(entry.history_id, getEdits()))
+      .then(() => {
+        // Re-enable so the user can edit + save again (a successful save used to
+        // leave the button stuck disabled). Show a brief "Saved ✓" confirmation.
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Saved ✓';
+        savedTimer = setTimeout(() => {
+          saveBtn.textContent = 'Save';
+          savedTimer = null;
+        }, 1500);
+      })
+      .catch((err: unknown) => {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+        console.warn('[Pipeline Tracker side panel] edit save failed:', err);
+      });
   });
 
   actions.appendChild(saveBtn);
+
+  // Delete — removes the unsynced capture (and its recovered_html) via the SW.
+  if (onDelete) {
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'review-delete-btn';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', () => {
+      const confirmFn =
+        typeof window !== 'undefined' && typeof window.confirm === 'function'
+          ? window.confirm.bind(window)
+          : () => true;
+      if (!confirmFn('Delete this captured event? This cannot be undone.')) return;
+      deleteBtn.disabled = true;
+      saveBtn.disabled = true;
+      // On success the OUTBOX storage change re-renders the list (the row goes
+      // away). On failure, re-enable so the user can retry.
+      void Promise.resolve(onDelete(entry.history_id)).catch((err: unknown) => {
+        deleteBtn.disabled = false;
+        saveBtn.disabled = false;
+        console.warn('[Pipeline Tracker side panel] delete failed:', err);
+      });
+    });
+    actions.appendChild(deleteBtn);
+  }
+
   meta.appendChild(actions);
 }
 
@@ -322,6 +369,20 @@ function renderEditableRowBody(
  */
 function editUnsyncedEntry(historyId: string, edits: EditableEventFields): Promise<void> {
   return sendReviewMessage({ kind: 'review_outbox_entry', historyId, edits });
+}
+
+/**
+ * onDelete for the unsynced list — removes a single capture (and its
+ * recovered_html) through the SW. Routed through the SW so the side panel never
+ * touches recovered_html (D-rev-30); the OUTBOX storage change re-renders the
+ * list so the row disappears. Throws on a non-ok response so the row's buttons
+ * re-enable for a retry.
+ */
+async function deleteUnsyncedEntry(historyId: string): Promise<void> {
+  const resp = (await chrome.runtime.sendMessage({ kind: 'delete_outbox_entry', historyId })) as
+    | { ok?: boolean; message?: string }
+    | undefined;
+  if (!resp?.ok) throw new Error(resp?.message ?? 'delete failed');
 }
 
 export function renderActivity(
@@ -769,11 +830,13 @@ function mountUnsyncedListListener(
   ): void => {
     if (areaName !== 'local') return;
     if (!(STORAGE_KEYS.OUTBOX in changes)) return;
-    void outboxStore
-      .get()
-      .then((next) =>
-        renderUnsynced(list, countEl, next, { captureMessageBodies, onEdit: editUnsyncedEntry }),
-      );
+    void outboxStore.get().then((next) =>
+      renderUnsynced(list, countEl, next, {
+        captureMessageBodies,
+        onEdit: editUnsyncedEntry,
+        onDelete: deleteUnsyncedEntry,
+      }),
+    );
   };
   chrome.storage.onChanged.addListener(listener);
   return () => chrome.storage.onChanged.removeListener(listener);
@@ -1055,6 +1118,7 @@ export async function initSidePanel(): Promise<void> {
   renderUnsynced(unsyncedList, unsyncedCount, outbox, {
     captureMessageBodies,
     onEdit: editUnsyncedEntry,
+    onDelete: deleteUnsyncedEntry,
   });
   renderActivity(activityList, history, { captureMessageBodies });
   // Spec 015 B2 — review queue for low-confidence captures. Empty → renders

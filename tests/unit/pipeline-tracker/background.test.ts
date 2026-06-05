@@ -153,6 +153,39 @@ describe('pipeline-tracker background.handleMessage — review actions (spec 015
     expect(entry.user_reviewed).toBe(true);
   });
 
+  it('delete_outbox_entry removes the entry (and its recovered_html + pending history)', async () => {
+    const local = installStatefulStorage({
+      [STORAGE_KEYS.OUTBOX]: [flagged('h-1'), flagged('h-2')],
+      [STORAGE_KEYS.HISTORY]: [
+        {
+          id: 'h-1',
+          ts: '2026-06-01T00:00:00Z',
+          status: 'pending',
+          event_type: 'connection_request',
+          name: 'A',
+          page_url: '',
+          message: '',
+          warnings: [],
+        },
+      ],
+      ['recovered_html_h-1']: '<div>x</div>',
+    });
+
+    const result = await handleMessage({ kind: 'delete_outbox_entry', historyId: 'h-1' });
+
+    expect(result.ok).toBe(true);
+    const outbox = local[STORAGE_KEYS.OUTBOX] as OutboxEntry[];
+    expect(outbox.map((e) => e.history_id)).toEqual(['h-2']);
+    expect(local['recovered_html_h-1']).toBeUndefined();
+    expect(local[STORAGE_KEYS.HISTORY]).toEqual([]);
+  });
+
+  it('delete_outbox_entry returns ok:false for an unknown id', async () => {
+    installStatefulStorage({ [STORAGE_KEYS.OUTBOX]: [flagged('h-1')] });
+    const result = await handleMessage({ kind: 'delete_outbox_entry', historyId: 'missing' });
+    expect(result.ok).toBe(false);
+  });
+
   it('review_outbox_entry returns ok:false for an unknown id', async () => {
     installStatefulStorage({ [STORAGE_KEYS.OUTBOX]: [flagged('h-1')] });
     const result = await handleMessage({
