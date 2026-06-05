@@ -1,0 +1,14 @@
+{
+  "_comment": "Spec 016 CEO-review decision 6 / Acceptance — the EXACT PipelineEvent field set that careersystems' tracker-import consumes. enqueueManualCapture() must emit precisely these keys (no recovered_html, no source, no debug). Cross-repo verification of the pipeline/jobsearch state machines is out of band. `date` is asserted by format, not value (it is today's date at capture time).",
+  "event": {
+    "api_key": "",
+    "event_type": "connection_request",
+    "date": "2026-06-05",
+    "name": "Jane Doe",
+    "title": "Head of Growth",
+    "linkedin_url": "https://github.com/jane",
+    "page_url": "https://example.com/jane",
+    "message_text": "hi there",
+    "scrape_confidence": "high"
+  }
+}

@@ -73,7 +73,7 @@ export function buildEditableFields(values: EditableEventFields): {
   const { row: nameRow, input: nameInput } = labeledInput('Name', values.name, 'name');
   const { row: titleRow, input: titleInput } = labeledInput('Title', values.title, 'title');
   const { row: urlRow, input: urlInput } = labeledInput(
-    'LinkedIn URL',
+    'Profile / page URL',
     values.linkedin_url,
     'linkedin_url',
   );

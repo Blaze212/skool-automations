@@ -7,13 +7,12 @@
  * verified signatures.
  */
 
-import type { PipelineEvent } from '../types.js';
-import type { ValidationGap } from '../validate.js';
+import type { EventType } from '../types.js';
 
 export type AiAvailability = 'unavailable' | 'downloadable' | 'downloading' | 'available';
 
 /** BCP-47 output language passed to every LanguageModel request. The extension
- * extracts English-only LinkedIn fields, so 'en' is correct. Must be one of
+ * extracts English-first contact fields, so 'en' is correct. Must be one of
  * Chrome's currently-supported output codes: de, en, es, fr, ja. */
 export const AI_OUTPUT_LANGUAGE = 'en';
 
@@ -81,20 +80,31 @@ declare global {
   var LanguageModel: LanguageModelStatic | undefined;
 }
 
-/** Input to recover() — already-trimmed HTML plus the scraper's candidate. */
-export interface RecoverInput {
+/**
+ * Spec 016 — the four contact fields the on-device extractor fills. Shares the
+ * wire-field name `linkedin_url` (kept for tracker-import back-compat), but the
+ * value may be any-site URL — the model is no longer LinkedIn-anchored.
+ */
+export interface ContactFields {
+  name: string;
+  title: string;
+  linkedin_url: string;
+  message_text: string;
+}
+
+/** Input to extractContact() — trimmed HTML plus the heuristic candidate. */
+export interface ExtractContactInput {
   /** Stripped subtree, ≤ RECOVERED_HTML_CAP_BYTES. Produced by stripHtmlForCarry. */
   trimmedHtml: string;
-  /** Current scraper output. Treated as hints, reconciled against AI output. */
-  candidate: PipelineEvent;
-  /** Which fields validate() flagged. */
-  gaps: ValidationGap[];
+  /** Heuristic output. Treated as hints, reconciled against AI output. */
+  candidate: ContactFields;
+  /** The page the fragment was selected from (best-effort; '' is fine). */
   pageUrl: string;
 }
 
-export interface RecoverResult {
-  /** The candidate event with AI-recovered fields merged in. */
-  filledEvent: PipelineEvent;
-  /** Empty on clean success; populated on partial recovery. */
-  warnings: string[];
+export interface ExtractContactResult {
+  /** The candidate fields with AI-extracted values merged in. */
+  fields: ContactFields;
+  /** AI's stage guess, validated against EventType and coerced to null if unknown. */
+  suggested_event_type: EventType | null;
 }

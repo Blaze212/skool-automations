@@ -102,7 +102,7 @@ export function renderReviewSection(root: HTMLElement, opts: RenderReviewSection
       'title',
     );
     const { row: urlRow, input: urlInput } = labeledInput(
-      'LinkedIn URL',
+      'Profile / page URL',
       entry.event.linkedin_url ?? '',
       'linkedin_url',
     );

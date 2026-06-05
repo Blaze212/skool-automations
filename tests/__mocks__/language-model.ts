@@ -48,6 +48,7 @@ const DEFAULT_RESULT = JSON.stringify({
   title: 'Head of Growth at Acme',
   linkedin_url: 'https://www.linkedin.com/in/jane-doe/',
   message_text: null,
+  suggested_event_type: null,
 });
 
 function hangUntilAborted<T>(signal: AbortSignal | undefined): Promise<T> {

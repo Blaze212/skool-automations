@@ -24,7 +24,18 @@ import {
   settingsStore,
   type ManualCaptureInput,
 } from '../storage.ts';
-import { renderCaptureSection, type CaptureSectionHandle } from './capture-section.ts';
+import {
+  renderCaptureSection,
+  type AiExtractionResult,
+  type CaptureSectionHandle,
+} from './capture-section.ts';
+import {
+  extractContact,
+  getCachedAvailability,
+  stripHtmlForCarry,
+  type ContactFields,
+} from '@cs/scraping-core';
+import { capFragment } from '../capture-heuristic.ts';
 import { renderFirstRunModal } from './first-run-modal.ts';
 import { renderSettingsSection } from './settings-section.ts';
 import { renderBindingSection } from './binding-section.ts';
@@ -90,21 +101,16 @@ function setText(el: HTMLElement, text: string): void {
 }
 
 /**
- * Strict allow-list for hrefs we'll render into the panel. The `linkedin_url`
- * field flows from the content-script extraction over the LinkedIn DOM — a
- * compromised page (or a corrupted storage row carried over from a prior
- * version) could feed us `javascript:`, `data:`, or `chrome-extension:`
- * scheme URLs. Anchoring strictly to https://www.linkedin.com keeps both the
- * runtime click safe and the displayed text honest (we still render the raw
- * value as text content even when we refuse to make it clickable).
+ * Spec 016 review S-2 — allow ANY https URL to render as a clickable link (the
+ * capture is now site-agnostic, so the old `hostname === linkedin.com` gate would
+ * make every non-LinkedIn profile URL render as unclickable text). The XSS-safe
+ * protocol check stays: the dropped/pasted `linkedin_url` can be arbitrary
+ * content, so `javascript:`, `data:`, and `chrome-extension:` scheme URLs are
+ * still refused a click target (we render the raw value as text content instead).
  */
-function isSafeLinkedInUrl(url: string): boolean {
+function isSafeProfileUrl(url: string): boolean {
   try {
-    const parsed = new URL(url);
-    return (
-      parsed.protocol === 'https:' &&
-      (parsed.hostname === 'www.linkedin.com' || parsed.hostname === 'linkedin.com')
-    );
+    return new URL(url).protocol === 'https:';
   } catch {
     return false;
   }
@@ -160,7 +166,7 @@ export function renderUnsynced(
   if (total === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = 'No unsynced events. Activity from LinkedIn shows up here.';
+    empty.textContent = 'No unsynced events. Drag or paste a contact above to capture one.';
     list.appendChild(empty);
     countEl.textContent = '';
     return 0;
@@ -244,7 +250,7 @@ function renderReadonlyRowBody(
 
   if (entry.event.linkedin_url) {
     const urlLine = document.createElement('div');
-    if (isSafeLinkedInUrl(entry.event.linkedin_url)) {
+    if (isSafeProfileUrl(entry.event.linkedin_url)) {
       const a = document.createElement('a');
       a.href = entry.event.linkedin_url;
       a.target = '_blank';
@@ -370,7 +376,7 @@ export function renderActivity(
     if (entry.page_url) {
       const urlLine = document.createElement('div');
       urlLine.className = 'meta-url';
-      if (isSafeLinkedInUrl(entry.page_url)) {
+      if (isSafeProfileUrl(entry.page_url)) {
         const a = document.createElement('a');
         a.href = entry.page_url;
         a.target = '_blank';
@@ -842,6 +848,45 @@ async function saveManualCapture(capture: ManualCaptureInput): Promise<void> {
   await enqueueManualCapture(capture);
 }
 
+/**
+ * Spec 016 Phase 2 — on-device AI extraction for the capture card. Promotes the
+ * generalized `extractContact()` (formerly the LinkedIn AI fallback) to the
+ * primary repair path. Gated on the user's `ai_fallback_enabled` opt-in AND
+ * model availability; returns null otherwise so the heuristic values stand. The
+ * pipeline is raw → capFragment (≤64KB) → stripHtmlForCarry (≤16KB) → model.
+ *
+ * NEVER throws (D-AI-1): any error degrades to null (heuristic prefill stays).
+ * The stripped HTML is fed to the model only — it is NEVER persisted (decision 3
+ * keeps the save path on setOutboxAndHistory, no recovered_html).
+ */
+async function aiExtractForCapture(input: {
+  html?: string;
+  text?: string;
+  candidate: ContactFields;
+}): Promise<AiExtractionResult | null> {
+  try {
+    const settings = await readSettingsOrDefault();
+    if (!settings.ai_fallback_enabled) return null;
+    if ((await getCachedAvailability()) !== 'available') return null;
+
+    const raw = input.html || input.text || '';
+    if (!raw.trim()) return null;
+    const trimmedHtml = stripHtmlForCarry(capFragment(raw));
+    if (!trimmedHtml) return null;
+
+    const result = await extractContact({
+      trimmedHtml,
+      candidate: input.candidate,
+      pageUrl: '',
+    });
+    if (!result) return null;
+    return { fields: result.fields, suggested_event_type: result.suggested_event_type };
+  } catch (err) {
+    console.warn('[Pipeline Tracker side panel] AI extraction errored — using heuristic:', err);
+    return null;
+  }
+}
+
 let _captureHandle: CaptureSectionHandle | null = null;
 
 function mountCaptureSection(root: HTMLElement): void {
@@ -853,6 +898,7 @@ function mountCaptureSection(root: HTMLElement): void {
     _captureHandle = renderCaptureSection(root, {
       onSave: saveManualCapture,
       getPageUrl: getActivePageUrl,
+      aiExtract: aiExtractForCapture,
     });
   } catch (err) {
     console.error('[Pipeline Tracker side panel] mountCaptureSection failed:', err);
