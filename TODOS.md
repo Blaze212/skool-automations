@@ -4,6 +4,19 @@ Tracked improvements deferred from active implementation work.
 
 ---
 
+## Pipeline Tracker
+
+### [P2] Strip spec-016 prompt-tuning debug logs + sample-collection scaffolding
+
+**What:** Remove the temporary debugging added during spec-016 prompt tuning before the next release: (1) the `[extractContact] AI input prompt` / `AI raw output` / EXIT `console.log`s in `packages/scraping-core/src/ai-fallback/extract-contact.ts`; (2) the `[Pipeline Tracker AI]` verbose tracing + `debugLogCaptureFragment` (the `DROP — raw fragment` / `DROP — LLM-bound content` logs) in `pipeline-tracker/src/sidepanel/sidepanel.ts`; (3) the `debugLogFragment` hook in `capture-section.ts`; (4) the TEMPORARY "a new drop always overwrites (no replace-confirm / no still-extracting block)" behavior in `capture-section.ts` — restore the state guards + `confirmReplace` when sample collection is done.
+
+**Why:** These log full prompts, raw model output, and raw dragged HTML (incl. message bodies / PII) to the console on every capture, and the "overwrite without confirm" behavior is a sample-collection convenience, not the intended UX.
+
+**Effort:** S  
+**Depends on:** done collecting prompt-eval fixtures (drag-link-inspector harness)
+
+---
+
 ## LinkedIn Activity Tracker
 
 ### [P3] Manual fallback runbook for linkedin-tracker client setup

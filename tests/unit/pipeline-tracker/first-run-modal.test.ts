@@ -61,6 +61,19 @@ describe('first-run modal — rendering', () => {
     const toggle = root.querySelector('#first-run-capture-bodies') as HTMLInputElement;
     expect(toggle.checked).toBe(true);
   });
+
+  it('renders the first/last name inputs and seeds them from settings', () => {
+    const settings = defaultSettings();
+    settings.owner_first_name = 'Barton';
+    settings.owner_last_name = 'Holdridge';
+    void renderFirstRunModal(root, { settings, commit: vi.fn() });
+    const first = root.querySelector('#first-run-first-name') as HTMLInputElement;
+    const last = root.querySelector('#first-run-last-name') as HTMLInputElement;
+    expect(first).not.toBeNull();
+    expect(last).not.toBeNull();
+    expect(first.value).toBe('Barton');
+    expect(last.value).toBe('Holdridge');
+  });
 });
 
 describe('first-run modal — D-rev-17 close gate', () => {
@@ -118,6 +131,10 @@ describe('first-run modal — commit + close', () => {
 
     const toggle = root.querySelector('#first-run-capture-bodies') as HTMLInputElement;
     const closeBtn = root.querySelector('.first-run-close') as HTMLButtonElement;
+    const firstName = root.querySelector('#first-run-first-name') as HTMLInputElement;
+    const lastName = root.querySelector('#first-run-last-name') as HTMLInputElement;
+    firstName.value = 'Barton';
+    lastName.value = 'Holdridge';
     toggle.checked = true;
     toggle.dispatchEvent(new Event('change'));
     closeBtn.click();
@@ -127,6 +144,8 @@ describe('first-run modal — commit + close', () => {
     expect(commit).toHaveBeenCalledWith({
       capture_message_bodies: true,
       first_run_completed: true,
+      owner_first_name: 'Barton',
+      owner_last_name: 'Holdridge',
     });
     expect(root.querySelector('.first-run-overlay')).toBeNull();
   });
@@ -149,6 +168,9 @@ describe('first-run modal — commit + close', () => {
     expect(commit).toHaveBeenCalledWith({
       capture_message_bodies: false,
       first_run_completed: true,
+      // Name left blank → committed as empty strings (trimmed).
+      owner_first_name: '',
+      owner_last_name: '',
     });
   });
 
@@ -232,28 +254,33 @@ describe('first-run modal — focus trap', () => {
 
     const overlay = root.querySelector('.first-run-overlay') as HTMLElement;
     const toggle = root.querySelector('#first-run-capture-bodies') as HTMLInputElement;
+    const firstName = root.querySelector('#first-run-first-name') as HTMLInputElement;
     toggle.focus();
 
-    // Close is still disabled; Skip is hidden. Only the toggle is focusable.
-    // Pressing Tab must cycle back to itself, not escape to the document body.
+    // Close is still disabled; Skip is hidden. The focusable cycle is
+    // [firstName, lastName, toggle]; Tab from the toggle wraps back to the
+    // first name — it must NOT escape to the document body.
     const ev = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
     overlay.dispatchEvent(ev);
 
-    expect(document.activeElement).toBe(toggle);
+    expect(document.activeElement).toBe(firstName);
     expect(ev.defaultPrevented).toBe(true);
   });
 
-  it('Tab cycles between toggle and close after the gate releases', () => {
+  it('Tab cycles through the dialog controls after the gate releases', () => {
     void renderFirstRunModal(root, { settings: defaultSettings(), commit: vi.fn() });
 
     const overlay = root.querySelector('.first-run-overlay') as HTMLElement;
     const toggle = root.querySelector('#first-run-capture-bodies') as HTMLInputElement;
     const closeBtn = root.querySelector('.first-run-close') as HTMLButtonElement;
+    const firstName = root.querySelector('#first-run-first-name') as HTMLInputElement;
 
     toggle.checked = true;
     toggle.dispatchEvent(new Event('change'));
     expect(closeBtn.disabled).toBe(false);
 
+    // Cycle is [firstName, lastName, toggle, closeBtn]. From the toggle: Tab →
+    // close, Tab → wraps to first name.
     toggle.focus();
     overlay.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
@@ -263,7 +290,7 @@ describe('first-run modal — focus trap', () => {
     overlay.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
     );
-    expect(document.activeElement).toBe(toggle);
+    expect(document.activeElement).toBe(firstName);
   });
 });
 

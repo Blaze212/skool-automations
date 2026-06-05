@@ -24,6 +24,9 @@ import type { Settings } from '../types.ts';
 export interface FirstRunCommit {
   capture_message_bodies: boolean;
   first_run_completed: true;
+  /** Owner name collected in the modal — saved for the extraction prompt. */
+  owner_first_name: string;
+  owner_last_name: string;
 }
 
 export interface RenderFirstRunModalOptions {
@@ -114,6 +117,38 @@ export function renderFirstRunModal(
       list.appendChild(li);
     }
 
+    // Name fields — collected so captures can be attributed and the on-device
+    // extractor can tell the user's own thread messages from the contact's.
+    const nameField = document.createElement('div');
+    nameField.className = 'first-run-namefield';
+
+    const namePrompt = document.createElement('label');
+    namePrompt.className = 'first-run-name-label';
+    namePrompt.textContent = 'Your name (so we can label your captures)';
+    namePrompt.setAttribute('for', 'first-run-first-name');
+
+    const nameRow = document.createElement('div');
+    nameRow.className = 'first-run-name-row';
+
+    const firstNameInput = document.createElement('input');
+    firstNameInput.type = 'text';
+    firstNameInput.id = 'first-run-first-name';
+    firstNameInput.className = 'first-run-input';
+    firstNameInput.placeholder = 'First name';
+    firstNameInput.autocomplete = 'given-name';
+    firstNameInput.value = (opts.settings.owner_first_name ?? '').trim();
+
+    const lastNameInput = document.createElement('input');
+    lastNameInput.type = 'text';
+    lastNameInput.id = 'first-run-last-name';
+    lastNameInput.className = 'first-run-input';
+    lastNameInput.placeholder = 'Last name';
+    lastNameInput.autocomplete = 'family-name';
+    lastNameInput.value = (opts.settings.owner_last_name ?? '').trim();
+
+    nameRow.append(firstNameInput, lastNameInput);
+    nameField.append(namePrompt, nameRow);
+
     // Toggle group — checkbox + label + help text. We use a real checkbox
     // (not a custom switch) so screen readers and keyboard navigation work
     // for free.
@@ -172,12 +207,12 @@ export function renderFirstRunModal(
 
     actions.append(hint, skipBtn, closeBtn);
 
-    dialog.append(title, intro, list, toggleRow, actions, errorLine);
+    dialog.append(title, intro, list, nameField, toggleRow, actions, errorLine);
     overlay.appendChild(dialog);
     root.appendChild(overlay);
 
     // Move focus into the dialog so keyboard users land somewhere sensible.
-    toggle.focus();
+    firstNameInput.focus();
 
     /**
      * Tab focus trap — keeps keyboard navigation inside the dialog. Without
@@ -187,7 +222,7 @@ export function renderFirstRunModal(
      * skipBtn / closeBtn are currently enabled+visible.
      */
     function focusableInDialog(): HTMLElement[] {
-      const list: HTMLElement[] = [toggle];
+      const list: HTMLElement[] = [firstNameInput, lastNameInput, toggle];
       if (!skipBtn.hidden && !skipBtn.disabled) list.push(skipBtn);
       if (!closeBtn.disabled) list.push(closeBtn);
       return list;
@@ -236,6 +271,8 @@ export function renderFirstRunModal(
         await opts.commit({
           capture_message_bodies: captureOn,
           first_run_completed: true,
+          owner_first_name: firstNameInput.value.trim(),
+          owner_last_name: lastNameInput.value.trim(),
         });
         overlay.remove();
         resolve();

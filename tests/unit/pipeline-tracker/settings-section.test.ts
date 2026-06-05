@@ -60,6 +60,45 @@ describe('settings section — render', () => {
     expect(toggle.checked).toBe(true);
   });
 
+  it('seeds the owner name inputs from settings', () => {
+    renderSettingsSection(root, {
+      settings: defaults({ owner_first_name: 'Barton', owner_last_name: 'Holdridge' }),
+      update: vi.fn(),
+    });
+    expect((root.querySelector('#settings-owner-first-name') as HTMLInputElement).value).toBe(
+      'Barton',
+    );
+    expect((root.querySelector('#settings-owner-last-name') as HTMLInputElement).value).toBe(
+      'Holdridge',
+    );
+  });
+
+  it('persists the owner name on change via update()', async () => {
+    const update = vi
+      .fn()
+      .mockImplementation((patch: Partial<Settings>) => Promise.resolve(defaults(patch)));
+    renderSettingsSection(root, { settings: defaults(), update });
+    const first = root.querySelector('#settings-owner-first-name') as HTMLInputElement;
+    const last = root.querySelector('#settings-owner-last-name') as HTMLInputElement;
+    first.value = 'Barton';
+    last.value = 'Holdridge';
+    last.dispatchEvent(new Event('change'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(update).toHaveBeenCalledWith({
+      owner_first_name: 'Barton',
+      owner_last_name: 'Holdridge',
+    });
+  });
+
+  it('renders the binding slot when renderBindingInto is supplied', () => {
+    const renderBindingInto = vi.fn();
+    renderSettingsSection(root, { settings: defaults(), update: vi.fn(), renderBindingInto });
+    const slot = root.querySelector('.settings-binding-slot');
+    expect(slot).not.toBeNull();
+    expect(renderBindingInto).toHaveBeenCalledWith(slot);
+  });
+
   it('re-rendering replaces the prior subtree', () => {
     renderSettingsSection(root, { settings: defaults(), update: vi.fn() });
     const firstDetails = root.querySelector('.settings-details');

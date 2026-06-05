@@ -37,6 +37,13 @@ export interface RenderSettingsSectionOptions {
   /** Trigger the model download with a progress callback. Defaults to the
    * @cs/scraping-core helper; injectable for tests. */
   startModelDownload?: (onProgress: (fraction: number) => void) => Promise<AiAvailability>;
+  /**
+   * Optional — render the CareerSystems sync (binding) UI into a slot at the
+   * bottom of the dropdown. spec 016 UI: the full connect/disconnect controls
+   * live in Settings; only a compact "Connected as …" line stays on the main
+   * panel. Called once with the slot element after the body is built.
+   */
+  renderBindingInto?: (slot: HTMLElement) => void;
 }
 
 const CAPTURE_BODIES_HELP =
@@ -60,6 +67,94 @@ export function renderSettingsSection(root: HTMLElement, opts: RenderSettingsSec
 
   const body = document.createElement('div');
   body.className = 'settings-body';
+
+  // === Owner name (spec 016) — also collected in the first-run modal; editable
+  // here so an already-onboarded user can set/change it. Threaded into the
+  // extraction prompt (ownerName) to identify the user's own thread messages. ===
+  const nameRow = document.createElement('div');
+  nameRow.className = 'settings-row';
+
+  const nameText = document.createElement('div');
+  nameText.className = 'settings-row-text';
+
+  const nameLabel = document.createElement('div');
+  nameLabel.className = 'settings-row-label';
+  nameLabel.textContent = 'Your name';
+
+  const nameHelp = document.createElement('div');
+  nameHelp.className = 'settings-row-help';
+  nameHelp.textContent = 'Labels your captures and identifies your own messages in a thread.';
+
+  const nameInputs = document.createElement('div');
+  nameInputs.className = 'settings-name-inputs';
+
+  const firstNameInput = document.createElement('input');
+  firstNameInput.type = 'text';
+  firstNameInput.id = 'settings-owner-first-name';
+  firstNameInput.className = 'settings-name-input';
+  firstNameInput.placeholder = 'First name';
+  firstNameInput.autocomplete = 'given-name';
+  firstNameInput.value = (opts.settings.owner_first_name ?? '').trim();
+
+  const lastNameInput = document.createElement('input');
+  lastNameInput.type = 'text';
+  lastNameInput.id = 'settings-owner-last-name';
+  lastNameInput.className = 'settings-name-input';
+  lastNameInput.placeholder = 'Last name';
+  lastNameInput.autocomplete = 'family-name';
+  lastNameInput.value = (opts.settings.owner_last_name ?? '').trim();
+
+  nameInputs.append(firstNameInput, lastNameInput);
+  nameText.append(nameLabel, nameHelp, nameInputs);
+  nameRow.append(nameText);
+
+  const nameError = document.createElement('div');
+  // Distinct class (not `.settings-row-error`) so existing tests that select the
+  // first `.settings-row-error` still resolve to the capture-bodies row error.
+  nameError.className = 'settings-name-error';
+  nameError.setAttribute('role', 'alert');
+  nameError.hidden = true;
+
+  // Persist on blur (change). Both fields save together; on failure, roll the
+  // inputs back to the last-persisted values and surface an inline error.
+  let nameLast = {
+    first: (opts.settings.owner_first_name ?? '').trim(),
+    last: (opts.settings.owner_last_name ?? '').trim(),
+  };
+  let nameInFlight = false;
+  async function saveName(): Promise<void> {
+    if (nameInFlight) return;
+    const first = firstNameInput.value.trim();
+    const last = lastNameInput.value.trim();
+    if (first === nameLast.first && last === nameLast.last) return; // no-op
+    nameInFlight = true;
+    firstNameInput.disabled = true;
+    lastNameInput.disabled = true;
+    nameError.hidden = true;
+    try {
+      const next = await opts.update({ owner_first_name: first, owner_last_name: last });
+      nameLast = {
+        first: (next.owner_first_name ?? '').trim(),
+        last: (next.owner_last_name ?? '').trim(),
+      };
+      firstNameInput.value = nameLast.first;
+      lastNameInput.value = nameLast.last;
+    } catch (err) {
+      firstNameInput.value = nameLast.first;
+      lastNameInput.value = nameLast.last;
+      nameError.hidden = false;
+      nameError.textContent =
+        'Could not save: ' + (err instanceof Error ? err.message : String(err));
+    } finally {
+      firstNameInput.disabled = false;
+      lastNameInput.disabled = false;
+      nameInFlight = false;
+    }
+  }
+  firstNameInput.addEventListener('change', () => void saveName());
+  lastNameInput.addEventListener('change', () => void saveName());
+
+  body.append(nameRow, nameError);
 
   // === capture_message_bodies ===
   const captureRow = document.createElement('label');
@@ -258,6 +353,14 @@ export function renderSettingsSection(root: HTMLElement, opts: RenderSettingsSec
       aiDownloadBtn.disabled = false;
     }
   });
+
+  // === CareerSystems sync (binding) — full controls live here (spec 016 UI) ===
+  if (opts.renderBindingInto) {
+    const bindingSlot = document.createElement('div');
+    bindingSlot.className = 'settings-binding-slot';
+    body.appendChild(bindingSlot);
+    opts.renderBindingInto(bindingSlot);
+  }
 
   details.appendChild(body);
   root.appendChild(details);

@@ -446,11 +446,52 @@ async function clearUnreadCounter(): Promise<void> {
  * settingsStore. Re-rendered after the first-run modal closes so the section
  * reflects the freshly-committed `capture_message_bodies` value.
  */
-function mountSettings(root: HTMLElement, settings: Settings): void {
+function mountSettings(
+  root: HTMLElement,
+  settings: Settings,
+  binding: ExtensionBinding | null,
+  modalRoot: HTMLElement,
+): void {
   renderSettingsSection(root, {
     settings,
     update: (patch) => settingsStore.update(patch),
+    // spec 016 UI — the full CareerSystems sync controls live inside the
+    // Settings dropdown; only a compact "Connected as …" line stays on the
+    // main panel (mountConnectedIndicator).
+    renderBindingInto: (slot) => safelyMountBinding(slot, binding, modalRoot),
   });
+}
+
+/**
+ * spec 016 UI — compact "Connected as <email>" line on the main panel. The full
+ * connect/disconnect controls moved into the Settings dropdown; this is just a
+ * read-only status indicator, kept live via chrome.storage.onChanged.
+ */
+function renderConnectedIndicator(root: HTMLElement, binding: ExtensionBinding | null): void {
+  root.replaceChildren();
+  if (binding?.status !== 'confirmed') return; // only show when connected
+  const el = document.createElement('div');
+  el.className = 'connected-indicator';
+  el.textContent = binding.account_email
+    ? `Connected as ${binding.account_email}`
+    : 'Connected to CareerSystems';
+  root.appendChild(el);
+}
+
+let _connectedIndicatorUnsubscribe: (() => void) | null = null;
+
+function mountConnectedIndicator(root: HTMLElement, binding: ExtensionBinding | null): void {
+  if (_connectedIndicatorUnsubscribe) {
+    _connectedIndicatorUnsubscribe();
+    _connectedIndicatorUnsubscribe = null;
+  }
+  renderConnectedIndicator(root, binding);
+  const listener = (changes: Record<string, chrome.storage.StorageChange>, area: string): void => {
+    if (area !== 'local' || !(STORAGE_KEYS.BINDING in changes)) return;
+    void bindingStore.get().then((next) => renderConnectedIndicator(root, next));
+  };
+  chrome.storage.onChanged.addListener(listener);
+  _connectedIndicatorUnsubscribe = () => chrome.storage.onChanged.removeListener(listener);
 }
 
 /**
@@ -540,6 +581,7 @@ function mountBinding(
         await chrome.runtime.sendMessage({ kind: 'clear_binding' });
       }),
     openAppTab: overrides.openAppTab,
+    appBaseUrl: APP_BASE_URL,
   });
 
   const listener = (
@@ -622,13 +664,23 @@ async function rebindAwareClearBinding(modalRoot: HTMLElement): Promise<void> {
   await chrome.runtime.sendMessage({ kind: 'clear_binding' });
 }
 
+/**
+ * Base URL of the CareerSystems app. Production by default; for local dev point
+ * this at http://localhost:5173. Used for the "Visit the app" deep link and the
+ * open-app-tab CTA. (Single source of truth — there is no runtime env signal in
+ * a published build, so this is the one knob to flip for a dev build.)
+ */
+const APP_BASE_URL = 'https://app.cmcareersystems.com';
+/** The tracker page the user syncs from. */
+const APP_TRACKER_URL = `${APP_BASE_URL}/tracker-v2`;
+
 function defaultOpenAppTab(): void {
   // chrome.tabs.create in MV3 returns a Promise; the synchronous try/catch
   // would miss async rejections (no `tabs` permission required for the call
   // itself, but policy / popup-blocker can still reject). Use .catch so
   // failures land in the warn log instead of becoming unhandled rejections.
   try {
-    const ret = chrome.tabs.create({ url: 'https://app.cmcareersystems.com/' });
+    const ret = chrome.tabs.create({ url: APP_TRACKER_URL });
     if (ret && typeof (ret as Promise<unknown>).catch === 'function') {
       void (ret as Promise<unknown>).catch((err: unknown) => {
         console.warn('[Pipeline Tracker side panel] chrome.tabs.create rejected:', err);
@@ -673,6 +725,10 @@ export function _resetBindingMountForTests(): void {
   if (_bindingUnsubscribe) {
     _bindingUnsubscribe();
     _bindingUnsubscribe = null;
+  }
+  if (_connectedIndicatorUnsubscribe) {
+    _connectedIndicatorUnsubscribe();
+    _connectedIndicatorUnsubscribe = null;
   }
   if (_unsyncedListUnsubscribe) {
     _unsyncedListUnsubscribe();
@@ -897,11 +953,19 @@ async function aiExtractForCapture(input: {
       return null;
     }
 
+    // Owner name (from the first-run modal) lets the extractor identify which
+    // messages in a captured thread are ours. Empty ⇒ prompt falls back cleanly.
+    const ownerName = [settings.owner_first_name, settings.owner_last_name]
+      .map((s) => (s ?? '').trim())
+      .filter(Boolean)
+      .join(' ');
+
     console.log(TAG, `calling extractContact (trimmedHtml ${trimmedHtml.length} chars)`);
     const result = await extractContact({
       trimmedHtml,
       candidate: input.candidate,
       pageUrl: '',
+      ownerName,
     });
     if (!result) {
       console.log(
@@ -1040,16 +1104,20 @@ export async function initSidePanel(): Promise<void> {
   // best-effort to preserve Phase 6's "modal/events must still render
   // even if a subtree fails" invariant. modalRoot is passed in for the
   // Phase 8 rebind 3-choice modal (D-rev-19).
-  safelyMountBinding(bindingRoot, binding, modalRoot);
+  // spec 016 UI — only the compact "Connected as <email>" status lives on the
+  // main panel now; the full sync (connect/disconnect) controls moved into the
+  // Settings dropdown (mounted below, after the first-run modal).
+  mountConnectedIndicator(bindingRoot, binding);
 
   // Mount the modal asynchronously. We deliberately do NOT await it inside
   // initSidePanel — see (2) above. The settings section is mounted only
   // AFTER the modal commits (or is skipped), so the user can't toggle
   // capture_message_bodies via the settings UI before they've seen the
   // disclosure. A modal mount error logs + drops the settings section for
-  // this open; the user will see the modal again next session.
+  // this open; the user will see the modal again next session. The CareerSystems
+  // sync controls render inside that settings section (mountSettings).
   void maybeShowFirstRunModal(modalRoot, settings)
-    .then((finalSettings) => mountSettings(settingsRoot, finalSettings))
+    .then((finalSettings) => mountSettings(settingsRoot, finalSettings, binding, modalRoot))
     .catch((err) => {
       console.warn('[Pipeline Tracker side panel] first-run flow failed:', err);
     });

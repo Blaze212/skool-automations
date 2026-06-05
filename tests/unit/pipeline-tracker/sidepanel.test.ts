@@ -585,6 +585,26 @@ describe('side panel — binding section + storage.onChanged wiring', () => {
     expect(binding.textContent).toMatch(/Connected/);
   });
 
+  it('shows a compact "Connected as <email>" indicator on the main panel (spec 016 UI)', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+    local[STORAGE_KEYS.BINDING] = {
+      token: 'tok',
+      bound_at: '2026-05-30T10:00:00Z',
+      status: 'confirmed',
+      account_email: 'jane@x.com',
+    };
+
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const indicator = document.querySelector(
+      '#binding-section .connected-indicator',
+    ) as HTMLElement;
+    expect(indicator).not.toBeNull();
+    expect(indicator.textContent).toBe('Connected as jane@x.com');
+  });
+
   it('registers a chrome.storage.onChanged listener that re-renders on BINDING changes', async () => {
     const local = installStatefulStorage();
     seedFirstRunComplete(local);
@@ -728,7 +748,7 @@ describe('side panel — Phase 8 zero-tab CTA (D-rev-9)', () => {
 
     errBtn.click();
     expect(chrome.tabs.create).toHaveBeenCalledWith({
-      url: 'https://app.cmcareersystems.com/',
+      url: 'https://app.cmcareersystems.com/tracker-v2',
     });
   });
 });

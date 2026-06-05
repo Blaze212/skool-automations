@@ -353,6 +353,34 @@ describe('binding section — confirmed', () => {
     expect(boundAt.textContent).toMatch(/^Connected on /);
   });
 
+  it('renders a "Visit the app" link to the tracker page (env-aware base URL)', () => {
+    const binding: ExtensionBinding = {
+      token: 't',
+      bound_at: '2026-05-30T10:00:00Z',
+      status: 'confirmed',
+    };
+    renderBindingSection(root, {
+      binding,
+      startBinding: vi.fn(),
+      clearBinding: vi.fn(),
+      appBaseUrl: 'http://localhost:5173',
+    });
+    const link = root.querySelector('.binding-app-link') as HTMLAnchorElement;
+    expect(link).not.toBeNull();
+    expect(link.getAttribute('href')).toBe('http://localhost:5173/tracker-v2');
+    expect(link.textContent).toMatch(/Visit the app/);
+  });
+
+  it('defaults the app link to production when no base URL is supplied', () => {
+    renderBindingSection(root, {
+      binding: { token: 't', bound_at: '2026-05-30T10:00:00Z', status: 'confirmed' },
+      startBinding: vi.fn(),
+      clearBinding: vi.fn(),
+    });
+    const link = root.querySelector('.binding-app-link') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('https://app.cmcareersystems.com/tracker-v2');
+  });
+
   it('calls clearBinding when the user clicks Disconnect', async () => {
     const clearBinding = vi.fn().mockResolvedValue(undefined);
     renderBindingSection(root, {
