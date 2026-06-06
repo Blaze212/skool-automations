@@ -33,7 +33,7 @@ function makeEntry(id: string, overrides: Partial<OutboxEntry['event']> = {}): O
       date: '2026-06-01',
       name: 'Connect',
       title: 'Some Title',
-      linkedin_url: 'https://www.linkedin.com/feed/',
+      profile_url: 'https://www.linkedin.com/feed/',
       page_url: 'https://www.linkedin.com/feed/',
       message_text: '',
       scrape_confidence: 'low',
@@ -84,7 +84,7 @@ describe('renderReviewSection', () => {
     const byField = Object.fromEntries(inputs.map((i) => [i.dataset.field, i.value]));
     expect(byField.name).toBe('Jane');
     expect(byField.title).toBe('CEO');
-    expect(byField.linkedin_url).toBe('https://www.linkedin.com/feed/');
+    expect(byField.profile_url).toBe('https://www.linkedin.com/feed/');
   });
 
   it('Save sends the trimmed edited values to onSave', () => {
@@ -95,7 +95,7 @@ describe('renderReviewSection', () => {
     const get = (f: string) => inputs.find((i) => i.dataset.field === f)!;
     get('name').value = '  Jane Smith  ';
     get('title').value = 'Staff Engineer';
-    get('linkedin_url').value = 'https://www.linkedin.com/in/jane-smith';
+    get('profile_url').value = 'https://www.linkedin.com/in/jane-smith';
     const message = root.querySelector(
       'textarea[data-field="message_text"]',
     ) as HTMLTextAreaElement;
@@ -109,7 +109,7 @@ describe('renderReviewSection', () => {
     expect(edits).toEqual({
       name: 'Jane Smith',
       title: 'Staff Engineer',
-      linkedin_url: 'https://www.linkedin.com/in/jane-smith',
+      profile_url: 'https://www.linkedin.com/in/jane-smith',
       message_text: 'Hi Jane — great to connect!',
     });
   });

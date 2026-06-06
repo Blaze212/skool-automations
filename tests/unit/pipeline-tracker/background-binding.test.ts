@@ -132,7 +132,7 @@ function makeOutboxEntry(historyId: string): OutboxEntry {
       date: '2026-05-31',
       name: 'Jane Doe',
       title: '',
-      linkedin_url: 'https://www.linkedin.com/in/jane',
+      profile_url: 'https://www.linkedin.com/in/jane',
       page_url: 'https://www.linkedin.com/in/jane/',
       message_text: '',
     },

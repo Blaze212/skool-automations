@@ -81,14 +81,13 @@ declare global {
 }
 
 /**
- * Spec 016 — the four contact fields the on-device extractor fills. Shares the
- * wire-field name `linkedin_url` (kept for tracker-import back-compat), but the
- * value may be any-site URL — the model is no longer LinkedIn-anchored.
+ * Spec 016 — the four contact fields the on-device extractor fills. `profile_url`
+ * is site-agnostic (any https URL).
  */
 export interface ContactFields {
   name: string;
   title: string;
-  linkedin_url: string;
+  profile_url: string;
   message_text: string;
 }
 

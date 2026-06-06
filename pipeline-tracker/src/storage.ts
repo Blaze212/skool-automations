@@ -768,14 +768,14 @@ export async function resolveOutboxBatch(syncedIds: string[]): Promise<{ ackedCo
 export interface OutboxReviewEdits {
   name: string;
   title: string;
-  linkedin_url: string;
+  profile_url: string;
   message_text: string;
 }
 
 /**
  * Spec 015 B2 — apply a user's review edits to a flagged outbox entry.
  *
- * Overwrites the event's name/title/linkedin_url with the corrected values and
+ * Overwrites the event's name/title/profile_url with the corrected values and
  * marks the entry `user_reviewed` so sync-pull will release it. Because the user
  * fixed the row by hand, the per-id recovered_html (the on-device AI carry) is
  * dropped — no server-side reconciliation is needed for a human-approved row.
@@ -796,7 +796,7 @@ export async function reviewOutboxEntry(
         ...entry.event,
         name: edits.name,
         title: edits.title,
-        linkedin_url: edits.linkedin_url,
+        profile_url: edits.profile_url,
         message_text: edits.message_text,
       },
       user_reviewed: true,
@@ -837,8 +837,9 @@ export async function markOutboxReviewed(historyIds: string[]): Promise<{ review
 export interface ManualCaptureInput {
   name: string;
   title: string;
-  /** Wire field name kept for back-compat; may be any-site https URL (D-016-4). */
-  linkedin_url: string;
+  /** Site-agnostic profile/page URL (any https URL, D-016-4). Mapped onto the
+   *  wire `PipelineEvent.profile_url` field below at enqueue time. */
+  profile_url: string;
   message_text: string;
   /** Human-selected via the Stage dropdown (AI-suggested default). */
   event_type: EventType;
@@ -891,7 +892,8 @@ export async function enqueueManualCapture(
     date: now.slice(0, 10),
     name: input.name,
     title: input.title,
-    linkedin_url: input.linkedin_url,
+    // Wire-contract field name (PipelineEvent.profile_url) ← internal profile_url.
+    profile_url: input.profile_url,
     page_url: input.page_url,
     message_text: input.message_text,
     scrape_confidence: 'high',

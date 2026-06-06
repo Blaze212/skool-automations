@@ -1,6 +1,6 @@
 // Spec 012 Phase 11 — CSV export (D7).
 //
-// Columns: captured_at, name, title, linkedin_url, event_type, message_text,
+// Columns: captured_at, name, title, profile_url, event_type, message_text,
 //          source, recovered_html.
 //
 // D-rev-28: recovered_html is read from the per-id keyed store at export time;
@@ -15,7 +15,7 @@ export const CSV_HEADERS = [
   'captured_at',
   'name',
   'title',
-  'linkedin_url',
+  'profile_url',
   'event_type',
   'message_text',
   'source',
@@ -56,7 +56,7 @@ export function buildCsv(
         escapeCell(entry.enqueued_at),
         escapeCell(ev.name),
         escapeCell(ev.title),
-        escapeCell(ev.linkedin_url),
+        escapeCell(ev.profile_url),
         escapeCell(ev.event_type),
         escapeCell(captureMessageBodies ? (ev.message_text ?? '') : ''),
         escapeCell(source),

@@ -2,7 +2,7 @@
 //
 // Used by both the needs-review queue (review-section.ts) and the regular
 // unsynced-events list (sidepanel.ts renderUnsynced), so a user can correct a
-// capture's name / title / LinkedIn URL / message from either place. All user
+// capture's name / title / profile URL / message from either place. All user
 // text is written via `value`/`textContent` (never innerHTML) so a hostile
 // scraped value can't inject markup.
 
@@ -10,7 +10,7 @@
 export interface EditableEventFields {
   name: string;
   title: string;
-  linkedin_url: string;
+  profile_url: string;
   message_text: string;
 }
 
@@ -61,7 +61,7 @@ export function labeledTextarea(
 }
 
 /**
- * Build the four editable field rows (Name / Title / LinkedIn URL / Message)
+ * Build the four editable field rows (Name / Title / Profile URL / Message)
  * from a capture's current values. Returns the row elements to append and a
  * `getEdits()` reader that snapshots the (trimmed) current input values — the
  * shape `reviewOutboxEntry()` persists.
@@ -74,8 +74,8 @@ export function buildEditableFields(values: EditableEventFields): {
   const { row: titleRow, input: titleInput } = labeledInput('Title', values.title, 'title');
   const { row: urlRow, input: urlInput } = labeledInput(
     'Profile / page URL',
-    values.linkedin_url,
-    'linkedin_url',
+    values.profile_url,
+    'profile_url',
   );
   const { row: messageRow, textarea: messageInput } = labeledTextarea(
     'Message',
@@ -88,7 +88,7 @@ export function buildEditableFields(values: EditableEventFields): {
     getEdits: () => ({
       name: nameInput.value.trim(),
       title: titleInput.value.trim(),
-      linkedin_url: urlInput.value.trim(),
+      profile_url: urlInput.value.trim(),
       message_text: messageInput.value.trim(),
     }),
   };

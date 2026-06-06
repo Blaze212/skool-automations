@@ -9,7 +9,7 @@ function makeEvent(overrides: Partial<PipelineEvent> = {}): PipelineEvent {
     date: '2026-05-30',
     name: 'Jane Doe',
     title: 'Senior Engineer at Acme',
-    linkedin_url: 'https://www.linkedin.com/in/jane-doe',
+    profile_url: 'https://www.linkedin.com/in/jane-doe',
     page_url: 'https://www.linkedin.com/feed/',
     message_text: '',
     ...overrides,
@@ -47,9 +47,9 @@ describe('validate — required-field gaps', () => {
     expect(codes(result.gaps)).toContain('name:missing-required');
   });
 
-  it('flags missing linkedin_url', () => {
-    const result = validate(makeEvent({ linkedin_url: '' }));
-    expect(codes(result.gaps)).toContain('linkedin_url:missing-required');
+  it('flags missing profile_url', () => {
+    const result = validate(makeEvent({ profile_url: '' }));
+    expect(codes(result.gaps)).toContain('profile_url:missing-required');
   });
 
   it('flags missing title for connection_request', () => {
@@ -68,10 +68,10 @@ describe('validate — required-field gaps', () => {
   });
 
   it('aggregates multiple missing fields in order', () => {
-    const result = validate(makeEvent({ name: '', linkedin_url: '', title: '' }));
+    const result = validate(makeEvent({ name: '', profile_url: '', title: '' }));
     expect(codes(result.gaps)).toEqual([
       'name:missing-required',
-      'linkedin_url:missing-required',
+      'profile_url:missing-required',
       'title:missing-required',
     ]);
   });

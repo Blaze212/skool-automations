@@ -53,7 +53,7 @@ function makeOutboxEntry(historyId: string): OutboxEntry {
       date: '2026-05-31',
       name: 'Jane Doe',
       title: '',
-      linkedin_url: 'https://www.linkedin.com/in/jane',
+      profile_url: 'https://www.linkedin.com/in/jane',
       page_url: 'https://www.linkedin.com/in/jane/',
       message_text: '',
       scrape_confidence: 'high',
@@ -120,7 +120,7 @@ describe('pipeline-tracker background.handleMessage — review actions (spec 015
         date: '2026-06-01',
         name: 'Connect',
         title: '',
-        linkedin_url: 'https://www.linkedin.com/feed/',
+        profile_url: 'https://www.linkedin.com/feed/',
         page_url: 'https://www.linkedin.com/feed/',
         message_text: '',
         scrape_confidence: 'low',
@@ -144,7 +144,7 @@ describe('pipeline-tracker background.handleMessage — review actions (spec 015
     const result = await handleMessage({
       kind: 'review_outbox_entry',
       historyId: 'h-1',
-      edits: { name: 'Jane Smith', title: 'CEO', linkedin_url: 'https://www.linkedin.com/in/jane' },
+      edits: { name: 'Jane Smith', title: 'CEO', profile_url: 'https://www.linkedin.com/in/jane' },
     });
 
     expect(result.ok).toBe(true);
@@ -191,7 +191,7 @@ describe('pipeline-tracker background.handleMessage — review actions (spec 015
     const result = await handleMessage({
       kind: 'review_outbox_entry',
       historyId: 'missing',
-      edits: { name: 'x', title: '', linkedin_url: '' },
+      edits: { name: 'x', title: '', profile_url: '' },
     });
     expect(result.ok).toBe(false);
   });

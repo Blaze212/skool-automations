@@ -47,12 +47,12 @@ export interface RenderSettingsSectionOptions {
 }
 
 const CAPTURE_BODIES_HELP =
-  'Include the body of your LinkedIn messages in captured events. Off by default. ' +
+  'Include the body of your captured messages in events. Off by default. ' +
   'Bodies stay on your device until you sync.';
 
 const AI_FALLBACK_HELP =
-  'When LinkedIn changes its HTML and the normal scrape misses a field, recover ' +
-  'it on-device with Chrome’s built-in AI. Nothing is sent to a server.';
+  'When a dragged or pasted selection is messy and the basic parse misses a field, ' +
+  'extract it on-device with Chrome’s built-in AI. Nothing is sent to a server.';
 
 export function renderSettingsSection(root: HTMLElement, opts: RenderSettingsSectionOptions): void {
   root.replaceChildren();

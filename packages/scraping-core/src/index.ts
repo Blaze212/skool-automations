@@ -1,9 +1,9 @@
 // Public API surface for @cs/scraping-core.
 //
-// Spec 016 retired the LinkedIn DOM-scraping path (Cards + the extract()
+// Spec 016 retired the DOM-scraping path (Cards + the extract()
 // orchestrator). What remains is the shared wire types, the validation helper,
 // and the on-device AI extractor (`extractContact`, promoted from spec 013's
-// LinkedIn-anchored `recover()` to the primary, site-agnostic extractor) plus
+// site-specific `recover()` to the primary, site-agnostic extractor) plus
 // its HTML-strip / availability / download helpers.
 
 export {

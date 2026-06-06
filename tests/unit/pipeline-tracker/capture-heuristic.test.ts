@@ -26,7 +26,7 @@ describe('extractHeuristic — text/html fragment', () => {
     const fields = extractHeuristic({ html });
     expect(fields.name).toBe('Jane Doe');
     expect(fields.title).toBe('Head of Growth at Acme');
-    expect(fields.linkedin_url).toBe('https://example.com/u/jane');
+    expect(fields.profile_url).toBe('https://example.com/u/jane');
     expect(fields.message_text).toBe('');
   });
 
@@ -37,7 +37,7 @@ describe('extractHeuristic — text/html fragment', () => {
     const fields = extractHeuristic({ html });
     expect(fields.name).toBe('Carlos Núñez');
     expect(fields.title).toBe('VP Engineering · GitHub');
-    expect(fields.linkedin_url).toBe('https://github.com/carlos');
+    expect(fields.profile_url).toBe('https://github.com/carlos');
   });
 
   it('falls back to the first text line when there is no heading', () => {
@@ -60,7 +60,7 @@ describe('extractHeuristic — text/plain fragment', () => {
     const fields = extractHeuristic({ text });
     expect(fields.name).toBe('Jane Doe');
     expect(fields.title).toBe('Head of Growth at Acme');
-    expect(fields.linkedin_url).toBe('https://example.com/jane');
+    expect(fields.profile_url).toBe('https://example.com/jane');
   });
 
   it('prefers html when both are present', () => {
@@ -77,7 +77,7 @@ describe('extractHeuristic — empty inputs', () => {
     expect(extractHeuristic({})).toEqual({
       name: '',
       title: '',
-      linkedin_url: '',
+      profile_url: '',
       message_text: '',
     });
   });
@@ -89,28 +89,28 @@ describe('extractHeuristic — empty inputs', () => {
 
 describe('heuristicConfidence — site-agnostic', () => {
   it("returns 'high' for a plausible name + non-empty https URL on any host", () => {
-    expect(heuristicConfidence({ name: 'Jane Doe', linkedin_url: 'https://github.com/jane' })).toBe(
+    expect(heuristicConfidence({ name: 'Jane Doe', profile_url: 'https://github.com/jane' })).toBe(
       'high',
     );
     expect(
-      heuristicConfidence({ name: 'Jane Doe', linkedin_url: 'https://www.linkedin.com/in/jane' }),
+      heuristicConfidence({ name: 'Jane Doe', profile_url: 'https://www.linkedin.com/in/jane' }),
     ).toBe('high');
   });
 
   it("returns 'low' when the URL is missing", () => {
-    expect(heuristicConfidence({ name: 'Jane Doe', linkedin_url: '' })).toBe('low');
+    expect(heuristicConfidence({ name: 'Jane Doe', profile_url: '' })).toBe('low');
   });
 
   it("returns 'low' when the URL is not https", () => {
-    expect(heuristicConfidence({ name: 'Jane Doe', linkedin_url: 'http://example.com' })).toBe(
+    expect(heuristicConfidence({ name: 'Jane Doe', profile_url: 'http://example.com' })).toBe(
       'low',
     );
   });
 
   it("returns 'low' when the name is junk / implausible", () => {
-    expect(heuristicConfidence({ name: 'Connect', linkedin_url: 'https://x.com/a' })).toBe('low');
-    expect(heuristicConfidence({ name: 'Agent 007', linkedin_url: 'https://x.com/a' })).toBe('low');
-    expect(heuristicConfidence({ name: '', linkedin_url: 'https://x.com/a' })).toBe('low');
+    expect(heuristicConfidence({ name: 'Connect', profile_url: 'https://x.com/a' })).toBe('low');
+    expect(heuristicConfidence({ name: 'Agent 007', profile_url: 'https://x.com/a' })).toBe('low');
+    expect(heuristicConfidence({ name: '', profile_url: 'https://x.com/a' })).toBe('low');
   });
 });
 
@@ -125,7 +125,7 @@ describe('extractHeuristic — V2 reliability (spec 016 prompt-tuning)', () => {
     const f = extractHeuristic({ html });
     expect(f.name).toBe('Heather Hund');
     expect(f.title).toBe('Fractional Product Marketing | ex-BCG');
-    expect(f.linkedin_url).toBe('https://www.linkedin.com/in/heather-hund/');
+    expect(f.profile_url).toBe('https://www.linkedin.com/in/heather-hund/');
   });
 
   it('skips pronoun + degree chrome lines when choosing the title', () => {
@@ -141,7 +141,7 @@ describe('extractHeuristic — V2 reliability (spec 016 prompt-tuning)', () => {
     const f = extractHeuristic({ html });
     expect(f.name).toBe('Jane Doe');
     expect(f.title).toBe('');
-    expect(f.linkedin_url).toBe('https://www.linkedin.com/in/jane/');
+    expect(f.profile_url).toBe('https://www.linkedin.com/in/jane/');
   });
 
   it('skips a leading pronoun chip when choosing the name (plain text)', () => {
@@ -149,7 +149,7 @@ describe('extractHeuristic — V2 reliability (spec 016 prompt-tuning)', () => {
     const f = extractHeuristic({ text });
     expect(f.name).toBe('Jane Doe');
     expect(f.title).toBe('Founder at Acme');
-    expect(f.linkedin_url).toBe('https://www.linkedin.com/in/jane/');
+    expect(f.profile_url).toBe('https://www.linkedin.com/in/jane/');
   });
 });
 

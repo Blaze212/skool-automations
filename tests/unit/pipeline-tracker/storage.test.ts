@@ -218,7 +218,7 @@ describe('pipeline-tracker storage facade', () => {
           date: '2026-05-30',
           name: 'X',
           title: '',
-          linkedin_url: '',
+          profile_url: '',
           page_url: '',
           message_text: '',
         },
@@ -283,7 +283,7 @@ describe('pipeline-tracker storage facade', () => {
             date: '2026-05-30',
             name: 'X',
             title: '',
-            linkedin_url: '',
+            profile_url: '',
             page_url: '',
             message_text: '',
           },
@@ -706,7 +706,7 @@ describe('pipeline-tracker storage facade', () => {
           date: '2026-06-01',
           name: 'Connect',
           title: '',
-          linkedin_url: 'https://www.linkedin.com/feed/',
+          profile_url: 'https://www.linkedin.com/feed/',
           page_url: 'https://www.linkedin.com/feed/',
           message_text: '',
           scrape_confidence: 'low',
@@ -721,7 +721,7 @@ describe('pipeline-tracker storage facade', () => {
       const res = await reviewOutboxEntry('h-1', {
         name: 'Jane Smith',
         title: 'Staff Engineer',
-        linkedin_url: 'https://www.linkedin.com/in/jane-smith',
+        profile_url: 'https://www.linkedin.com/in/jane-smith',
         message_text: 'Hi Jane — great to connect!',
       });
 
@@ -730,7 +730,7 @@ describe('pipeline-tracker storage facade', () => {
       const edited = outbox.find((e) => e.history_id === 'h-1')!;
       expect(edited.event.name).toBe('Jane Smith');
       expect(edited.event.title).toBe('Staff Engineer');
-      expect(edited.event.linkedin_url).toBe('https://www.linkedin.com/in/jane-smith');
+      expect(edited.event.profile_url).toBe('https://www.linkedin.com/in/jane-smith');
       expect(edited.event.message_text).toBe('Hi Jane — great to connect!');
       expect(edited.user_reviewed).toBe(true);
       // recovered_html for the edited row is gone; the other row is untouched.
@@ -745,7 +745,7 @@ describe('pipeline-tracker storage facade', () => {
       const res = await reviewOutboxEntry('nope', {
         name: 'x',
         title: '',
-        linkedin_url: '',
+        profile_url: '',
         message_text: '',
       });
 
@@ -769,7 +769,7 @@ describe('pipeline-tracker storage facade', () => {
           date: '2026-06-01',
           name: 'Connect',
           title: '',
-          linkedin_url: '',
+          profile_url: '',
           page_url: '',
           message_text: '',
         },

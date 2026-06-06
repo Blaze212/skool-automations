@@ -1,15 +1,9 @@
 // Spec 016 D-016-2 — site-agnostic heuristic fast-path for manual capture.
 //
 // Turns a dropped/pasted fragment (text/html or text/plain) into best-effort
-// { name, title, linkedin_url, message_text } with NO AI, instantly, and scores
+// { name, title, profile_url, message_text } with NO AI, instantly, and scores
 // its confidence so the capture flow knows whether to fall back to the on-device
 // model. Dependency-free (no chrome.*) so it unit-tests as a pure function.
-//
-// This is the single confidence function in the manual-capture build: spec 016
-// eng-review E-4 deletes score-capture.ts (its scoreCapture() linkedin.com/in/
-// URL gate would force every non-LinkedIn capture to 'low'). heuristicConfidence
-// re-uses the same site-agnostic NAME_RE / junk set heuristics, but gates the URL
-// on "any non-empty https: URL" instead of a LinkedIn profile path.
 
 import {
   DEGREE_MARKER_RE,
@@ -29,7 +23,7 @@ import type { ScrapeConfidence } from './types.ts';
 // This is ONLY a parser-jank guard against multi-MB selections — it is NOT the
 // content budget. That budget is stripHtmlForCarry's 16KB post-strip cap, which
 // applies to the LEAN (attribute-stripped) HTML. Capping the RAW HTML must
-// therefore be generous: LinkedIn's message-thread DOM is extremely attribute-
+// therefore be generous: a message-thread DOM is extremely attribute-
 // dense (every bubble carries hundreds of class/data-*/aria-* attributes — KBs
 // per bubble), so a small raw cap truncates a normal thread mid-bubble and the
 // model never sees the most recent messages. After stripping, that same thread
@@ -118,7 +112,7 @@ function isJunkLine(line: string): boolean {
 }
 
 /**
- * Canonicalize a profile URL by dropping tracking. LinkedIn keeps identity in
+ * Canonicalize a profile URL by dropping tracking. Some hosts keep identity in
  * the path (the `?lipi`/`?trk` params are pure tracking); for other hosts strip
  * only known tracking params so we don't break identity-bearing query strings.
  */
@@ -143,7 +137,7 @@ function cleanUrl(url: string): string {
 /**
  * True when the fragment looks like a message thread (so the AI is still worth
  * running for message_text + stage even when the heuristic nailed name/url).
- * "X sent the following message" is LinkedIn's per-bubble attribution line and
+ * "X sent the following message" is a per-bubble attribution line and
  * is present in every conversation capture but not in profile/search captures.
  */
 const CONVERSATION_RE = /\bsent the following messages?\b/i;
@@ -153,7 +147,7 @@ export function looksLikeConversation(html: string): boolean {
 
 // --- Deterministic owner-message + stage extraction (spec 016 follow-up) ---
 //
-// LinkedIn renders a message thread as a flat, regular structure in the
+// A message thread renders as a flat, regular structure in the
 // text/plain a drag/paste carries:
 //
 //   <date sep, e.g. "May 26" | "Monday" | "Today">
@@ -164,13 +158,13 @@ export function looksLikeConversation(html: string): boolean {
 //
 // A small on-device model is unreliable at "find the LAST message *I* sent"
 // reading bottom-up through this noise; a deterministic pass is exact. It is
-// LinkedIn-text-format-specific, so it stays a best-effort AID: it returns null
+// text-format-specific, so it stays a best-effort AID: it returns null
 // when it can't confidently parse (other sites, a bare connection note, no
 // owner name), leaving the model as the message fallback.
 
 const TIME_RE = String.raw`\d{1,2}:\d{2}\s*(?:[AaPp][Mm])`;
 // A per-bubble author header: "<name><2+ spaces><time>". The 2+ space gap is
-// LinkedIn's name↔timestamp separator and is what distinguishes a real header
+// the name-to-timestamp separator and is what distinguishes a real header
 // from a sentence that merely mentions a time.
 const BUBBLE_HEADER_RE = new RegExp(String.raw`^(.+?)\s{2,}${TIME_RE}\s*$`);
 // A group header: "<name> sent the following message(s) at <time>".
@@ -199,7 +193,7 @@ interface MessageBubble {
 
 /**
  * Extract the most recent message authored by `ownerName` from a plain-text
- * LinkedIn-style thread. Returns the message body as plain text (newline-joined),
+ * message thread. Returns the message body as plain text (newline-joined),
  * or null when the owner name is unknown, the text isn't a parseable thread, or
  * the owner authored nothing here.
  */
@@ -309,10 +303,10 @@ function extractFromHtml(html: string): EditableEventFields {
   try {
     doc = new DOMParser().parseFromString(html, 'text/html');
   } catch {
-    return { name: '', title: '', linkedin_url: '', message_text: '' };
+    return { name: '', title: '', profile_url: '', message_text: '' };
   }
 
-  const linkedin_url = cleanUrl(firstUrl(doc));
+  const profile_url = cleanUrl(firstUrl(doc));
   const lines = collectTextLines(doc);
 
   // Name: trust a real heading (h1–h4) first. Do NOT use <strong>/<b> — on a
@@ -337,7 +331,7 @@ function extractFromHtml(html: string): EditableEventFields {
     }
   }
 
-  return { name, title, linkedin_url, message_text: '' };
+  return { name, title, profile_url, message_text: '' };
 }
 
 function extractFromText(text: string): EditableEventFields {
@@ -359,7 +353,7 @@ function extractFromText(text: string): EditableEventFields {
   }
   // A pasted plain-text URL line becomes the profile URL (tracking stripped).
   const url = cleanUrl(lines.find((l) => /^https?:\/\//i.test(l)) ?? '');
-  return { name, title, linkedin_url: url, message_text: '' };
+  return { name, title, profile_url: url, message_text: '' };
 }
 
 /**
@@ -372,7 +366,7 @@ export function extractHeuristic(input: { html?: string; text?: string }): Edita
   const html = input.html ? capFragment(input.html) : '';
   if (html.trim()) return extractFromHtml(html);
   if (input.text && input.text.trim()) return extractFromText(capFragment(input.text));
-  return { name: '', title: '', linkedin_url: '', message_text: '' };
+  return { name: '', title: '', profile_url: '', message_text: '' };
 }
 
 /**
@@ -381,9 +375,9 @@ export function extractHeuristic(input: { html?: string; text?: string }): Edita
  * `https:` URL is present; otherwise `'low'` (run the on-device model).
  */
 export function heuristicConfidence(
-  fields: Pick<EditableEventFields, 'name' | 'linkedin_url'>,
+  fields: Pick<EditableEventFields, 'name' | 'profile_url'>,
 ): ScrapeConfidence {
-  return isPlausibleName(fields.name ?? '') && isHttpsUrl(fields.linkedin_url ?? '')
+  return isPlausibleName(fields.name ?? '') && isHttpsUrl(fields.profile_url ?? '')
     ? 'high'
     : 'low';
 }

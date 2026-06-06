@@ -79,7 +79,7 @@ function outboxOf(n: number): OutboxEntry[] {
       date: '2026-05-30',
       name: `N${i}`,
       title: '',
-      linkedin_url: '',
+      profile_url: '',
       page_url: '',
       message_text: '',
     },
