@@ -59,7 +59,7 @@ export interface BindingSectionOptions {
   /**
    * Base URL of the CareerSystems app (env-specific — prod vs localhost). The
    * confirmed state renders a "Visit the app (and click Sync)" link to
-   * `${appBaseUrl}/tracker-v2`. Defaults to the production origin.
+   * `${appBaseUrl}/tracker-fractional`. Defaults to the production origin.
    */
   appBaseUrl?: string;
   /** Inject a clock for tests. Defaults to Date.now / setTimeout / clearTimeout. */
@@ -287,7 +287,7 @@ export function renderBindingSection(
     const appBase = (opts.appBaseUrl ?? 'https://app.cmcareersystems.com').replace(/\/+$/, '');
     const appLink = document.createElement('a');
     appLink.className = 'binding-app-link';
-    appLink.href = `${appBase}/tracker-v2`;
+    appLink.href = `${appBase}/tracker-fractional`;
     appLink.target = '_blank';
     appLink.rel = 'noopener';
     appLink.textContent = 'Visit the app (and click Sync) →';

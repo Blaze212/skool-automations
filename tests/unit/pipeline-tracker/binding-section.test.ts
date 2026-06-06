@@ -367,7 +367,7 @@ describe('binding section — confirmed', () => {
     });
     const link = root.querySelector('.binding-app-link') as HTMLAnchorElement;
     expect(link).not.toBeNull();
-    expect(link.getAttribute('href')).toBe('http://localhost:5173/tracker-v2');
+    expect(link.getAttribute('href')).toBe('http://localhost:5173/tracker-fractional');
     expect(link.textContent).toMatch(/Visit the app/);
   });
 
@@ -378,7 +378,7 @@ describe('binding section — confirmed', () => {
       clearBinding: vi.fn(),
     });
     const link = root.querySelector('.binding-app-link') as HTMLAnchorElement;
-    expect(link.getAttribute('href')).toBe('https://app.cmcareersystems.com/tracker-v2');
+    expect(link.getAttribute('href')).toBe('https://app.cmcareersystems.com/tracker-fractional');
   });
 
   it('calls clearBinding when the user clicks Disconnect', async () => {
