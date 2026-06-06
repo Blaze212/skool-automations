@@ -22,9 +22,15 @@ import {
   initSidePanel,
   renderActivity,
   renderUnsynced,
+  saveManualCapture,
 } from '../../../pipeline-tracker/src/sidepanel/sidepanel.ts';
-import { _resetInitLatchForTests } from '../../../pipeline-tracker/src/storage.ts';
 import {
+  _resetInitLatchForTests,
+  OutboxFullError,
+  type ManualCaptureInput,
+} from '../../../pipeline-tracker/src/storage.ts';
+import {
+  OUTBOX_CAP,
   STORAGE_KEYS,
   type HistoryEntry,
   type OutboxEntry,
@@ -116,6 +122,54 @@ beforeEach(() => {
 afterEach(() => {
   _resetBindingMountForTests();
   document.body.innerHTML = '';
+});
+
+describe('side panel — saveManualCapture auto-sync nudge', () => {
+  const captureInput: ManualCaptureInput = {
+    name: 'Jane Doe',
+    title: 'Head of Growth',
+    profile_url: 'https://github.com/jane',
+    message_text: 'hi there',
+    event_type: 'direct_message',
+    page_url: 'https://example.com/jane',
+  };
+
+  // Spec 016 deleted content.ts, which fired drain_outbox post-capture. The
+  // manual save path must carry it forward or the SW never broadcasts
+  // new-events and the webapp stops auto-syncing (sync-pull → sync-ack).
+  it('sends drain_outbox to the SW after a successful enqueue', async () => {
+    installStatefulStorage();
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
+
+    await saveManualCapture(captureInput);
+
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'drain_outbox' });
+  });
+
+  it('does NOT send drain_outbox when the enqueue throws (full outbox)', async () => {
+    const local = installStatefulStorage();
+    local[STORAGE_KEYS.OUTBOX] = Array.from({ length: OUTBOX_CAP }, (_, i) => ({
+      history_id: `h${i}`,
+      enqueued_at: new Date(2026, 0, 1).toISOString(),
+      attempts: 0,
+      event: { ...captureInput, api_key: '', date: '2026-01-01' } as OutboxEntry['event'],
+    }));
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
+
+    await expect(saveManualCapture(captureInput)).rejects.toBeInstanceOf(OutboxFullError);
+    expect(chrome.runtime.sendMessage).not.toHaveBeenCalledWith({ kind: 'drain_outbox' });
+  });
+
+  // A failed nudge must not surface as a save failure — the enqueue already
+  // committed, so saveManualCapture resolves and the card clears normally.
+  it('swallows a nudge failure when the enqueue already succeeded', async () => {
+    installStatefulStorage();
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('SW asleep'),
+    );
+
+    await expect(saveManualCapture(captureInput)).resolves.toBeUndefined();
+  });
 });
 
 describe('side panel — renderUnsynced', () => {
