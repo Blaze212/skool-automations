@@ -627,6 +627,28 @@
         cursor: not-allowed;
       }
 
+      /* ── Sync button — opens the tracker tab to drain the outbox ──────── */
+      .sync-now-btn {
+        appearance: none;
+        background: var(--cs-brand);
+        color: #fff;
+        border: 1px solid var(--cs-brand);
+        border-radius: 3px;
+        padding: 2px 9px;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .sync-now-btn:hover {
+        background: var(--cs-brand-dark);
+        border-color: var(--cs-brand-dark);
+      }
+      /* Hidden when there is nothing to sync (toggled from sidepanel.ts). */
+      .sync-now-btn[hidden] {
+        display: none;
+      }
+
       /* ── Activity row URL — single line with ellipsis ───────────────── */
       .meta-url {
         overflow: hidden;
@@ -937,6 +959,7 @@
         <h2>Unsynced events</h2>
         <div style="display: flex; align-items: center; gap: 6px">
           <span id="unsynced-count" class="count"></span>
+          <button id="sync-now-btn" class="sync-now-btn" type="button" hidden>Sync</button>
           <button id="export-csv-btn" class="export-csv-btn" type="button">Export CSV</button>
         </div>
       </div>

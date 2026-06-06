@@ -103,6 +103,7 @@ beforeEach(() => {
     <section id="unsynced-section">
       <div style="display:flex;align-items:center;gap:6px;">
         <span id="unsynced-count"></span>
+        <button id="sync-now-btn" type="button" hidden>Sync</button>
         <button id="export-csv-btn" type="button">Export CSV</button>
       </div>
       <div id="unsynced-list"></div>
@@ -514,6 +515,60 @@ describe('side panel — initSidePanel', () => {
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ kind: 'export_csv' });
   });
 
+  it('Sync button opens the tracker tab and is shown when the outbox has events', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+    local[STORAGE_KEYS.OUTBOX] = [makeOutboxEntry(1)];
+
+    const btn = document.getElementById('sync-now-btn') as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+
+    await initSidePanel();
+
+    // Outbox is non-empty → the Sync button is visible.
+    expect(btn.hidden).toBe(false);
+
+    vi.clearAllMocks();
+    btn.click();
+
+    expect(chrome.tabs.create).toHaveBeenCalledWith({
+      url: 'https://app.cmcareersystems.com/tracker-fractional',
+    });
+  });
+
+  it('Sync button stays hidden when the outbox is empty', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+    local[STORAGE_KEYS.OUTBOX] = [];
+
+    const btn = document.getElementById('sync-now-btn') as HTMLButtonElement;
+
+    await initSidePanel();
+
+    expect(btn.hidden).toBe(true);
+  });
+
+  it('Sync button appears when an OUTBOX storage change adds the first event', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local);
+    local[STORAGE_KEYS.OUTBOX] = [];
+
+    const btn = document.getElementById('sync-now-btn') as HTMLButtonElement;
+
+    await initSidePanel();
+    expect(btn.hidden).toBe(true);
+
+    // Simulate the SW enqueuing a capture: write OUTBOX and fire the listener.
+    const listeners = (chrome.storage.onChanged.addListener as ReturnType<typeof vi.fn>).mock.calls;
+    local[STORAGE_KEYS.OUTBOX] = [makeOutboxEntry(1)];
+    for (const [listener] of listeners) {
+      listener({ [STORAGE_KEYS.OUTBOX]: { newValue: local[STORAGE_KEYS.OUTBOX] } }, 'local');
+    }
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(btn.hidden).toBe(false);
+  });
+
   it('renders the settings section above the events when first_run_completed is true', async () => {
     const local = installStatefulStorage();
     seedFirstRunComplete(local);
@@ -793,7 +848,7 @@ describe('side panel — Phase 8 zero-tab CTA (D-rev-9)', () => {
 
     errBtn.click();
     expect(chrome.tabs.create).toHaveBeenCalledWith({
-      url: 'https://app.cmcareersystems.com/tracker-v2',
+      url: 'https://app.cmcareersystems.com/tracker-fractional',
     });
   });
 });
