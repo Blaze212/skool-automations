@@ -18,13 +18,24 @@ import {
   OPEN_TO_WORK_RE,
   FOLLOWER_COUNT_RE,
 } from '@cs/scraping-core';
+import type { EventType } from '@cs/scraping-core';
 import type { EditableEventFields } from './sidepanel/editable-fields.ts';
 import type { ScrapeConfidence } from './types.ts';
 
 // Spec 016 E-10 — hard cap on the raw dropped fragment BEFORE DOMParser, so a
-// whole-page selection can't jank the panel. The pipeline is:
+// pathological whole-page selection can't jank the panel. The pipeline is:
 //   raw ≤ FRAGMENT_MAX_BYTES → DOMParser → stripHtmlForCarry ≤ 16KB → AI.
-export const FRAGMENT_MAX_BYTES = 64 * 1024;
+//
+// This is ONLY a parser-jank guard against multi-MB selections — it is NOT the
+// content budget. That budget is stripHtmlForCarry's 16KB post-strip cap, which
+// applies to the LEAN (attribute-stripped) HTML. Capping the RAW HTML must
+// therefore be generous: LinkedIn's message-thread DOM is extremely attribute-
+// dense (every bubble carries hundreds of class/data-*/aria-* attributes — KBs
+// per bubble), so a small raw cap truncates a normal thread mid-bubble and the
+// model never sees the most recent messages. After stripping, that same thread
+// is only a few KB. Keep this high enough that real threads pass through intact
+// and only genuinely pathological (multi-MB) whole-page dumps get truncated.
+export const FRAGMENT_MAX_BYTES = 4 * 1024 * 1024;
 
 // Toolbar/affordance labels and pronoun chips that the DOM occasionally yields
 // in place of a real person name. Compared case-insensitively. (Site-agnostic —
@@ -138,6 +149,111 @@ function cleanUrl(url: string): string {
 const CONVERSATION_RE = /\bsent the following messages?\b/i;
 export function looksLikeConversation(html: string): boolean {
   return CONVERSATION_RE.test(html ?? '');
+}
+
+// --- Deterministic owner-message + stage extraction (spec 016 follow-up) ---
+//
+// LinkedIn renders a message thread as a flat, regular structure in the
+// text/plain a drag/paste carries:
+//
+//   <date sep, e.g. "May 26" | "Monday" | "Today">
+//   <Sender> sent the following message(s) at <time>   ← group header (optional)
+//   View <First>'s profile<Sender>                      ← bubble chrome
+//   <Sender>   <time>                                   ← bubble header (author)
+//   <message body line(s)>
+//
+// A small on-device model is unreliable at "find the LAST message *I* sent"
+// reading bottom-up through this noise; a deterministic pass is exact. It is
+// LinkedIn-text-format-specific, so it stays a best-effort AID: it returns null
+// when it can't confidently parse (other sites, a bare connection note, no
+// owner name), leaving the model as the message fallback.
+
+const TIME_RE = String.raw`\d{1,2}:\d{2}\s*(?:[AaPp][Mm])`;
+// A per-bubble author header: "<name><2+ spaces><time>". The 2+ space gap is
+// LinkedIn's name↔timestamp separator and is what distinguishes a real header
+// from a sentence that merely mentions a time.
+const BUBBLE_HEADER_RE = new RegExp(String.raw`^(.+?)\s{2,}${TIME_RE}\s*$`);
+// A group header: "<name> sent the following message(s) at <time>".
+const GROUP_HEADER_RE = new RegExp(
+  String.raw`^(.+?) sent the following messages? at ${TIME_RE}\s*$`,
+  'i',
+);
+// Bubble chrome that is never body text and never an author signal.
+const VIEW_PROFILE_RE = /^View\b.*\bprofile/i;
+const DATE_SEP_RE =
+  /^(?:today|yesterday|(?:mon|tues|wednes|thurs|fri|satur|sun)day|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2})$/i;
+
+// Phrases that indicate a connection was just accepted (used only when the owner
+// has sent no message in the fragment — an active thread is a direct_message).
+const ACCEPTANCE_RE =
+  /\b(?:accepted your (?:invitation|connection(?: request)?)|is now a connection|thanks for connecting|looking forward to connecting|nice to (?:meet|connect)|great to (?:be )?connect(?:ed|ing))\b/i;
+
+function normalizeName(s: string): string {
+  return s.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+interface MessageBubble {
+  author: string;
+  body: string[];
+}
+
+/**
+ * Extract the most recent message authored by `ownerName` from a plain-text
+ * LinkedIn-style thread. Returns the message body as plain text (newline-joined),
+ * or null when the owner name is unknown, the text isn't a parseable thread, or
+ * the owner authored nothing here.
+ */
+export function extractOwnerMessage(text: string, ownerName: string): string | null {
+  const owner = normalizeName(ownerName);
+  if (!owner || !text) return null;
+
+  // Trim each line but PRESERVE internal spacing: the 2+ space gap between a
+  // sender name and the timestamp is the header signal (BUBBLE_HEADER_RE), so
+  // collapsing it here would hide every header.
+  const lines = text.split(/\r?\n/).map((l) => l.trim());
+  const bubbles: MessageBubble[] = [];
+
+  const startBubble = (author: string): void => {
+    bubbles.push({ author: normalizeName(author), body: [] });
+  };
+
+  for (const line of lines) {
+    if (!line) continue;
+    const group = GROUP_HEADER_RE.exec(line);
+    if (group) {
+      startBubble(group[1]);
+      continue;
+    }
+    const bubble = BUBBLE_HEADER_RE.exec(line);
+    if (bubble) {
+      startBubble(bubble[1]);
+      continue;
+    }
+    if (VIEW_PROFILE_RE.test(line) || DATE_SEP_RE.test(line)) continue;
+    // Body text before the first author header has no known sender — skip it.
+    const last = bubbles[bubbles.length - 1];
+    if (last) last.body.push(line);
+  }
+
+  for (let i = bubbles.length - 1; i >= 0; i--) {
+    if (bubbles[i].author === owner) {
+      const body = bubbles[i].body.join('\n').trim();
+      if (body) return body;
+    }
+  }
+  return null;
+}
+
+/**
+ * Deterministic capture stage (spec 016 follow-up):
+ *   • the owner sent a message in this fragment → 'direct_message'
+ *   • else the content shows an acceptance       → 'accepted_connection'
+ *   • else (a plain profile / a sent invite)     → 'connection_request'
+ */
+export function classifyStage(content: string, ownerMessage: string | null): EventType {
+  if (ownerMessage !== null) return 'direct_message';
+  if (ACCEPTANCE_RE.test(content ?? '')) return 'accepted_connection';
+  return 'connection_request';
 }
 
 const _utf8Encoder = new TextEncoder();

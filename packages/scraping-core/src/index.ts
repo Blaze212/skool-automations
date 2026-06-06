@@ -29,6 +29,7 @@ export type {
 export {
   extractContact,
   stripHtmlForCarry,
+  stripHtmlForCarryWithStatus,
   RECOVERED_HTML_CAP_BYTES,
   getCachedAvailability,
   invalidateAvailabilityCache,
@@ -38,6 +39,9 @@ export {
   type ContactFields,
   type ExtractContactInput,
   type ExtractContactResult,
+  type ExtractContactTimeout,
+  type ExtractContactTooLarge,
+  type CarryStripResult,
   type LanguageModelSession,
   type LanguageModelStatic,
 } from './ai-fallback/index.js';

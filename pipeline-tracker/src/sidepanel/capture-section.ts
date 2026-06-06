@@ -39,7 +39,9 @@ import { type EditableEventFields, buildEditableFields } from './editable-fields
 import { stripHtmlForCarry } from '@cs/scraping-core';
 import {
   capFragment,
+  classifyStage,
   extractHeuristic,
+  extractOwnerMessage,
   heuristicConfidence,
   looksLikeConversation,
 } from '../capture-heuristic.ts';
@@ -49,6 +51,25 @@ export interface AiExtractionResult {
   fields: EditableEventFields;
   /** AI's stage guess — validated against EventType by the extractor; may be null. */
   suggested_event_type: EventType | null;
+}
+
+/**
+ * The on-device model timed out (distinct from a plain null "unavailable/failed").
+ * The card keeps its heuristic + deterministic values but shows a warning so a
+ * slow model degrades visibly instead of silently.
+ */
+export interface AiTimeout {
+  timedOut: true;
+}
+
+/**
+ * The selection was too large for the on-device model (the stripped HTML blew
+ * the byte cap, or the model rejected the prompt as over-context). The AI parse
+ * was skipped; the card keeps its heuristic + deterministic values and warns the
+ * user to reduce the selection or enter the fields manually.
+ */
+export interface AiTooLarge {
+  tooLarge: true;
 }
 
 export interface CaptureSectionOptions {
@@ -61,6 +82,12 @@ export interface CaptureSectionOptions {
   /** Best-effort active-tab URL for page_url (D-016-1). '' when unavailable. */
   getPageUrl?: () => Promise<string>;
   /**
+   * The account owner's display name (from settings). Used by the deterministic
+   * message/stage pass to pick the most recent message the owner sent in a
+   * thread. '' (or absent) disables that pass — the model still runs as fallback.
+   */
+  getOwnerName?: () => Promise<string> | string;
+  /**
    * Phase 2 — on-device AI extraction. Resolves to repaired fields + a suggested
    * stage, or null when the model is unavailable / failed (heuristic stands).
    * MUST NOT throw (D-AI-1). Absent in Phase 1.
@@ -69,7 +96,7 @@ export interface CaptureSectionOptions {
     html?: string;
     text?: string;
     candidate: EditableEventFields;
-  }) => Promise<AiExtractionResult | null>;
+  }) => Promise<AiExtractionResult | AiTimeout | AiTooLarge | null>;
   /** Confirm replacing a populated card on a new drop. Default: window.confirm. */
   confirmReplace?: () => boolean;
   /**
@@ -111,6 +138,13 @@ export function renderCaptureSection(
   let fragment: Fragment | null = null;
   let pageUrl = '';
   let getEdits: (() => EditableEventFields) | null = null;
+  // Deterministic message/stage for the current fragment (model-independent).
+  // Recomputed on each drop; reused by a manual "Extract with AI" re-run so the
+  // regex-found message and derived stage always win over the model's guesses.
+  let det: { ownerMessage: string | null; stage: EventType } = {
+    ownerMessage: null,
+    stage: DEFAULT_EVENT_TYPE,
+  };
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
   // Bumped on every new fragment. Lets an in-flight async step (page-url lookup,
   // AI extraction, save) detect that a newer drop has superseded it and bail out
@@ -189,6 +223,14 @@ export function renderCaptureSection(
   }
   stageSelect.addEventListener('change', paintStage);
 
+  // Non-blocking warning (e.g. the AI timed out): the card stays usable with its
+  // heuristic + deterministic values, but the user is told the model didn't help.
+  const warningEl = document.createElement('div');
+  warningEl.className = 'capture-warning';
+  warningEl.setAttribute('role', 'status');
+  warningEl.hidden = true;
+  card.appendChild(warningEl);
+
   const errorEl = document.createElement('div');
   errorEl.className = 'capture-error';
   errorEl.hidden = true;
@@ -263,6 +305,16 @@ export function renderCaptureSection(
     errorEl.hidden = false;
   }
 
+  function clearWarning(): void {
+    warningEl.hidden = true;
+    warningEl.textContent = '';
+  }
+
+  function showWarning(message: string): void {
+    warningEl.textContent = message;
+    warningEl.hidden = false;
+  }
+
   function resetToEmpty(): void {
     state = 'empty';
     fragment = null;
@@ -271,6 +323,7 @@ export function renderCaptureSection(
     card.hidden = true;
     extractingBanner.hidden = true;
     clearError();
+    clearWarning();
     fieldsHost.replaceChildren();
   }
 
@@ -288,19 +341,20 @@ export function renderCaptureSection(
     gen: number,
   ): Promise<void> {
     if (!opts.aiExtract) {
-      enterReady(candidate, null);
+      enterReady(candidate, det.stage);
       return;
     }
     // Show the (locked) heuristic values while the model runs so the user sees
     // something, then disable every control until it resolves.
-    renderFields(candidate, null);
+    renderFields(candidate, det.stage);
     card.hidden = false;
     extractingBanner.hidden = false;
+    clearWarning(); // a re-run clears any prior timeout warning
     state = 'extracting';
     setControlsDisabled(true);
 
     try {
-      let result: AiExtractionResult | null = null;
+      let result: AiExtractionResult | AiTimeout | AiTooLarge | null = null;
       try {
         result = await opts.aiExtract({
           html: currentFragment.html,
@@ -316,16 +370,35 @@ export function renderCaptureSection(
       // A newer drop superseded this extraction — discard the stale result so it
       // can't clobber the newer card.
       if (gen !== captureGeneration) return;
-      if (result) {
-        enterReady(result.fields, result.suggested_event_type);
+      if (result && 'timedOut' in result) {
+        // The model timed out: keep the heuristic + deterministic values (already
+        // usable) but WARN the user instead of degrading silently.
+        enterReady(candidate, det.stage);
+        showWarning(
+          'AI extraction timed out showing best-guess values. Review the fields before saving.',
+        );
+      } else if (result && 'tooLarge' in result) {
+        // The selection was too big for the on-device model — the AI parse was
+        // skipped. Keep the heuristic + deterministic values and tell the user.
+        enterReady(candidate, det.stage);
+        showWarning(
+          'AI extraction skipped. Selection too large for on-device AI. Reduce the selection or enter the fields manually.',
+        );
+      } else if (result) {
+        // The model owns name/title/url; the deterministic pass owns message_text
+        // (when the regex found one) and the stage — both win over the model.
+        enterReady(
+          { ...result.fields, message_text: det.ownerMessage ?? result.fields.message_text },
+          det.stage,
+        );
       } else {
-        // Unavailable / failed → heuristic values stand (D-AI-1).
-        enterReady(candidate, null);
+        // Unavailable / failed → heuristic + deterministic values stand (D-AI-1).
+        enterReady(candidate, det.stage);
       }
     } finally {
       // Card-lock release MUST be in finally — a thrown extraction still unlocks.
       // Only if this is still the current capture (a newer drop owns the card now).
-      if (gen === captureGeneration && state === 'extracting') enterReady(candidate, null);
+      if (gen === captureGeneration && state === 'extracting') enterReady(candidate, det.stage);
     }
   }
 
@@ -342,6 +415,7 @@ export function renderCaptureSection(
     opts.debugLogFragment?.(next);
 
     clearError();
+    clearWarning();
     fragment = next;
     pageUrl = opts.getPageUrl ? await safePageUrl() : '';
     if (gen !== captureGeneration) return; // superseded during the await
@@ -358,21 +432,41 @@ export function renderCaptureSection(
       return;
     }
 
-    // The heuristic owns name/title/url. We still need the model for a message
-    // thread (message_text + stage), so run it when the heuristic is low-
-    // confidence OR the fragment looks like a conversation.
+    // Deterministic message + stage from the plain-text thread (model-independent:
+    // runs even when the AI toggle is off / model unavailable). The regex pulls
+    // the most recent message the OWNER sent; the stage is derived from it.
+    const ownerName = opts.getOwnerName ? await safeOwnerName() : '';
+    if (gen !== captureGeneration) return; // superseded during the await
+    const convoText = next.text ?? '';
+    const ownerMessage = extractOwnerMessage(convoText, ownerName);
+    det = { ownerMessage, stage: classifyStage(convoText || strippedHtml || '', ownerMessage) };
+    if (ownerMessage) fields.message_text = ownerMessage;
+
+    // The heuristic owns name/title/url; the deterministic pass owns
+    // message_text + stage. We still run the model to repair name/title/url when
+    // the heuristic is low-confidence OR the fragment is a conversation (threads
+    // make the heuristic's title unreliable) — but its message_text/stage are
+    // overridden by `det` in runAi.
     const confidence = heuristicConfidence(fields);
     const conversation = looksLikeConversation(strippedHtml || next.html || next.text || '');
     if (opts.aiExtract && (confidence === 'low' || conversation)) {
       await runAi(fields, next, gen);
     } else {
-      enterReady(fields, null);
+      enterReady(fields, det.stage);
     }
   }
 
   async function safePageUrl(): Promise<string> {
     try {
       return (await opts.getPageUrl?.()) ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  async function safeOwnerName(): Promise<string> {
+    try {
+      return (await opts.getOwnerName?.()) ?? '';
     } catch {
       return '';
     }
