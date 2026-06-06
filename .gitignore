@@ -25,3 +25,6 @@ coverage/
 # Kept on disk for scripts/gen-eval-dataset.mjs but never committed (may carry PII).
 LinkedInRawCapturesForPromptTesting.html
 drag-link-inspector 3/
+
+# Pipeline Tracker extension signing key (private — never commit)
+pipeline-tracker/.keys/
