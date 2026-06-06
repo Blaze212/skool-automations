@@ -741,7 +741,7 @@ async function rebindAwareClearBinding(modalRoot: HTMLElement): Promise<void> {
  */
 const APP_BASE_URL = 'https://app.cmcareersystems.com';
 /** The tracker page the user syncs from. */
-const APP_TRACKER_URL = `${APP_BASE_URL}/tracker-v2`;
+const APP_TRACKER_URL = `${APP_BASE_URL}/tracker-fractional`;
 
 function defaultOpenAppTab(): void {
   // chrome.tabs.create in MV3 returns a Promise; the synchronous try/catch
@@ -827,10 +827,20 @@ export function _resetBindingMountForTests(): void {
 let _unsyncedListUnsubscribe: (() => void) | null = null;
 let _activityListUnsubscribe: (() => void) | null = null;
 
+/**
+ * Show the "Sync" button only when there is something to sync. The button
+ * opens the tracker tab, which drains the outbox in realtime while open — so
+ * with an empty outbox it would be a no-op and is hidden to avoid noise.
+ */
+function toggleSyncButton(syncBtn: HTMLElement | null, unsyncedCount: number): void {
+  if (syncBtn) syncBtn.hidden = unsyncedCount === 0;
+}
+
 function mountUnsyncedListListener(
   list: HTMLElement,
   countEl: HTMLElement,
   captureMessageBodies: boolean,
+  syncBtn: HTMLElement | null,
 ): () => void {
   const listener = (
     changes: Record<string, chrome.storage.StorageChange>,
@@ -838,13 +848,14 @@ function mountUnsyncedListListener(
   ): void => {
     if (areaName !== 'local') return;
     if (!(STORAGE_KEYS.OUTBOX in changes)) return;
-    void outboxStore.get().then((next) =>
-      renderUnsynced(list, countEl, next, {
+    void outboxStore.get().then((next) => {
+      const rendered = renderUnsynced(list, countEl, next, {
         captureMessageBodies,
         onEdit: editUnsyncedEntry,
         onDelete: deleteUnsyncedEntry,
-      }),
-    );
+      });
+      toggleSyncButton(syncBtn, rendered);
+    });
   };
   chrome.storage.onChanged.addListener(listener);
   return () => chrome.storage.onChanged.removeListener(listener);
@@ -867,13 +878,19 @@ function safelyMountUnsyncedListener(
   list: HTMLElement,
   countEl: HTMLElement,
   captureMessageBodies: boolean,
+  syncBtn: HTMLElement | null,
 ): void {
   if (_unsyncedListUnsubscribe) {
     _unsyncedListUnsubscribe();
     _unsyncedListUnsubscribe = null;
   }
   try {
-    _unsyncedListUnsubscribe = mountUnsyncedListListener(list, countEl, captureMessageBodies);
+    _unsyncedListUnsubscribe = mountUnsyncedListListener(
+      list,
+      countEl,
+      captureMessageBodies,
+      syncBtn,
+    );
   } catch (err) {
     console.error('[Pipeline Tracker side panel] mountUnsyncedListListener failed:', err);
   }
@@ -1144,6 +1161,7 @@ export async function initSidePanel(): Promise<void> {
   const reviewRoot = document.getElementById('review-section') as HTMLElement;
   const unsyncedList = document.getElementById('unsynced-list') as HTMLElement;
   const unsyncedCount = document.getElementById('unsynced-count') as HTMLElement;
+  const syncNowBtn = document.getElementById('sync-now-btn') as HTMLButtonElement | null;
   const activityList = document.getElementById('activity-list') as HTMLElement;
   const modalRoot = document.getElementById('modal-root') as HTMLElement;
   const exportCsvBtn = document.getElementById('export-csv-btn') as HTMLButtonElement | null;
@@ -1168,11 +1186,12 @@ export async function initSidePanel(): Promise<void> {
   //   (2) If the modal hangs (commit keeps failing AND user never clicks
   //       Skip), initSidePanel must still resolve with a usable surface —
   //       events visible, badge cleared.
-  renderUnsynced(unsyncedList, unsyncedCount, outbox, {
+  const renderedUnsynced = renderUnsynced(unsyncedList, unsyncedCount, outbox, {
     captureMessageBodies,
     onEdit: editUnsyncedEntry,
     onDelete: deleteUnsyncedEntry,
   });
+  toggleSyncButton(syncNowBtn, renderedUnsynced);
   renderActivity(activityList, history, { captureMessageBodies });
   // Spec 015 B2 — review queue for low-confidence captures. Empty → renders
   // nothing, so the section is invisible until something needs attention.
@@ -1199,10 +1218,19 @@ export async function initSidePanel(): Promise<void> {
     });
   }
 
+  // "Sync" button — opens the tracker tab, which pulls the outbox in realtime
+  // while it stays open. Same deep link as the binding "Open CareerSystems"
+  // CTA. Visibility is toggled by toggleSyncButton as the outbox changes.
+  if (syncNowBtn) {
+    syncNowBtn.addEventListener('click', () => {
+      defaultOpenAppTab();
+    });
+  }
+
   // Keep the unsynced events list in sync when the SW wipes the outbox
   // (delete-outbox rebind choice) or any other code mutates OUTBOX.
   // Without this listener the panel shows stale rows until next open.
-  safelyMountUnsyncedListener(unsyncedList, unsyncedCount, captureMessageBodies);
+  safelyMountUnsyncedListener(unsyncedList, unsyncedCount, captureMessageBodies, syncNowBtn);
 
   // Keep the activity list in sync when sync-ack (or any other writer)
   // flips HISTORY entries from 'pending' → 'ok'. Without this the panel
