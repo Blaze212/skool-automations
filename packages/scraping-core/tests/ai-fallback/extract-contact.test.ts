@@ -174,3 +174,29 @@ describe('extractContact() — session + options', () => {
     expect(fake.lastArgs.create?.expectedOutputs).toEqual([{ type: 'text', languages: ['en'] }]);
   });
 });
+
+describe('extractContact() — debug logging is opt-in (no PII to console by default)', () => {
+  it('does NOT log the prompt or raw output when debug is unset', async () => {
+    installLanguageModel({ promptResult: result({ name: 'Jane' }) });
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await extractContact(input()); // debug omitted ⇒ silent
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('logs the prompt and raw output only when debug: true', async () => {
+    installLanguageModel({ promptResult: result({ name: 'Jane' }) });
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await extractContact(input({ debug: true }));
+      const joined = spy.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(joined).toContain('[extractContact] AI input prompt:');
+      expect(joined).toContain('[extractContact] AI raw output:');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

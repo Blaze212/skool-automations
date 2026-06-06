@@ -19,3 +19,9 @@ coverage/
 # Agent / worktree scratch dirs — created by Claude Code worktree isolation
 .worktrees/
 .claude/worktrees/
+.claire/
+
+# Spec 016 prompt-eval harness — local-only raw captures + prototype harness.
+# Kept on disk for scripts/gen-eval-dataset.mjs but never committed (may carry PII).
+LinkedInRawCapturesForPromptTesting.html
+drag-link-inspector 3/

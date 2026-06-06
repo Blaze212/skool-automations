@@ -49,6 +49,7 @@ export const DEFAULT_SETTINGS: Settings = {
   first_run_completed: false,
   owner_first_name: '',
   owner_last_name: '',
+  debug_logging: false,
 };
 
 // === Errors ===
@@ -173,7 +174,8 @@ function isSettings(v: unknown): v is Settings {
     typeof s.first_run_completed === 'boolean' &&
     // Optional (added later) — tolerate absent for back-compat, reject wrong type.
     (s.owner_first_name === undefined || typeof s.owner_first_name === 'string') &&
-    (s.owner_last_name === undefined || typeof s.owner_last_name === 'string')
+    (s.owner_last_name === undefined || typeof s.owner_last_name === 'string') &&
+    (s.debug_logging === undefined || typeof s.debug_logging === 'boolean')
   );
 }
 

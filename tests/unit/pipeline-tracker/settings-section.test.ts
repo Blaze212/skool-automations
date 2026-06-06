@@ -248,6 +248,24 @@ describe('settings section — capture_message_bodies persist', () => {
     expect(toggle.disabled).toBe(false);
   });
 
+  it('debug_logging toggle defaults OFF and persists the desired partial', async () => {
+    const update = vi
+      .fn<(p: Partial<Settings>) => Promise<Settings>>()
+      .mockResolvedValue(defaults({ debug_logging: true }));
+    renderSettingsSection(root, { settings: defaults(), update });
+
+    const toggle = root.querySelector('#settings-debug-logging') as HTMLInputElement;
+    expect(toggle.checked).toBe(false); // opt-in: never on by default
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(update).toHaveBeenCalledWith({ debug_logging: true });
+    expect(toggle.checked).toBe(true);
+  });
+
   it('rolls the toggle back and surfaces an inline error on persist rejection', async () => {
     const update = vi
       .fn<(p: Partial<Settings>) => Promise<Settings>>()

@@ -54,6 +54,11 @@ const AI_FALLBACK_HELP =
   'When a dragged or pasted selection is messy and the basic parse misses a field, ' +
   'extract it on-device with Chrome’s built-in AI. Nothing is sent to a server.';
 
+const DEBUG_LOGGING_HELP =
+  'Log the raw captured selection and the on-device AI prompt/response to the ' +
+  'console for troubleshooting. Off by default — these logs can contain private ' +
+  'message content, so only turn this on when capturing a sample for a bug report.';
+
 export function renderSettingsSection(root: HTMLElement, opts: RenderSettingsSectionOptions): void {
   root.replaceChildren();
 
@@ -353,6 +358,59 @@ export function renderSettingsSection(root: HTMLElement, opts: RenderSettingsSec
       aiDownloadBtn.disabled = false;
     }
   });
+
+  // === debug_logging (spec 016) — opt-in verbose console logging ===
+  const debugRow = document.createElement('label');
+  debugRow.className = 'settings-row';
+
+  const debugToggle = document.createElement('input');
+  debugToggle.type = 'checkbox';
+  debugToggle.id = 'settings-debug-logging';
+  debugToggle.checked = opts.settings.debug_logging ?? false;
+
+  const debugText = document.createElement('div');
+  debugText.className = 'settings-row-text';
+
+  const debugLabel = document.createElement('div');
+  debugLabel.className = 'settings-row-label';
+  debugLabel.textContent = 'Verbose debug logging';
+
+  const debugHelp = document.createElement('div');
+  debugHelp.className = 'settings-row-help';
+  debugHelp.textContent = DEBUG_LOGGING_HELP;
+
+  debugText.append(debugLabel, debugHelp);
+  debugRow.append(debugToggle, debugText);
+
+  const debugError = document.createElement('div');
+  debugError.className = 'settings-row-error';
+  debugError.setAttribute('role', 'alert');
+  debugError.hidden = true;
+
+  let debugLastPersisted = opts.settings.debug_logging ?? false;
+  let debugInFlight = false;
+  debugToggle.addEventListener('change', async () => {
+    if (debugInFlight) return;
+    const desired = debugToggle.checked;
+    debugInFlight = true;
+    debugToggle.disabled = true;
+    debugError.hidden = true;
+    try {
+      const next = await opts.update({ debug_logging: desired });
+      debugLastPersisted = next.debug_logging ?? false;
+      debugToggle.checked = debugLastPersisted;
+    } catch (err) {
+      debugToggle.checked = debugLastPersisted;
+      debugError.hidden = false;
+      debugError.textContent =
+        'Could not save: ' + (err instanceof Error ? err.message : String(err));
+    } finally {
+      debugToggle.disabled = false;
+      debugInFlight = false;
+    }
+  });
+
+  body.append(debugRow, debugError);
 
   // === CareerSystems sync (binding) — full controls live here (spec 016 UI) ===
   if (opts.renderBindingInto) {

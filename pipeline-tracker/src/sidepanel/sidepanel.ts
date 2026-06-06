@@ -517,7 +517,13 @@ function mountSettings(
 ): void {
   renderSettingsSection(root, {
     settings,
-    update: (patch) => settingsStore.update(patch),
+    update: async (patch) => {
+      const next = await settingsStore.update(patch);
+      // Keep the cached debug flag (read synchronously by debugLogCaptureFragment)
+      // in step with the toggle the moment it persists.
+      _debugLogging = next.debug_logging ?? false;
+      return next;
+    },
     // spec 016 UI — the full CareerSystems sync controls live inside the
     // Settings dropdown; only a compact "Connected as …" line stays on the
     // main panel (mountConnectedIndicator).
@@ -1005,41 +1011,46 @@ async function aiExtractForCapture(input: {
   text?: string;
   candidate: ContactFields;
 }): Promise<AiExtractionResult | AiTimeout | AiTooLarge | null> {
-  // Temporary verbose tracing — every early-exit announces itself so an AI
-  // extraction that silently degrades to the heuristic is never invisible.
+  // Verbose tracing — every early-exit announces itself so an AI extraction that
+  // silently degrades to the heuristic is never invisible. Gated on the user's
+  // opt-in debug_logging setting (some lines echo the candidate fields).
   const TAG = '[Pipeline Tracker AI]';
   try {
-    console.log(TAG, 'aiExtractForCapture START', {
+    const settings = await readSettingsOrDefault();
+    const debug = settings.debug_logging ?? false;
+    const dbg = (...args: unknown[]): void => {
+      if (debug) console.log(TAG, ...args);
+    };
+    dbg('aiExtractForCapture START', {
       hasHtml: Boolean(input.html),
       hasText: Boolean(input.text),
       candidate: input.candidate,
     });
 
-    const settings = await readSettingsOrDefault();
     if (!settings.ai_fallback_enabled) {
-      console.log(TAG, 'EXIT: ai_fallback_enabled is OFF — enable the AI toggle in Settings.');
+      dbg('EXIT: ai_fallback_enabled is OFF — enable the AI toggle in Settings.');
       return null;
     }
 
     const availability = await getCachedAvailability();
     if (availability !== 'available') {
-      console.log(TAG, `EXIT: model availability is "${availability}" (need "available").`);
+      dbg(`EXIT: model availability is "${availability}" (need "available").`);
       return null;
     }
 
     const raw = input.html || input.text || '';
     if (!raw.trim()) {
-      console.log(TAG, 'EXIT: dragged/pasted fragment is empty after trim.');
+      dbg('EXIT: dragged/pasted fragment is empty after trim.');
       return null;
     }
     const stripped = stripHtmlForCarryWithStatus(capFragment(raw));
     if (stripped.tooLarge) {
-      console.log(TAG, 'EXIT: stripped HTML exceeds cap — input too large for AI, skipping.');
+      dbg('EXIT: stripped HTML exceeds cap — input too large for AI, skipping.');
       return { tooLarge: true };
     }
     const trimmedHtml = stripped.html;
     if (!trimmedHtml) {
-      console.log(TAG, 'EXIT: fragment stripped to empty (capFragment/stripHtmlForCarry).');
+      dbg('EXIT: fragment stripped to empty (capFragment/stripHtmlForCarry).');
       return null;
     }
 
@@ -1047,29 +1058,27 @@ async function aiExtractForCapture(input: {
     // messages in a captured thread are ours. Empty ⇒ prompt falls back cleanly.
     const ownerName = ownerNameFromSettings(settings);
 
-    console.log(TAG, `calling extractContact (trimmedHtml ${trimmedHtml.length} chars)`);
+    dbg(`calling extractContact (trimmedHtml ${trimmedHtml.length} chars)`);
     const result = await extractContact({
       trimmedHtml,
       candidate: input.candidate,
       pageUrl: '',
       ownerName,
+      debug,
     });
     if (!result) {
-      console.log(
-        TAG,
-        'EXIT: extractContact returned null — see [extractContact] logs above for why.',
-      );
+      dbg('EXIT: extractContact returned null — see [extractContact] logs above for why.');
       return null;
     }
     if ('timedOut' in result) {
-      console.log(TAG, 'EXIT: extractContact TIMED OUT — surfacing warning to the card.');
+      dbg('EXIT: extractContact TIMED OUT — surfacing warning to the card.');
       return { timedOut: true };
     }
     if ('tooLarge' in result) {
-      console.log(TAG, 'EXIT: extractContact reported INPUT TOO LARGE — surfacing warning.');
+      dbg('EXIT: extractContact reported INPUT TOO LARGE — surfacing warning.');
       return { tooLarge: true };
     }
-    console.log(TAG, 'SUCCESS: extractContact returned', result);
+    dbg('SUCCESS: extractContact returned', result);
     return { fields: result.fields, suggested_event_type: result.suggested_event_type };
   } catch (err) {
     console.warn('[Pipeline Tracker side panel] AI extraction errored — using heuristic:', err);
@@ -1077,14 +1086,23 @@ async function aiExtractForCapture(input: {
   }
 }
 
+// Cached mirror of settings.debug_logging. Seeded in initSidePanel and refreshed
+// by the settings `update` wrapper, so the sync debugLogCaptureFragment callback
+// can gate on it without an async storage read on every drop. Default OFF.
+let _debugLogging = false;
+
 /**
- * Temporary sample-collection logger (spec 016 prompt tuning). Fires on EVERY
- * drop/paste — regardless of AI toggle, model availability, or heuristic
- * confidence — and logs both the raw fragment and the exact stripped content
- * that WOULD be sent to the model (raw → capFragment → stripHtmlForCarry). Use
- * the side panel's own DevTools console to copy these out as test fixtures.
+ * Sample-collection logger (spec 016 prompt tuning). Fires on EVERY drop/paste —
+ * regardless of AI toggle, model availability, or heuristic confidence — and
+ * logs both the raw fragment and the exact stripped content that WOULD be sent
+ * to the model (raw → capFragment → stripHtmlForCarry). Use the side panel's own
+ * DevTools console to copy these out as test fixtures.
+ *
+ * Gated on the user's opt-in `debug_logging` setting: the raw fragment can carry
+ * private message content, so this is silent unless the user enabled it.
  */
 function debugLogCaptureFragment(frag: { html?: string; text?: string }): void {
+  if (!_debugLogging) return;
   const raw = frag.html || frag.text || '';
   const trimmedHtml = raw.trim() ? stripHtmlForCarry(capFragment(raw)) : '';
   console.log('[Pipeline Tracker capture] DROP — raw fragment', {
@@ -1140,6 +1158,8 @@ export async function initSidePanel(): Promise<void> {
   ]);
 
   const captureMessageBodies = settings.capture_message_bodies;
+  // Seed the cached debug flag for the sync capture logger (refreshed on toggle).
+  _debugLogging = settings.debug_logging ?? false;
 
   // Render events + clear the unread badge BEFORE the modal. Two reasons:
   //   (1) Phase 5 invariant — opening the panel always repaints the toolbar

@@ -253,14 +253,19 @@ function isTooLargeError(err: Error): boolean {
 export async function extractContact(
   input: ExtractContactInput,
 ): Promise<ExtractContactResult | ExtractContactTimeout | ExtractContactTooLarge | null> {
+  // Verbose logging is opt-in (input.debug) — the prompt + raw output can carry
+  // private message content, so they are silent unless the user enabled it.
+  const debugLog = (...args: unknown[]): void => {
+    if (input.debug) console.log(...args);
+  };
   try {
     if (typeof LanguageModel === 'undefined' || !LanguageModel) {
-      console.log('[extractContact] EXIT: LanguageModel global is undefined in this context.');
+      debugLog('[extractContact] EXIT: LanguageModel global is undefined in this context.');
       return null;
     }
     const availability = await LanguageModel.availability();
     if (availability !== 'available') {
-      console.log(
+      debugLog(
         `[extractContact] EXIT: LanguageModel.availability() = "${availability}" (need "available").`,
       );
       return null;
@@ -280,19 +285,19 @@ export async function extractContact(
       // real context limit — an overflow throws QuotaExceededError, which the
       // catch below turns into a tooLarge marker so the UI can warn the user.
       const promptText = buildPrompt(input);
-      // Temporary: log the entire prompt sent to the on-device model so we can
-      // inspect exactly what the AI sees during manual capture debugging.
-      console.log('[extractContact] AI input prompt:\n' + promptText);
+      // Debug-only: the entire prompt sent to the on-device model (contains the
+      // captured fragment — may be private). Gated on the user's opt-in.
+      debugLog('[extractContact] AI input prompt:\n' + promptText);
       const raw = await session.prompt(promptText, {
         signal: AbortSignal.timeout(PROMPT_TIMEOUT_MS),
         responseConstraint: RESPONSE_SCHEMA,
       });
-      // Temporary: log the raw model output alongside the input above.
-      console.log('[extractContact] AI raw output:\n' + raw);
+      // Debug-only: the model's raw output alongside the input above.
+      debugLog('[extractContact] AI raw output:\n' + raw);
 
       const parsed = parseExtraction(raw);
       if (!parsed) {
-        console.log(
+        debugLog(
           '[extractContact] EXIT: parseExtraction returned null — output was empty, not JSON, ' +
             'or failed schema validation (see raw output above).',
         );
@@ -312,14 +317,14 @@ export async function extractContact(
     // A timeout resolves to a distinct marker so the UI can warn the user rather
     // than degrade silently; every other failure resolves to null as before.
     if (isTimeoutError(err as Error)) {
-      console.log('[extractContact] EXIT: timed out — surfacing timeout marker.', err);
+      debugLog('[extractContact] EXIT: timed out — surfacing timeout marker.', err);
       return { timedOut: true };
     }
     if (isTooLargeError(err as Error)) {
-      console.log('[extractContact] EXIT: input too large — surfacing tooLarge marker.', err);
+      debugLog('[extractContact] EXIT: input too large — surfacing tooLarge marker.', err);
       return { tooLarge: true };
     }
-    console.log('[extractContact] EXIT: threw, degrading to null. Error:', err);
+    debugLog('[extractContact] EXIT: threw, degrading to null. Error:', err);
     return null;
   }
 }

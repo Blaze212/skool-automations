@@ -106,6 +106,13 @@ export interface ExtractContactInput {
    * "the participant who is NOT the primary contact". '' is fine.
    */
   ownerName?: string;
+  /**
+   * Opt-in verbose logging. When true, the exact prompt sent to the model and
+   * the model's raw output are logged to the console for prompt tuning / bug
+   * reports. These dumps can contain private message content, so the caller
+   * MUST gate this on an explicit user opt-in. Default (absent/false): silent.
+   */
+  debug?: boolean;
 }
 
 export interface ExtractContactResult {
