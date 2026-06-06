@@ -987,9 +987,22 @@ async function getActivePageUrl(): Promise<string> {
 
 /** onSave for the capture card — the typed manual-capture enqueue (decision 1).
  * Throws OutboxFullError / StorageQuotaExceededError, which the capture card
- * catches to keep the card populated and show an inline error (decision 2). */
-async function saveManualCapture(capture: ManualCaptureInput): Promise<void> {
+ * catches to keep the card populated and show an inline error (decision 2).
+ *
+ * After a successful enqueue, nudge the SW with `drain_outbox` so it broadcasts
+ * `new-events` to any connected app tab and the webapp auto-pulls (sync-pull →
+ * sync-ack) without the user clicking Sync. Spec 016 deleted content.ts, which
+ * used to fire this post-capture; the manual save path must carry it forward or
+ * auto-sync silently stops. The nudge runs only on a clean enqueue (a thrown
+ * quota/full-outbox error short-circuits it) and its own failure is swallowed —
+ * the save already succeeded, so it must not surface the card's inline error. */
+export async function saveManualCapture(capture: ManualCaptureInput): Promise<void> {
   await enqueueManualCapture(capture);
+  try {
+    await chrome.runtime.sendMessage({ kind: 'drain_outbox' });
+  } catch (err) {
+    console.warn('[Pipeline Tracker side panel] post-save drain nudge failed:', err);
+  }
 }
 
 /** "<first> <last>" from settings — the owner identity used to tell our own
