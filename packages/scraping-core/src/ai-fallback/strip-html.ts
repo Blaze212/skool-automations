@@ -28,14 +28,25 @@ function utf8ByteLength(s: string): number {
   return new TextEncoder().encode(s).length;
 }
 
-export function stripHtmlForCarry(subtreeHtml: string): string {
-  if (!subtreeHtml) return '';
+/** Outcome of a strip pass — distinguishes "dropped because too large" from the
+ *  silent '' returned for empty/unparseable input, so the caller can warn the
+ *  user that the on-device AI was skipped rather than degrade silently. */
+export interface CarryStripResult {
+  /** The stripped HTML, or '' when nothing usable was produced. */
+  html: string;
+  /** True when a valid stripped subtree was produced but EXCEEDED the byte cap
+   *  and was dropped — i.e. the input is too large for the on-device model. */
+  tooLarge: boolean;
+}
+
+export function stripHtmlForCarryWithStatus(subtreeHtml: string): CarryStripResult {
+  if (!subtreeHtml) return { html: '', tooLarge: false };
 
   let doc: Document;
   try {
     doc = new DOMParser().parseFromString(subtreeHtml, 'text/html');
   } catch {
-    return '';
+    return { html: '', tooLarge: false };
   }
 
   for (const tag of BANNED_TAGS) {
@@ -69,6 +80,17 @@ export function stripHtmlForCarry(subtreeHtml: string): string {
   }
 
   const serialized = doc.body.innerHTML.trim();
-  if (utf8ByteLength(serialized) > RECOVERED_HTML_CAP_BYTES) return '';
-  return serialized;
+  const bytes = utf8ByteLength(serialized);
+  if (bytes > RECOVERED_HTML_CAP_BYTES) {
+    console.warn(
+      `[stripHtmlForCarry] WARNING: stripped HTML exceeds cap of ${RECOVERED_HTML_CAP_BYTES} ` +
+        `bytes (actual: ${bytes} bytes), dropping it — input too large for on-device AI.`,
+    );
+    return { html: '', tooLarge: true };
+  }
+  return { html: serialized, tooLarge: false };
+}
+
+export function stripHtmlForCarry(subtreeHtml: string): string {
+  return stripHtmlForCarryWithStatus(subtreeHtml).html;
 }

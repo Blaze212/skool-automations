@@ -259,7 +259,49 @@ describe('capture card — AI extraction (Phase 2)', () => {
     expect(inputFor('name').disabled).toBe(false);
     expect(inputFor('title').value).toBe('Founder @ Acme');
     expect(inputFor('linkedin_url').value).toBe('https://acme.com/jane');
-    // Stage dropdown defaults to the AI suggestion.
+    // The model owns name/title/url; with no thread text the regex finds no owner
+    // message, so message_text falls back to the model's value...
+    expect(inputFor('message_text').value).toBe('thanks for connecting');
+    // ...and the stage is DETERMINISTIC (the model's guess is ignored): a plain
+    // profile drop with no conversation → connection_request.
+    expect(stageSelect().value).toBe('connection_request');
+  });
+
+  it('a thread drop sets message_text + DM stage deterministically (regex wins)', async () => {
+    // The model returns a WRONG message + stage; the deterministic pass overrides.
+    const aiExtract = vi.fn(
+      async (): Promise<AiExtractionResult> => ({
+        fields: {
+          name: 'Katie McIntyre',
+          title: '',
+          linkedin_url: 'https://linkedin.com/in/katie',
+          message_text: 'the model picked the wrong message',
+        },
+        suggested_event_type: 'connection_request',
+      }),
+    );
+    const text = [
+      'Katie McIntyre   10:54 PM',
+      'Back at ya',
+      '',
+      'Monday',
+      "View Barton's profileBarton Holdridge",
+      'Barton Holdridge   6:15 PM',
+      'Hey Katie, worth a quick Zoom?',
+    ].join('\n');
+    handle = renderCaptureSection(root, {
+      onSave: vi.fn(),
+      aiExtract,
+      getOwnerName: () => 'Barton Holdridge',
+    });
+
+    // A conversation fragment carries both html (for name/url) and text (for the
+    // deterministic message/stage pass).
+    fireDrop(dropZone(), { html: '<h2>Katie McIntyre</h2>', text });
+    await flush();
+
+    expect(handle.getState()).toBe('ready');
+    expect(inputFor('message_text').value).toBe('Hey Katie, worth a quick Zoom?');
     expect(stageSelect().value).toBe('direct_message');
   });
 
@@ -273,6 +315,59 @@ describe('capture card — AI extraction (Phase 2)', () => {
     expect(handle.getState()).toBe('ready');
     expect(inputFor('name').disabled).toBe(false);
     expect(inputFor('name').value).toBe('Jane Doe'); // heuristic stands
+  });
+
+  it('shows a warning banner (not silent) when the AI times out, card stays usable', async () => {
+    const aiExtract = vi.fn(async () => ({ timedOut: true }) as const);
+    const onSave = vi.fn(async () => {});
+    handle = renderCaptureSection(root, { onSave, aiExtract });
+    fireDrop(dropZone(), { html: HTML_LOW });
+    await flush();
+
+    expect(handle.getState()).toBe('ready');
+    const warning = root.querySelector('.capture-warning') as HTMLElement;
+    expect(warning.hidden).toBe(false);
+    expect(warning.textContent).toMatch(/timed out/i);
+    // Heuristic values stand and the card is editable + saveable.
+    expect(inputFor('name').value).toBe('Jane Doe');
+    expect(inputFor('name').disabled).toBe(false);
+    saveBtnEl().click();
+    await flush();
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a warning banner when the input is too large for the AI', async () => {
+    const aiExtract = vi.fn(async () => ({ tooLarge: true }) as const);
+    const onSave = vi.fn(async () => {});
+    handle = renderCaptureSection(root, { onSave, aiExtract });
+    fireDrop(dropZone(), { html: HTML_LOW });
+    await flush();
+
+    expect(handle.getState()).toBe('ready');
+    const warning = root.querySelector('.capture-warning') as HTMLElement;
+    expect(warning.hidden).toBe(false);
+    expect(warning.textContent).toMatch(/too large/i);
+    // Heuristic values stand and the card is still saveable.
+    expect(inputFor('name').value).toBe('Jane Doe');
+    saveBtnEl().click();
+    await flush();
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the timeout warning on the next drop', async () => {
+    const aiExtract = vi
+      .fn<() => Promise<AiExtractionResult | { timedOut: true } | null>>()
+      .mockResolvedValueOnce({ timedOut: true })
+      .mockResolvedValueOnce(null);
+    handle = renderCaptureSection(root, { onSave: vi.fn(), aiExtract });
+
+    fireDrop(dropZone(), { html: HTML_LOW });
+    await flush();
+    expect((root.querySelector('.capture-warning') as HTMLElement).hidden).toBe(false);
+
+    fireDrop(dropZone(), { html: HTML_LOW });
+    await flush();
+    expect((root.querySelector('.capture-warning') as HTMLElement).hidden).toBe(true);
   });
 
   it('falls back to the heuristic (editable, saveable) when AI returns null', async () => {

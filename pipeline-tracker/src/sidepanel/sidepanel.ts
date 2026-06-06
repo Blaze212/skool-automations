@@ -27,12 +27,15 @@ import {
 import {
   renderCaptureSection,
   type AiExtractionResult,
+  type AiTimeout,
+  type AiTooLarge,
   type CaptureSectionHandle,
 } from './capture-section.ts';
 import {
   extractContact,
   getCachedAvailability,
   stripHtmlForCarry,
+  stripHtmlForCarryWithStatus,
   type ContactFields,
 } from '@cs/scraping-core';
 import { capFragment } from '../capture-heuristic.ts';
@@ -967,12 +970,32 @@ async function saveManualCapture(capture: ManualCaptureInput): Promise<void> {
   await enqueueManualCapture(capture);
 }
 
+/** "<first> <last>" from settings — the owner identity used to tell our own
+ * messages apart in a captured thread. '' when neither is configured. */
+function ownerNameFromSettings(settings: Settings): string {
+  return [settings.owner_first_name, settings.owner_last_name]
+    .map((s) => (s ?? '').trim())
+    .filter(Boolean)
+    .join(' ');
+}
+
+/** Resolve the owner name for the deterministic message/stage pass. Best-effort:
+ * a corrupted settings read degrades to '' (the pass then no-ops). */
+async function getOwnerNameForCapture(): Promise<string> {
+  try {
+    return ownerNameFromSettings(await readSettingsOrDefault());
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Spec 016 Phase 2 — on-device AI extraction for the capture card. Promotes the
  * generalized `extractContact()` (formerly the LinkedIn AI fallback) to the
  * primary repair path. Gated on the user's `ai_fallback_enabled` opt-in AND
  * model availability; returns null otherwise so the heuristic values stand. The
- * pipeline is raw → capFragment (≤64KB) → stripHtmlForCarry (≤16KB) → model.
+ * pipeline is raw → capFragment (multi-MB parser guard) → stripHtmlForCarry
+ * (≤16KB content budget) → model.
  *
  * NEVER throws (D-AI-1): any error degrades to null (heuristic prefill stays).
  * The stripped HTML is fed to the model only — it is NEVER persisted (decision 3
@@ -982,7 +1005,7 @@ async function aiExtractForCapture(input: {
   html?: string;
   text?: string;
   candidate: ContactFields;
-}): Promise<AiExtractionResult | null> {
+}): Promise<AiExtractionResult | AiTimeout | AiTooLarge | null> {
   // Temporary verbose tracing — every early-exit announces itself so an AI
   // extraction that silently degrades to the heuristic is never invisible.
   const TAG = '[Pipeline Tracker AI]';
@@ -1010,7 +1033,12 @@ async function aiExtractForCapture(input: {
       console.log(TAG, 'EXIT: dragged/pasted fragment is empty after trim.');
       return null;
     }
-    const trimmedHtml = stripHtmlForCarry(capFragment(raw));
+    const stripped = stripHtmlForCarryWithStatus(capFragment(raw));
+    if (stripped.tooLarge) {
+      console.log(TAG, 'EXIT: stripped HTML exceeds cap — input too large for AI, skipping.');
+      return { tooLarge: true };
+    }
+    const trimmedHtml = stripped.html;
     if (!trimmedHtml) {
       console.log(TAG, 'EXIT: fragment stripped to empty (capFragment/stripHtmlForCarry).');
       return null;
@@ -1018,10 +1046,7 @@ async function aiExtractForCapture(input: {
 
     // Owner name (from the first-run modal) lets the extractor identify which
     // messages in a captured thread are ours. Empty ⇒ prompt falls back cleanly.
-    const ownerName = [settings.owner_first_name, settings.owner_last_name]
-      .map((s) => (s ?? '').trim())
-      .filter(Boolean)
-      .join(' ');
+    const ownerName = ownerNameFromSettings(settings);
 
     console.log(TAG, `calling extractContact (trimmedHtml ${trimmedHtml.length} chars)`);
     const result = await extractContact({
@@ -1036,6 +1061,14 @@ async function aiExtractForCapture(input: {
         'EXIT: extractContact returned null — see [extractContact] logs above for why.',
       );
       return null;
+    }
+    if ('timedOut' in result) {
+      console.log(TAG, 'EXIT: extractContact TIMED OUT — surfacing warning to the card.');
+      return { timedOut: true };
+    }
+    if ('tooLarge' in result) {
+      console.log(TAG, 'EXIT: extractContact reported INPUT TOO LARGE — surfacing warning.');
+      return { tooLarge: true };
     }
     console.log(TAG, 'SUCCESS: extractContact returned', result);
     return { fields: result.fields, suggested_event_type: result.suggested_event_type };
@@ -1078,6 +1111,7 @@ function mountCaptureSection(root: HTMLElement): void {
     _captureHandle = renderCaptureSection(root, {
       onSave: saveManualCapture,
       getPageUrl: getActivePageUrl,
+      getOwnerName: getOwnerNameForCapture,
       aiExtract: aiExtractForCapture,
       debugLogFragment: debugLogCaptureFragment,
     });

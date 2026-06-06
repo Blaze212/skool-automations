@@ -115,3 +115,26 @@ export interface ExtractContactResult {
   /** AI's stage guess, validated against EventType and coerced to null if unknown. */
   suggested_event_type: EventType | null;
 }
+
+/**
+ * extractContact() resolves to this when the model failed SPECIFICALLY because
+ * it timed out (the create()/prompt() AbortSignal fired). It is distinct from the
+ * `null` returned for every other failure (unavailable, disabled, parse error,
+ * refusal, over-quota) so the UI can show a "took too long" warning instead of
+ * silently degrading to the heuristic. D-AI-1 still holds: extractContact never
+ * throws — a timeout is a resolved value, not a rejection.
+ */
+export interface ExtractContactTimeout {
+  timedOut: true;
+}
+
+/**
+ * extractContact() resolves to this when the model rejected the prompt because
+ * the input exceeded its context window (a QuotaExceededError — "input is too
+ * large"). Distinct from `null` so the UI can tell the user the selection was
+ * too big and the AI parse was skipped, rather than degrading silently. D-AI-1
+ * still holds: this is a resolved value, not a thrown error.
+ */
+export interface ExtractContactTooLarge {
+  tooLarge: true;
+}

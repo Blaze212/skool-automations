@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it } from 'vitest';
-import { RECOVERED_HTML_CAP_BYTES, stripHtmlForCarry } from '../../src/ai-fallback/strip-html.js';
+import {
+  RECOVERED_HTML_CAP_BYTES,
+  stripHtmlForCarry,
+  stripHtmlForCarryWithStatus,
+} from '../../src/ai-fallback/strip-html.js';
 
 describe('stripHtmlForCarry', () => {
   it('returns empty string for empty input', () => {
@@ -47,5 +51,24 @@ describe('stripHtmlForCarry', () => {
     expect(out).not.toContain('aria-label');
     expect(out).toContain('href="/in/jane/"');
     expect(out).toContain('Jane');
+  });
+});
+
+describe('stripHtmlForCarryWithStatus', () => {
+  it('flags tooLarge when the stripped result exceeds the cap', () => {
+    const big = '<p>' + 'a'.repeat(RECOVERED_HTML_CAP_BYTES + 100) + '</p>';
+    const res = stripHtmlForCarryWithStatus(big);
+    expect(res.html).toBe('');
+    expect(res.tooLarge).toBe(true);
+  });
+
+  it('does NOT flag tooLarge for empty/unparseable input (it is just empty)', () => {
+    expect(stripHtmlForCarryWithStatus('')).toEqual({ html: '', tooLarge: false });
+  });
+
+  it('returns the html and tooLarge=false when under the cap', () => {
+    const res = stripHtmlForCarryWithStatus('<div class="card"><b>Hi</b></div>');
+    expect(res.html).toContain('<b>Hi</b>');
+    expect(res.tooLarge).toBe(false);
   });
 });

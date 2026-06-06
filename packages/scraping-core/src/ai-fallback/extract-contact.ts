@@ -20,6 +20,8 @@ import type {
   ContactFields,
   ExtractContactInput,
   ExtractContactResult,
+  ExtractContactTimeout,
+  ExtractContactTooLarge,
   LanguageModelSession,
 } from './types.js';
 
@@ -115,6 +117,7 @@ function buildPrompt(input: ExtractContactInput): string {
     '',
     '- name:                 the primary contact\'s display name (e.g. "Jane Doe").',
     '                        Strip badges, pronouns, degree suffixes, "1st"/"2nd".',
+    `                        this field is NEVER ${ownerRef}`,
     '- title:                their current headline / role description (the',
     '                        descriptive line near their name), copied as-is from',
     '                        the fragment. If the contact has NO headline / role',
@@ -127,15 +130,18 @@ function buildPrompt(input: ExtractContactInput): string {
     '                        person. Prefer a clean canonical URL; strip query',
     '                        strings and tracking params. Any site is valid — do',
     '                        NOT assume LinkedIn.',
-    `- message_text:         a message or note in this fragment. If this is a`,
-    '                        conversation / message thread, return ONLY the text of',
-    `                        the MOST RECENT message sent by ${ownerRef}.`,
-    '                        IGNORE messages from the other person, and ignore',
-    `                        ${ownerRef}'s earlier messages — return only their`,
-    '                        latest one. If the fragment is a single connection',
-    '                        note, return that. Return PLAIN TEXT: convert <br> to',
-    '                        newlines and drop any HTML tags. Null if there is no',
-    '                        such message.',
+    `- message_text:         The single most recent message written by ${ownerRef}.`,
+    '                        The thread is ordered oldest-first, so the most recent',
+    `                        message is the LAST one — nearest the BOTTOM of the text.`,
+    `                        Do this in order:`,
+    `                          1. Start at the BOTTOM of the thread and read upward.`,
+    `                          2. Stop at the FIRST message whose sender is ${ownerRef}.`,
+    `                          3. Return only that one message's text.`,
+    `                        If the fragment is a single connection note (not a`,
+    '                        thread), return that note instead.',
+    `                        Then format the result as PLAIN TEXT: convert <br> to`,
+    '                        newlines and remove all other HTML tags.',
+    `                        Return null only if ${ownerRef} wrote nothing here.`,
     '- suggested_event_type: the interaction stage — but ONLY when THIS fragment',
     '                        actually shows an interaction. A plain profile, search',
     '                        result, or bare name with no conversation is null. One',
@@ -232,9 +238,21 @@ function reconcile(candidate: ContactFields, ai: RawExtraction): ContactFields {
   };
 }
 
+/** An AbortSignal.timeout() abort surfaces as a DOMException named 'TimeoutError'
+ *  (some builds use 'AbortError'); either means the model didn't answer in time. */
+function isTimeoutError(err: Error): boolean {
+  return err?.name === 'TimeoutError' || err?.name === 'AbortError';
+}
+
+/** prompt() rejects with a QuotaExceededError ("input is too large") when the
+ *  prompt exceeds the model's context window — even after the strip-cap passes. */
+function isTooLargeError(err: Error): boolean {
+  return err?.name === 'QuotaExceededError';
+}
+
 export async function extractContact(
   input: ExtractContactInput,
-): Promise<ExtractContactResult | null> {
+): Promise<ExtractContactResult | ExtractContactTimeout | ExtractContactTooLarge | null> {
   try {
     if (typeof LanguageModel === 'undefined' || !LanguageModel) {
       console.log('[extractContact] EXIT: LanguageModel global is undefined in this context.');
@@ -260,7 +278,7 @@ export async function extractContact(
       // No up-front token measurement: measureInputUsage() stalls on some Chrome
       // builds and the attribute-stripped input is small. prompt() enforces the
       // real context limit — an overflow throws QuotaExceededError, which the
-      // catch below turns into a clean null (heuristic values stand).
+      // catch below turns into a tooLarge marker so the UI can warn the user.
       const promptText = buildPrompt(input);
       // Temporary: log the entire prompt sent to the on-device model so we can
       // inspect exactly what the AI sees during manual capture debugging.
@@ -289,8 +307,18 @@ export async function extractContact(
       session?.destroy?.();
     }
   } catch (err) {
-    // D-AI-1 still holds (we resolve to null), but never silently — surface the
-    // real failure (create()/prompt() rejection, timeout, QuotaExceededError…).
+    // D-AI-1 still holds (we resolve, never throw), but never silently — surface
+    // the real failure (create()/prompt() rejection, timeout, QuotaExceededError…).
+    // A timeout resolves to a distinct marker so the UI can warn the user rather
+    // than degrade silently; every other failure resolves to null as before.
+    if (isTimeoutError(err as Error)) {
+      console.log('[extractContact] EXIT: timed out — surfacing timeout marker.', err);
+      return { timedOut: true };
+    }
+    if (isTooLargeError(err as Error)) {
+      console.log('[extractContact] EXIT: input too large — surfacing tooLarge marker.', err);
+      return { tooLarge: true };
+    }
     console.log('[extractContact] EXIT: threw, degrading to null. Error:', err);
     return null;
   }
