@@ -48,6 +48,16 @@ export interface Settings {
    */
   owner_first_name?: string;
   owner_last_name?: string;
+  /**
+   * Opt-in verbose debug logging (spec 016). OFF by default. When on, the
+   * capture + on-device-AI paths log the raw dragged fragment, the exact prompt
+   * sent to the model, and the model's raw output to the console for prompt
+   * tuning / bug reports. These dumps can contain private message content, so
+   * they are NEVER emitted unless the user explicitly enables this in Settings.
+   * Optional for back-compat with settings persisted before this field existed;
+   * absent ⇒ treated as false.
+   */
+  debug_logging?: boolean;
 }
 
 // Spec 012 D-rev-8 two-phase binding handshake.

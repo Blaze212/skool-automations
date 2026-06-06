@@ -428,9 +428,10 @@ describe('capture card — AI extraction (Phase 2)', () => {
     expect(inputFor('title').value).toBe('Founder @ Acme');
   });
 
-  it('a new drop while AI is extracting supersedes the stale extraction', async () => {
-    // AI runs on demand; a drop mid-extraction replaces the card, and the earlier
-    // (stale) extraction resolving must NOT clobber the newer card.
+  it('a new drop while AI is extracting is ignored with a toast (card stays locked)', async () => {
+    // The card is locked during extraction, so a mid-extraction drop must NOT
+    // race the in-flight run — it is ignored with a toast and the original
+    // extraction resolves normally onto the original card.
     const first = deferred<AiExtractionResult | null>();
     const aiExtract = vi.fn<(input: unknown) => Promise<AiExtractionResult | null>>(
       () => first.promise,
@@ -439,19 +440,21 @@ describe('capture card — AI extraction (Phase 2)', () => {
 
     fireDrop(dropZone(), { html: HTML_LOW }); // Jane heuristic, no auto-run
     await flush();
-    aiBtnEl().click(); // extraction #1 in flight
+    aiBtnEl().click(); // extraction in flight
     await flush();
     expect(handle.getState()).toBe('extracting');
 
-    fireDrop(dropZone(), { html: '<h2>Bob Smith</h2>' }); // supersedes → Bob heuristic card
+    fireDrop(dropZone(), { html: '<h2>Bob Smith</h2>' }); // ignored — still extracting
     await flush();
-    expect(handle.getState()).toBe('ready');
-    expect(inputFor('name').value).toBe('Bob Smith');
+    expect(handle.getState()).toBe('extracting');
+    expect((root.querySelector('.capture-toast') as HTMLElement).hidden).toBe(false);
+    expect(aiExtract).toHaveBeenCalledTimes(1); // the second drop did NOT start a run
 
-    // Stale #1 resolves → discarded; must NOT clobber Bob with Jane.
+    // The original extraction resolves → applies to the original (Jane) card.
     first.resolve(AI_RESULT);
     await flush();
-    expect(inputFor('name').value).toBe('Bob Smith');
+    expect(handle.getState()).toBe('ready');
+    expect(inputFor('name').value).toBe(AI_RESULT.fields.name);
   });
 
   it('hides the AI button when no extractor is wired', async () => {

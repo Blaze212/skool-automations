@@ -2,32 +2,42 @@
 //
 // A user drags a selected element from any web page into the side panel (or
 // copies + pastes it). The dropped `text/html` / `text/plain` fragment is parsed
-// by the site-agnostic heuristic and — when the heuristic is low-confidence or
-// the user asks — repaired by the on-device model (injected as `aiExtract`; this
-// module stays AI-agnostic). The user reviews the prefilled card, picks a Stage
-// from the dropdown (AI suggests a default), and Saves, which enqueues exactly
-// one wire PipelineEvent via the injected `onSave`.
+// by the site-agnostic heuristic plus a deterministic message/stage pass; the
+// card is shown immediately (the AI is NEVER auto-run on a drop). The user can
+// then click "Extract with AI" to refine name/title/url with the on-device model
+// (injected as `aiExtract`; this module stays AI-agnostic). The user reviews the
+// prefilled card, picks a Stage from the dropdown (AI suggests a default), and
+// Saves, which enqueues exactly one wire PipelineEvent via the injected `onSave`.
 //
 // ── Capture state machine (E-3) ───────────────────────────────────────────────
 //
-//      drop / paste                 low-confidence (or "Extract with AI")
-//   ┌──────────────┐   fragment   ┌───────────────────┐   resolve / timeout
-//   │    Empty     ├─────────────►│ Extracting(locked)├─────────────────┐
-//   └──────────────┘              └───────────────────┘                 │
-//          ▲                           ▲  │ (new drop ignored + toast)   ▼
-//          │ save ok                   │  └──────────────────────►┌──────────────┐
-//          │                           │   high-confidence (no AI) │ Ready/Editing│
-//   ┌──────┴───────┐   save           │◄──────────────────────────┤              │
-//   │    Saving    │◄─────────────────┼───────────────────────────┤  new drop +  │
-//   └──────────────┘   save fails ───►│  Ready (inline error,      │  unsaved →   │
-//          │           (card kept)    │  card retained)            │  confirm     │
-//          └─────────────────────────────────────────────────────►└──────────────┘
+//   drop / paste (heuristic + deterministic; AI NOT auto-run)
+//   ┌──────────────┐
+//   │    Empty     ├──────────────┐
+//   └──────────────┘              ▼
+//          ▲              ┌──────────────┐  "Extract with AI"  ┌───────────────────┐
+//          │ save ok      │ Ready/Editing├────────────────────►│ Extracting(locked)│
+//          │              │              │◄────────────────────┤                   │
+//   ┌──────┴───────┐ save │              │  resolve / timeout  └───────────────────┘
+//   │    Saving    │◄─────┤  new drop →  │      (heuristic stands)      │ new drop:
+//   └──────────────┘      │  REPLACE     │                              │ IGNORED
+//          │ save fails   │  (no confirm)│                              ▼ + toast
+//          └──────────────┤              │                       (locked — stays
+//        (inline error,   └──────────────┘                        Extracting)
+//         card kept) ─────────►Ready
 //
 // Invariants:
+//   • A new drop on an Empty / Ready / Saving card REPLACES it outright — drag-
+//     and-replace is the fast path, so there is deliberately NO replace-confirm.
+//     (`confirmReplace` is kept in the options for a caller that wants it, but is
+//     intentionally not consulted here.) The ONE exception: while the model is
+//     mid-extraction the card is locked, so a new drop is IGNORED with a toast
+//     rather than racing the in-flight run.
 //   • Card-lock release is in a `finally` so a thrown/rejected extraction still
 //     unlocks (no silent stuck-card).
 //   • Inputs are disabled while Extracting, so a late AI write can never clobber
-//     a user edit.
+//     a user edit; the generation counter invalidates any other in-flight async
+//     step (page-url lookup, save) so a superseded one can't clobber a newer card.
 //   • The Stage dropdown defaults to `suggested_event_type`, else
 //     `connection_request` (visibly preselected, user-overridable).
 //   • The dropped fragment is held in memory only (to support a manual re-run of
@@ -401,10 +411,16 @@ export function renderCaptureSection(
   }
 
   async function onFragment(next: Fragment): Promise<void> {
-    // TEMPORARY (sample collection): a new drop always overwrites whatever is
-    // pending — no "still extracting" block, no replace-confirm. The generation
-    // bump invalidates any in-flight extraction/save so it can't clobber this
-    // newer card. (Restore the state guards + confirmReplace to revert.)
+    // A new drop on an Empty/Ready/Saving card REPLACES it outright — drag-and-
+    // replace is the fast path, so there is deliberately no replace-confirm
+    // (confirmReplace is intentionally not consulted). The ONE block: while the
+    // model is mid-extraction the card is locked, so ignore the drop with a toast
+    // rather than racing the in-flight run. The generation bump below invalidates
+    // any other in-flight async step so it can't clobber this newer card.
+    if (state === 'extracting') {
+      showToast('Still extracting — wait for it to finish before capturing again.');
+      return;
+    }
     const gen = ++captureGeneration;
 
     // Log the exact fragment that will feed the heuristic + LLM, for EVERY drop,
