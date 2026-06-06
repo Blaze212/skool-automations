@@ -10,7 +10,7 @@ function candidate(overrides: Partial<ContactFields> = {}): ContactFields {
   return {
     name: '',
     title: 'Premium',
-    linkedin_url: '',
+    profile_url: '',
     message_text: '',
     ...overrides,
   };
@@ -29,7 +29,7 @@ function result(fields: Record<string, unknown>): string {
   return JSON.stringify({
     name: null,
     title: null,
-    linkedin_url: null,
+    profile_url: null,
     message_text: null,
     suggested_event_type: null,
     ...fields,
@@ -77,7 +77,7 @@ describe('extractContact() — never throws, returns null on every failure mode'
 
   it('returns null when JSON is missing a required field', async () => {
     installLanguageModel({
-      promptResult: JSON.stringify({ name: 'Jane', title: null, linkedin_url: null }),
+      promptResult: JSON.stringify({ name: 'Jane', title: null, profile_url: null }),
     });
     await expect(extractContact(input())).resolves.toBeNull();
   });
@@ -120,19 +120,19 @@ describe('extractContact() — reconciliation (de-LinkedIn)', () => {
   });
 
   it('candidate wins for a clean https URL on ANY host (no linkedin anchoring)', async () => {
-    installLanguageModel({ promptResult: result({ linkedin_url: 'https://elsewhere.com/other' }) });
+    installLanguageModel({ promptResult: result({ profile_url: 'https://elsewhere.com/other' }) });
     const r = await extractContact(
-      input({ candidate: candidate({ linkedin_url: 'https://github.com/jane' }) }),
+      input({ candidate: candidate({ profile_url: 'https://github.com/jane' }) }),
     );
-    expect(r?.fields.linkedin_url).toBe('https://github.com/jane');
+    expect(r?.fields.profile_url).toBe('https://github.com/jane');
   });
 
   it('AI wins for the URL when the candidate is not a clean https URL', async () => {
     installLanguageModel({
-      promptResult: result({ linkedin_url: 'https://example.com/u/jane' }),
+      promptResult: result({ profile_url: 'https://example.com/u/jane' }),
     });
-    const r = await extractContact(input({ candidate: candidate({ linkedin_url: 'Premium' }) }));
-    expect(r?.fields.linkedin_url).toBe('https://example.com/u/jane');
+    const r = await extractContact(input({ candidate: candidate({ profile_url: 'Premium' }) }));
+    expect(r?.fields.profile_url).toBe('https://example.com/u/jane');
   });
 });
 

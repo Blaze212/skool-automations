@@ -6,9 +6,9 @@
  * prevent on their own:
  *
  *   1. **Required-field gaps** — a card fired but couldn't recover one of the
- *      load-bearing fields (`name`, `linkedin_url`). Title is also required
+ *      load-bearing fields (`name`, `profile_url`). Title is also required
  *      for connection_request / accepted_connection but warned-only for DMs
- *      (LinkedIn's chat overlay routinely omits a headline).
+ *      (a chat overlay routinely omits a headline).
  *
  *   2. **Noise patterns** — a card returned a value that *looks* extracted
  *      but is actually UI chrome the selectors couldn't fully strip:
@@ -43,7 +43,7 @@ export type ValidationGapCode =
 
 export interface ValidationGap {
   /** The PipelineEvent field that failed. */
-  field: 'name' | 'title' | 'linkedin_url';
+  field: 'name' | 'title' | 'profile_url';
   /** Stable code identifying the rule that tripped. */
   code: ValidationGapCode;
   /** Human-readable explanation, suitable for logs/popup history. */
@@ -117,7 +117,7 @@ function isBlank(s: string | null | undefined): boolean {
 }
 
 /**
- * Title is structurally optional for direct_message events: LinkedIn's chat
+ * Title is structurally optional for direct_message events: a chat
  * overlay frequently has no headline available (the profile card hasn't
  * loaded, or the recipient sits in a thread-only context). Flagging it as a
  * gap for DMs would generate constant warning noise; the cards still emit ''
@@ -148,11 +148,11 @@ export function validate(event: PipelineEvent): ValidationResult {
       message: 'name is required but extraction returned empty',
     });
   }
-  if (isBlank(event.linkedin_url)) {
+  if (isBlank(event.profile_url)) {
     gaps.push({
-      field: 'linkedin_url',
+      field: 'profile_url',
       code: 'missing-required',
-      message: 'linkedin_url is required but extraction returned empty',
+      message: 'profile_url is required but extraction returned empty',
     });
   }
   if (isTitleRequired(event.event_type) && isBlank(event.title)) {
@@ -164,7 +164,7 @@ export function validate(event: PipelineEvent): ValidationResult {
   }
 
   // Noise rules — run over name and title (the two human-language fields).
-  // linkedin_url is a normalized URL; if the URL parser produced something it
+  // profile_url is a normalized URL; if the URL parser produced something it
   // is structurally valid by construction, so we don't pattern-match it.
   for (const rule of NOISE_RULES) {
     if (event.name && rule.pattern.test(event.name)) {

@@ -98,7 +98,7 @@ const AI_RESULT: AiExtractionResult = {
   fields: {
     name: 'Jane Doe',
     title: 'Founder @ Acme',
-    linkedin_url: 'https://acme.com/jane',
+    profile_url: 'https://acme.com/jane',
     message_text: 'thanks for connecting',
   },
   suggested_event_type: 'direct_message',
@@ -119,7 +119,7 @@ describe('capture card — drop / paste → heuristic prefill', () => {
     expect(card().hidden).toBe(false);
     expect(inputFor('name').value).toBe('Jane Doe');
     expect(inputFor('title').value).toBe('Head of Growth');
-    expect(inputFor('linkedin_url').value).toBe('https://github.com/jane');
+    expect(inputFor('profile_url').value).toBe('https://github.com/jane');
   });
 
   it('a paste produces an identical prefilled card', async () => {
@@ -127,7 +127,7 @@ describe('capture card — drop / paste → heuristic prefill', () => {
     firePaste(dropZone(), { html: HTML_JANE });
     await flush();
     expect(inputFor('name').value).toBe('Jane Doe');
-    expect(inputFor('linkedin_url').value).toBe('https://github.com/jane');
+    expect(inputFor('profile_url').value).toBe('https://github.com/jane');
   });
 
   it('shows a toast and stays Empty for a no-content selection', async () => {
@@ -236,12 +236,18 @@ describe('capture card — new drop overwrites the pending one (temporary)', () 
 });
 
 describe('capture card — AI extraction (Phase 2)', () => {
-  it('auto-runs AI on a low-confidence drop and locks the card while in flight', async () => {
+  it('locks the card while AI extraction (run via the button) is in flight', async () => {
     const d = deferred<AiExtractionResult | null>();
     const aiExtract = vi.fn(() => d.promise);
     handle = renderCaptureSection(root, { onSave: vi.fn(), aiExtract });
 
     fireDrop(dropZone(), { html: HTML_LOW });
+    await flush();
+    // No auto-run on drop — the card just shows the heuristic result.
+    expect(aiExtract).not.toHaveBeenCalled();
+    expect(handle.getState()).toBe('ready');
+
+    aiBtnEl().click();
     await flush();
 
     expect(aiExtract).toHaveBeenCalledTimes(1);
@@ -258,7 +264,7 @@ describe('capture card — AI extraction (Phase 2)', () => {
     expect(handle.getState()).toBe('ready');
     expect(inputFor('name').disabled).toBe(false);
     expect(inputFor('title').value).toBe('Founder @ Acme');
-    expect(inputFor('linkedin_url').value).toBe('https://acme.com/jane');
+    expect(inputFor('profile_url').value).toBe('https://acme.com/jane');
     // The model owns name/title/url; with no thread text the regex finds no owner
     // message, so message_text falls back to the model's value...
     expect(inputFor('message_text').value).toBe('thanks for connecting');
@@ -274,7 +280,7 @@ describe('capture card — AI extraction (Phase 2)', () => {
         fields: {
           name: 'Katie McIntyre',
           title: '',
-          linkedin_url: 'https://linkedin.com/in/katie',
+          profile_url: 'https://linkedin.com/in/katie',
           message_text: 'the model picked the wrong message',
         },
         suggested_event_type: 'connection_request',
@@ -300,7 +306,15 @@ describe('capture card — AI extraction (Phase 2)', () => {
     fireDrop(dropZone(), { html: '<h2>Katie McIntyre</h2>', text });
     await flush();
 
+    // Deterministic message + stage apply immediately on drop, with no AI run.
+    expect(aiExtract).not.toHaveBeenCalled();
     expect(handle.getState()).toBe('ready');
+    expect(inputFor('message_text').value).toBe('Hey Katie, worth a quick Zoom?');
+    expect(stageSelect().value).toBe('direct_message');
+
+    // Even when the user runs AI, the regex message + stage still win.
+    aiBtnEl().click();
+    await flush();
     expect(inputFor('message_text').value).toBe('Hey Katie, worth a quick Zoom?');
     expect(stageSelect().value).toBe('direct_message');
   });
@@ -312,6 +326,8 @@ describe('capture card — AI extraction (Phase 2)', () => {
     handle = renderCaptureSection(root, { onSave: vi.fn(), aiExtract });
     fireDrop(dropZone(), { html: HTML_LOW });
     await flush();
+    aiBtnEl().click();
+    await flush();
     expect(handle.getState()).toBe('ready');
     expect(inputFor('name').disabled).toBe(false);
     expect(inputFor('name').value).toBe('Jane Doe'); // heuristic stands
@@ -322,6 +338,8 @@ describe('capture card — AI extraction (Phase 2)', () => {
     const onSave = vi.fn(async () => {});
     handle = renderCaptureSection(root, { onSave, aiExtract });
     fireDrop(dropZone(), { html: HTML_LOW });
+    await flush();
+    aiBtnEl().click();
     await flush();
 
     expect(handle.getState()).toBe('ready');
@@ -342,6 +360,8 @@ describe('capture card — AI extraction (Phase 2)', () => {
     handle = renderCaptureSection(root, { onSave, aiExtract });
     fireDrop(dropZone(), { html: HTML_LOW });
     await flush();
+    aiBtnEl().click();
+    await flush();
 
     expect(handle.getState()).toBe('ready');
     const warning = root.querySelector('.capture-warning') as HTMLElement;
@@ -357,14 +377,16 @@ describe('capture card — AI extraction (Phase 2)', () => {
   it('clears the timeout warning on the next drop', async () => {
     const aiExtract = vi
       .fn<() => Promise<AiExtractionResult | { timedOut: true } | null>>()
-      .mockResolvedValueOnce({ timedOut: true })
-      .mockResolvedValueOnce(null);
+      .mockResolvedValue({ timedOut: true });
     handle = renderCaptureSection(root, { onSave: vi.fn(), aiExtract });
 
     fireDrop(dropZone(), { html: HTML_LOW });
     await flush();
+    aiBtnEl().click(); // run AI on demand → times out → warning shown
+    await flush();
     expect((root.querySelector('.capture-warning') as HTMLElement).hidden).toBe(false);
 
+    // A fresh drop clears the warning (and does not re-run AI).
     fireDrop(dropZone(), { html: HTML_LOW });
     await flush();
     expect((root.querySelector('.capture-warning') as HTMLElement).hidden).toBe(true);
@@ -376,6 +398,8 @@ describe('capture card — AI extraction (Phase 2)', () => {
     handle = renderCaptureSection(root, { onSave, aiExtract });
     fireDrop(dropZone(), { html: HTML_LOW });
     await flush();
+    aiBtnEl().click();
+    await flush();
     expect(handle.getState()).toBe('ready');
     expect(inputFor('name').value).toBe('Jane Doe');
     saveBtnEl().click();
@@ -383,10 +407,10 @@ describe('capture card — AI extraction (Phase 2)', () => {
     expect(onSave).toHaveBeenCalledTimes(1);
   });
 
-  it('does NOT auto-run AI on a high-confidence drop', async () => {
+  it('never auto-runs AI on a drop — even a low-confidence one (regex is trusted)', async () => {
     const aiExtract = vi.fn(async () => AI_RESULT);
     handle = renderCaptureSection(root, { onSave: vi.fn(), aiExtract });
-    fireDrop(dropZone(), { html: HTML_JANE }); // has https URL → high confidence
+    fireDrop(dropZone(), { html: HTML_LOW }); // no https URL → would have been low-confidence
     await flush();
     expect(aiExtract).not.toHaveBeenCalled();
     expect(handle.getState()).toBe('ready');
@@ -404,36 +428,29 @@ describe('capture card — AI extraction (Phase 2)', () => {
     expect(inputFor('title').value).toBe('Founder @ Acme');
   });
 
-  it('a new drop while extracting supersedes the stale extraction', async () => {
-    // Sample-collection mode: a drop mid-extraction starts a fresh extraction;
-    // the earlier (stale) one resolving must NOT clobber the newer card.
+  it('a new drop while AI is extracting supersedes the stale extraction', async () => {
+    // AI runs on demand; a drop mid-extraction replaces the card, and the earlier
+    // (stale) extraction resolving must NOT clobber the newer card.
     const first = deferred<AiExtractionResult | null>();
-    const second = deferred<AiExtractionResult | null>();
-    const aiExtract = vi
-      .fn<(input: unknown) => Promise<AiExtractionResult | null>>()
-      .mockReturnValueOnce(first.promise)
-      .mockReturnValueOnce(second.promise);
+    const aiExtract = vi.fn<(input: unknown) => Promise<AiExtractionResult | null>>(
+      () => first.promise,
+    );
     handle = renderCaptureSection(root, { onSave: vi.fn(), aiExtract });
 
-    fireDrop(dropZone(), { html: HTML_LOW }); // Jane, low conf → extraction #1
+    fireDrop(dropZone(), { html: HTML_LOW }); // Jane heuristic, no auto-run
+    await flush();
+    aiBtnEl().click(); // extraction #1 in flight
     await flush();
     expect(handle.getState()).toBe('extracting');
 
-    fireDrop(dropZone(), { html: '<h2>Bob Smith</h2>' }); // low conf → extraction #2
-    await flush();
-    expect(aiExtract).toHaveBeenCalledTimes(2);
-
-    // Stale #1 resolves → discarded; we are still extracting #2, no Jane write.
-    first.resolve(AI_RESULT);
-    await flush();
-    expect(handle.getState()).toBe('extracting');
-
-    second.resolve({
-      fields: { name: 'Bob Smith', title: '', linkedin_url: '', message_text: '' },
-      suggested_event_type: null,
-    });
+    fireDrop(dropZone(), { html: '<h2>Bob Smith</h2>' }); // supersedes → Bob heuristic card
     await flush();
     expect(handle.getState()).toBe('ready');
+    expect(inputFor('name').value).toBe('Bob Smith');
+
+    // Stale #1 resolves → discarded; must NOT clobber Bob with Jane.
+    first.resolve(AI_RESULT);
+    await flush();
     expect(inputFor('name').value).toBe('Bob Smith');
   });
 

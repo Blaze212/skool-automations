@@ -2,7 +2,7 @@
 //
 // Renders the queue of low-confidence captures (outbox entries with
 // `needs_review && !user_reviewed`) as editable cards above the unsynced-events
-// list. The user can correct name / title / LinkedIn URL and Save, or approve a
+// list. The user can correct name / title / profile URL and Save, or approve a
 // row as-is ("Sync this one"); a section-level "Sync all incl. ⚠" approves the
 // whole queue. Approved rows flip `user_reviewed` (via the SW) and are released
 // to the app on the next sync-pull.
@@ -103,8 +103,9 @@ export function renderReviewSection(root: HTMLElement, opts: RenderReviewSection
     );
     const { row: urlRow, input: urlInput } = labeledInput(
       'Profile / page URL',
-      entry.event.linkedin_url ?? '',
-      'linkedin_url',
+      // Wire-contract field name on the stored PipelineEvent.
+      entry.event.profile_url ?? '',
+      'profile_url',
     );
     const { row: messageRow, textarea: messageInput } = labeledTextarea(
       'Message',
@@ -124,7 +125,7 @@ export function renderReviewSection(root: HTMLElement, opts: RenderReviewSection
       const edits: ReviewEntryEdits = {
         name: nameInput.value.trim(),
         title: titleInput.value.trim(),
-        linkedin_url: urlInput.value.trim(),
+        profile_url: urlInput.value.trim(),
         message_text: messageInput.value.trim(),
       };
       saveBtn.disabled = true;

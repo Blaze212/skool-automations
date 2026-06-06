@@ -1,7 +1,7 @@
 /**
  * extractContact() — on-device contact extraction (spec 016).
  *
- * Promoted from spec 013's LinkedIn-anchored `recover()` AI *fallback* to the
+ * Promoted from spec 013's site-specific `recover()` AI *fallback* to the
  * *primary*, site-agnostic extractor for manual capture. Takes a stripped HTML
  * fragment a user dragged/pasted from any web page plus the heuristic candidate,
  * constrains the model to a JSON schema, reconciles the answer, and returns the
@@ -40,18 +40,18 @@ const RESPONSE_SCHEMA = {
   properties: {
     name: { type: ['string', 'null'] },
     title: { type: ['string', 'null'] },
-    linkedin_url: { type: ['string', 'null'] },
+    profile_url: { type: ['string', 'null'] },
     message_text: { type: ['string', 'null'] },
     suggested_event_type: { type: ['string', 'null'] },
   },
-  required: ['name', 'title', 'linkedin_url', 'message_text', 'suggested_event_type'],
+  required: ['name', 'title', 'profile_url', 'message_text', 'suggested_event_type'],
   additionalProperties: false,
 } as const;
 
 interface RawExtraction {
   name: string | null;
   title: string | null;
-  linkedin_url: string | null;
+  profile_url: string | null;
   message_text: string | null;
   suggested_event_type: string | null;
 }
@@ -125,11 +125,11 @@ function buildPrompt(input: ExtractContactInput): string {
     '                        or fill in a plausible-sounding title. NEVER use a',
     '                        relational phrase about someone else such as "is a',
     '                        mutual connection".',
-    '- linkedin_url:         the profile or page URL of the PRIMARY contact (the',
+    '- profile_url:         the profile or page URL of the PRIMARY contact (the',
     '                        repeated one), NOT a URL belonging to an incidental',
     '                        person. Prefer a clean canonical URL; strip query',
     '                        strings and tracking params. Any site is valid — do',
-    '                        NOT assume LinkedIn.',
+    '                        NOT assume a particular site.',
     `- message_text:         The single most recent message written by ${ownerRef}.`,
     '                        The thread is ordered oldest-first, so the most recent',
     `                        message is the LAST one — nearest the BOTTOM of the text.`,
@@ -180,13 +180,13 @@ function parseExtraction(raw: string): RawExtraction | null {
 
   const name = readField(parsed, 'name');
   const title = readField(parsed, 'title');
-  const linkedinUrl = readField(parsed, 'linkedin_url');
+  const profileUrl = readField(parsed, 'profile_url');
   const messageText = readField(parsed, 'message_text');
   const suggested = readField(parsed, 'suggested_event_type');
   if (
     name === undefined ||
     title === undefined ||
-    linkedinUrl === undefined ||
+    profileUrl === undefined ||
     messageText === undefined ||
     suggested === undefined
   ) {
@@ -195,7 +195,7 @@ function parseExtraction(raw: string): RawExtraction | null {
   return {
     name,
     title,
-    linkedin_url: linkedinUrl,
+    profile_url: profileUrl,
     message_text: messageText,
     suggested_event_type: suggested,
   };
@@ -220,21 +220,21 @@ function coerceEventType(value: string | null): EventType | null {
 }
 
 /**
- * Reconciliation (de-LinkedIn — D-016-4):
+ * Reconciliation (D-016-4):
  *   name / title / message_text → AI wins; null falls back to the candidate.
- *   linkedin_url → prefer the heuristic's clean canonical URL when it has one,
+ *   profile_url → prefer the heuristic's clean canonical URL when it has one,
  *                  else the AI's URL (no linkedin.com anchoring).
  */
 function reconcile(candidate: ContactFields, ai: RawExtraction): ContactFields {
-  const linkedin_url = isCleanUrl(candidate.linkedin_url)
-    ? candidate.linkedin_url
-    : (ai.linkedin_url ?? candidate.linkedin_url);
+  const profile_url = isCleanUrl(candidate.profile_url)
+    ? candidate.profile_url
+    : (ai.profile_url ?? candidate.profile_url);
 
   return {
     name: ai.name ?? candidate.name,
     title: ai.title ?? candidate.title,
     message_text: ai.message_text ?? candidate.message_text,
-    linkedin_url,
+    profile_url,
   };
 }
 

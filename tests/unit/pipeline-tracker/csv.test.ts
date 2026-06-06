@@ -69,7 +69,7 @@ function makeOutboxEntry(
       date: '2026-05-31',
       name: 'Jane Doe',
       title: 'VP Engineering',
-      linkedin_url: 'https://www.linkedin.com/in/janedoe',
+      profile_url: 'https://www.linkedin.com/in/janedoe',
       page_url: 'https://www.linkedin.com/in/janedoe/',
       message_text: 'Hi Jane, I would love to connect!',
       source: 'selectors',
@@ -123,7 +123,7 @@ describe('buildCsv', () => {
     const csv = buildCsv([], {}, false);
     const [header] = csv.split('\n');
     expect(header).toBe(
-      'captured_at,name,title,linkedin_url,event_type,message_text,source,recovered_html',
+      'captured_at,name,title,profile_url,event_type,message_text,source,recovered_html',
     );
   });
 

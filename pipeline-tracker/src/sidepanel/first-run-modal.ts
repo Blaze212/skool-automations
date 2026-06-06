@@ -44,7 +44,7 @@ export interface RenderFirstRunModalOptions {
 
 const TOGGLE_LABEL = 'Capture message bodies';
 const TOGGLE_HELP =
-  'Off by default. Turn on to include the text of your LinkedIn messages in captured events ' +
+  'Off by default. Turn on to include the text of your captured messages in events ' +
   'for conversion-rate analysis (which opening lines actually get replies). Bodies stay on ' +
   'your device until you sync, same as everything else.';
 
@@ -83,8 +83,10 @@ export function renderFirstRunModal(
     const intro = document.createElement('p');
     intro.className = 'first-run-intro';
     intro.textContent =
-      'Pipeline Tracker watches your outbound LinkedIn activity and logs it for your ' +
-      'CareerSystems pipeline. Before you start, here is what that means in practice.';
+      'Pipeline Tracker logs your outbound networking activity for your CareerSystems ' +
+      'pipeline. You add a contact by dragging — or copying and pasting — their details ' +
+      'into this side panel; nothing is captured from any page automatically. Before you ' +
+      'start, here is what that means in practice.';
 
     const list = document.createElement('ol');
     list.className = 'first-run-points';
@@ -92,8 +94,8 @@ export function renderFirstRunModal(
     const bullets: Array<[string, string]> = [
       [
         'What we capture',
-        'The name, title, and profile URL of LinkedIn people you send connection requests, ' +
-          'direct messages, or InMail to. Optionally — only if you turn it on below — the ' +
+        'The name, title, and profile URL of people you send connection requests or ' +
+          'messages to. Optionally — only if you turn it on below — the ' +
           'body of the message itself.',
       ],
       [

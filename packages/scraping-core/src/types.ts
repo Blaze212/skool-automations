@@ -24,7 +24,7 @@ export type ExtractionSource = 'selectors' | 'ai-recovered';
 
 /**
  * Cheap, AI-free scraper-quality signal computed in the content script
- * (spec 090 / 015 A5.2). `'high'` means both the name and LinkedIn URL passed
+ * (spec 090 / 015 A5.2). `'high'` means both the name and profile URL passed
  * the structural heuristics; `'low'` flags a likely-degraded capture. Threaded
  * onto the wire `PipelineEvent` (→ `tracker_events.scrape_confidence`) so the
  * server has visibility into scraper degradation, and onto the OutboxEntry as
@@ -46,7 +46,11 @@ export interface PipelineEvent {
   date: string;
   name: string;
   title: string;
-  linkedin_url: string;
+  /**
+   * Site-agnostic profile/page URL (any https URL). Consumed by the
+   * CareerSystems tracker-import as `tracker_events.profile_url`.
+   */
+  profile_url: string;
   page_url: string;
   message_text: string;
   debug?: DebugPayload;

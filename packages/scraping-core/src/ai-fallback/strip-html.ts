@@ -8,7 +8,7 @@
  *   3. CSV export — re-reads from the keyed store; strip already happened.
  *
  * Strips script/svg/img/style/link/iframe (noise + weight), removes ALL element
- * attributes except href (LinkedIn's class, data-, and aria- attributes dominate
+ * attributes except href (class, data-, and aria- attributes dominate
  * the byte + token count and carry no extraction value), drops comments, collapses
  * whitespace runs, and enforces a hard byte cap. Returns '' if the result
  * exceeds the cap so callers drop it with a warning rather than persisting an
@@ -55,7 +55,7 @@ export function stripHtmlForCarryWithStatus(subtreeHtml: string): CarryStripResu
     }
   }
 
-  // Strip every attribute except href — these are the bulk of LinkedIn's
+  // Strip every attribute except href — these are the bulk of the page's
   // markup weight and provide no signal for field extraction.
   for (const el of Array.from(doc.body.querySelectorAll('*'))) {
     for (const attr of Array.from(el.attributes)) {
@@ -63,7 +63,7 @@ export function stripHtmlForCarryWithStatus(subtreeHtml: string): CarryStripResu
     }
   }
 
-  // Drop comment nodes (LinkedIn ships many).
+  // Drop comment nodes (pages ship many).
   const commentWalker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_COMMENT);
   const comments: Node[] = [];
   for (let node = commentWalker.nextNode(); node; node = commentWalker.nextNode()) {

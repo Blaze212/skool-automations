@@ -42,8 +42,6 @@ import {
   classifyStage,
   extractHeuristic,
   extractOwnerMessage,
-  heuristicConfidence,
-  looksLikeConversation,
 } from '../capture-heuristic.ts';
 
 /** Result of the injected on-device AI extraction (Phase 2 wires extractContact). */
@@ -421,12 +419,12 @@ export function renderCaptureSection(
     if (gen !== captureGeneration) return; // superseded during the await
 
     // Run the heuristic on the STRIPPED subtree (same input the model gets) —
-    // on the raw LinkedIn DOM the parser drowns in nav/button/decoy nodes; on
+    // on the raw page DOM the parser drowns in nav/button/decoy nodes; on
     // the stripped subtree it reliably nails name/title/url. Fall back to the
     // raw fragment if the strip yields nothing (over-cap or no HTML).
     const strippedHtml = next.html ? stripHtmlForCarry(capFragment(next.html)) : '';
     const fields = extractHeuristic(strippedHtml ? { html: strippedHtml } : next);
-    if (!fields.name && !fields.title && !fields.linkedin_url) {
+    if (!fields.name && !fields.title && !fields.profile_url) {
       showToast('Nothing to capture from that selection.');
       resetToEmpty();
       return;
@@ -442,18 +440,11 @@ export function renderCaptureSection(
     det = { ownerMessage, stage: classifyStage(convoText || strippedHtml || '', ownerMessage) };
     if (ownerMessage) fields.message_text = ownerMessage;
 
-    // The heuristic owns name/title/url; the deterministic pass owns
-    // message_text + stage. We still run the model to repair name/title/url when
-    // the heuristic is low-confidence OR the fragment is a conversation (threads
-    // make the heuristic's title unreliable) — but its message_text/stage are
-    // overridden by `det` in runAi.
-    const confidence = heuristicConfidence(fields);
-    const conversation = looksLikeConversation(strippedHtml || next.html || next.text || '');
-    if (opts.aiExtract && (confidence === 'low' || conversation)) {
-      await runAi(fields, next, gen);
-    } else {
-      enterReady(fields, det.stage);
-    }
+    // The heuristic + deterministic pass are right most of the time, so we NEVER
+    // auto-run the model on a drop/paste — it just shows the parsed card. The
+    // user can click "Extract with AI" to refine name/title/url when a capture
+    // looks off (runAi still overrides message_text/stage with `det`).
+    enterReady(fields, det.stage);
   }
 
   async function safePageUrl(): Promise<string> {

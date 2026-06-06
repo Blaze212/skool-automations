@@ -104,10 +104,8 @@ function setText(el: HTMLElement, text: string): void {
 }
 
 /**
- * Spec 016 review S-2 — allow ANY https URL to render as a clickable link (the
- * capture is now site-agnostic, so the old `hostname === linkedin.com` gate would
- * make every non-LinkedIn profile URL render as unclickable text). The XSS-safe
- * protocol check stays: the dropped/pasted `linkedin_url` can be arbitrary
+ * Spec 016 review S-2 — allow ANY https URL to render as a clickable link. The XSS-safe
+ * protocol check stays: the dropped/pasted `profile_url` can be arbitrary
  * content, so `javascript:`, `data:`, and `chrome-extension:` scheme URLs are
  * still refused a click target (we render the raw value as text content instead).
  */
@@ -137,7 +135,7 @@ function appendBadge(parent: HTMLElement, label: string, className: string): voi
  * Spec 015 B2 (extended) — render the unsynced-events list.
  *
  * Every row is editable when `onEdit` is supplied: expanding a row reveals the
- * captured name / title / LinkedIn URL / message as inputs with a Save button,
+ * captured name / title / profile URL / message as inputs with a Save button,
  * routed (by the caller) through the same `review_outbox_entry` SW path the
  * needs-review queue uses. Without `onEdit` the rows render read-only.
  *
@@ -253,20 +251,20 @@ function renderReadonlyRowBody(
     meta.appendChild(titleLine);
   }
 
-  if (entry.event.linkedin_url) {
+  if (entry.event.profile_url) {
     const urlLine = document.createElement('div');
-    if (isSafeProfileUrl(entry.event.linkedin_url)) {
+    if (isSafeProfileUrl(entry.event.profile_url)) {
       const a = document.createElement('a');
-      a.href = entry.event.linkedin_url;
+      a.href = entry.event.profile_url;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
-      a.textContent = entry.event.linkedin_url;
+      a.textContent = entry.event.profile_url;
       urlLine.appendChild(a);
     } else {
       // Display untrusted URLs as plain text — no click target. Keeps the
       // panel honest about what we captured without giving a malformed or
       // hostile value an active surface.
-      urlLine.textContent = entry.event.linkedin_url;
+      urlLine.textContent = entry.event.profile_url;
     }
     meta.appendChild(urlLine);
   }
@@ -282,7 +280,7 @@ function renderReadonlyRowBody(
 }
 
 /**
- * Editable row body — name / title / LinkedIn URL / message inputs + a Save
+ * Editable row body — name / title / profile URL / message inputs + a Save
  * button. Save snapshots the trimmed values and hands them to `onEdit`, which
  * the caller routes through `review_outbox_entry` (persists the edit, marks the
  * row user_reviewed, drops any recovered_html). The button disables while in
@@ -297,7 +295,8 @@ function renderEditableRowBody(
   const { rows, getEdits } = buildEditableFields({
     name: entry.event.name ?? '',
     title: entry.event.title ?? '',
-    linkedin_url: entry.event.linkedin_url ?? '',
+    // Internal field name ← wire-contract PipelineEvent.profile_url.
+    profile_url: entry.event.profile_url ?? '',
     message_text: entry.event.message_text ?? '',
   });
   meta.append(...rows);
@@ -991,7 +990,7 @@ async function getOwnerNameForCapture(): Promise<string> {
 
 /**
  * Spec 016 Phase 2 — on-device AI extraction for the capture card. Promotes the
- * generalized `extractContact()` (formerly the LinkedIn AI fallback) to the
+ * generalized `extractContact()` (formerly the AI fallback) to the
  * primary repair path. Gated on the user's `ai_fallback_enabled` opt-in AND
  * model availability; returns null otherwise so the heuristic values stand. The
  * pipeline is raw → capFragment (multi-MB parser guard) → stripHtmlForCarry

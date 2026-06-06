@@ -71,7 +71,7 @@ function makeOutboxEntry(i: number, overrides: Partial<OutboxEntry['event']> = {
       date: '2026-05-30',
       name: `Person ${i}`,
       title: `Title ${i}`,
-      linkedin_url: `https://www.linkedin.com/in/person${i}`,
+      profile_url: `https://www.linkedin.com/in/person${i}`,
       page_url: `https://www.linkedin.com/in/person${i}/`,
       message_text: '',
       source: 'selectors',
@@ -219,11 +219,11 @@ describe('side panel — renderUnsynced', () => {
     const list = document.getElementById('unsynced-list') as HTMLElement;
     const count = document.getElementById('unsynced-count') as HTMLElement;
     const mixed = [
-      makeOutboxEntry(1, { linkedin_url: 'javascript:alert(1)' }), // unsafe scheme
-      makeOutboxEntry(2, { linkedin_url: 'data:text/html,<script>alert(2)</script>' }), // unsafe
-      makeOutboxEntry(3, { linkedin_url: 'http://www.linkedin.com/in/foo' }), // http, not https
-      makeOutboxEntry(4, { linkedin_url: 'https://github.com/jane' }), // non-LinkedIn https → OK
-      makeOutboxEntry(5, { linkedin_url: 'https://www.linkedin.com/in/jane' }), // LinkedIn https → OK
+      makeOutboxEntry(1, { profile_url: 'javascript:alert(1)' }), // unsafe scheme
+      makeOutboxEntry(2, { profile_url: 'data:text/html,<script>alert(2)</script>' }), // unsafe
+      makeOutboxEntry(3, { profile_url: 'http://www.linkedin.com/in/foo' }), // http, not https
+      makeOutboxEntry(4, { profile_url: 'https://github.com/jane' }), // non-LinkedIn https → OK
+      makeOutboxEntry(5, { profile_url: 'https://www.linkedin.com/in/jane' }), // LinkedIn https → OK
     ];
     renderUnsynced(list, count, mixed);
     const anchors = Array.from(list.querySelectorAll('a'));
@@ -248,7 +248,7 @@ describe('side panel — renderUnsynced editable rows (spec 015 B2 extended)', (
     const fields = Array.from(row.querySelectorAll('.review-input')).map(
       (el) => (el as HTMLInputElement | HTMLTextAreaElement).dataset.field,
     );
-    expect(fields).toEqual(['name', 'title', 'linkedin_url', 'message_text']);
+    expect(fields).toEqual(['name', 'title', 'profile_url', 'message_text']);
     expect(row.querySelector('.review-save-btn')).not.toBeNull();
   });
 
@@ -271,7 +271,7 @@ describe('side panel — renderUnsynced editable rows (spec 015 B2 extended)', (
       row.querySelector(`[data-field="${f}"]`) as HTMLInputElement | HTMLTextAreaElement;
     byField('name').value = '  Jane Doe  ';
     byField('title').value = 'Engineer';
-    byField('linkedin_url').value = 'https://www.linkedin.com/in/jane';
+    byField('profile_url').value = 'https://www.linkedin.com/in/jane';
     byField('message_text').value = '  hi  ';
     (row.querySelector('.review-save-btn') as HTMLButtonElement).click();
 
@@ -279,7 +279,7 @@ describe('side panel — renderUnsynced editable rows (spec 015 B2 extended)', (
     expect(onEdit).toHaveBeenCalledWith('hist-1', {
       name: 'Jane Doe',
       title: 'Engineer',
-      linkedin_url: 'https://www.linkedin.com/in/jane',
+      profile_url: 'https://www.linkedin.com/in/jane',
       message_text: 'hi',
     });
   });
@@ -447,7 +447,7 @@ describe('side panel — initSidePanel', () => {
       edits: {
         name: 'Corrected Name',
         title: 'Title 1',
-        linkedin_url: expect.any(String),
+        profile_url: expect.any(String),
         message_text: expect.any(String),
       },
     });
@@ -815,7 +815,7 @@ describe('side panel — Phase 8 rebind 3-choice protection (D-rev-19)', () => {
         date: '2026-05-30',
         name: `N${i}`,
         title: '',
-        linkedin_url: '',
+        profile_url: '',
         page_url: '',
         message_text: '',
         source: 'selectors' as const,

@@ -3,9 +3,9 @@
 // Usage:
 //   tsx pipeline-tracker/build.ts   → dist/
 //
-// Spec 016 retired the LinkedIn DOM-scraping content script: capture is now a
-// manual drag/paste into the side panel, so there is no `content.js` bundle and
-// no `host_permissions` / `content_scripts` in the manifest. The build is just
+// Capture is a manual drag/paste into the side panel, so there is no
+// `content.js` bundle and no `host_permissions` / `content_scripts` in the
+// manifest. The build is just
 // the background service worker + the side panel. Events sit in the outbox until
 // app.cmcareersystems.com pulls them over externally_connectable (binding
 // handshake + sync-pull/ack).

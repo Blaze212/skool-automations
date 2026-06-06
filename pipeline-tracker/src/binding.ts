@@ -9,8 +9,7 @@
 // outreach log.
 //
 // The handshake itself uses a LONG-LIVED port (D-rev-12), not
-// chrome.tabs.sendMessage — that keeps host_permissions limited to
-// linkedin.com. The app page opens a port to us; we validate the sender, key
+// chrome.tabs.sendMessage. The app page opens a port to us; we validate the sender, key
 // the port by sender.tab.id, and post a `bind-offer` carrying the token.
 // The app then ACKs back over the same port with `bind-ack` (which proves
 // the page actually controls the tab the port came from).

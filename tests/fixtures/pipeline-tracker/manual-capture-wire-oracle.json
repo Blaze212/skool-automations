@@ -6,7 +6,7 @@
     "date": "2026-06-05",
     "name": "Jane Doe",
     "title": "Head of Growth",
-    "linkedin_url": "https://github.com/jane",
+    "profile_url": "https://github.com/jane",
     "page_url": "https://example.com/jane",
     "message_text": "hi there",
     "scrape_confidence": "high"

@@ -45,7 +45,7 @@ function installStatefulStorage(onSet?: (items: Store) => void): { local: Store 
 const baseInput: ManualCaptureInput = {
   name: 'Jane Doe',
   title: 'Head of Growth',
-  linkedin_url: 'https://github.com/jane',
+  profile_url: 'https://github.com/jane',
   message_text: 'hi there',
   event_type: 'direct_message',
   page_url: 'https://example.com/jane',
@@ -78,7 +78,7 @@ describe('enqueueManualCapture — wire invariant', () => {
     expect(entry.event.event_type).toBe('direct_message');
     expect(entry.event.name).toBe('Jane Doe');
     expect(entry.event.title).toBe('Head of Growth');
-    expect(entry.event.linkedin_url).toBe('https://github.com/jane');
+    expect(entry.event.profile_url).toBe('https://github.com/jane');
     expect(entry.event.message_text).toBe('hi there');
     expect(entry.event.page_url).toBe('https://example.com/jane');
     // date is today's YYYY-MM-DD
@@ -128,7 +128,7 @@ describe('enqueueManualCapture — wire-shape oracle (CEO decision 6 / Acceptanc
     await enqueueManualCapture({
       name: 'Jane Doe',
       title: 'Head of Growth',
-      linkedin_url: 'https://github.com/jane',
+      profile_url: 'https://github.com/jane',
       message_text: 'hi there',
       event_type: 'connection_request',
       page_url: 'https://example.com/jane',
