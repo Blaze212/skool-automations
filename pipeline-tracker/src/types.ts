@@ -11,7 +11,8 @@ export type {
   ScrapeConfidence,
 } from '@cs/scraping-core';
 
-export type { ProductMode } from './config.ts';
+import type { ProductMode } from './config.ts';
+export type { ProductMode };
 
 export const STORAGE_KEYS = {
   API_KEY: 'api_key',

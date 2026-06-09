@@ -106,6 +106,7 @@ beforeEach(() => {
     <div id="settings-section"></div>
     <div id="binding-section"></div>
     <div id="review-section"></div>
+    <div id="capture-section"></div>
     <section id="unsynced-section">
       <div style="display:flex;align-items:center;gap:6px;">
         <span id="unsynced-count"></span>
@@ -696,6 +697,33 @@ describe('side panel — initSidePanel', () => {
     expect(
       (local[STORAGE_KEYS.SETTINGS] as { capture_message_bodies: boolean }).capture_message_bodies,
     ).toBe(true);
+  });
+
+  it('re-mounts the capture card Stage dropdown live when product_mode changes', async () => {
+    const local = installStatefulStorage();
+    seedFirstRunComplete(local); // defaults to product_mode 'jobseeker' (absent)
+
+    await initSidePanel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const captureRoot = document.getElementById('capture-section') as HTMLElement;
+    const stageSelect = () =>
+      captureRoot.querySelector('.capture-stage-select') as HTMLSelectElement;
+    // Jobseeker mode → 3 stage options.
+    expect(stageSelect().options).toHaveLength(3);
+
+    const modeSelect = document.getElementById('settings-product-mode') as HTMLSelectElement;
+    modeSelect.value = 'fractional';
+    modeSelect.dispatchEvent(new Event('change'));
+
+    // update() persists then re-mounts the capture section — drain the async.
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Fractional mode → all 8 stage options, without reopening the panel.
+    expect(stageSelect().options).toHaveLength(8);
+    expect((local[STORAGE_KEYS.SETTINGS] as { product_mode: string }).product_mode).toBe(
+      'fractional',
+    );
   });
 
   it('falls back to default settings + still renders events when settingsStore.get throws', async () => {

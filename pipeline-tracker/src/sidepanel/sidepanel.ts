@@ -57,6 +57,16 @@ function prettyEventType(t: EventType): string {
       return 'accepted';
     case 'direct_message':
       return 'direct message';
+    case 'offered_value_add':
+      return 'offered value-add';
+    case 'sent_value_add':
+      return 'sent value-add';
+    case 'scheduled_call':
+      return 'scheduled call';
+    case 'follow_up':
+      return 'follow-up';
+    case 'no_action':
+      return 'no action';
   }
 }
 
@@ -90,6 +100,16 @@ function eventTypeBadge(eventType: EventType): { label: string; className: strin
       return { label: 'Connect', className: 'badge badge-connect' };
     case 'accepted_connection':
       return { label: 'Accepted', className: 'badge badge-accepted' };
+    case 'offered_value_add':
+      return { label: 'Offered', className: 'badge badge-offered' };
+    case 'sent_value_add':
+      return { label: 'Sent VA', className: 'badge badge-sent-va' };
+    case 'scheduled_call':
+      return { label: 'Call', className: 'badge badge-call' };
+    case 'follow_up':
+      return { label: 'Follow-up', className: 'badge badge-followup' };
+    case 'no_action':
+      return { label: 'No action', className: 'badge badge-noaction' };
   }
 }
 
@@ -515,6 +535,7 @@ function mountSettings(
   settings: Settings,
   binding: ExtensionBinding | null,
   modalRoot: HTMLElement,
+  captureRoot: HTMLElement | null,
 ): void {
   renderSettingsSection(root, {
     settings,
@@ -523,6 +544,12 @@ function mountSettings(
       // Keep the cached debug flag (read synchronously by debugLogCaptureFragment)
       // in step with the toggle the moment it persists.
       _debugLogging = next.debug_logging ?? false;
+      // The capture card's Stage dropdown is built from product_mode at mount
+      // time; re-mount it when the mode changes so the new stage list shows
+      // live instead of only after the panel is reopened.
+      if (patch.product_mode !== undefined && captureRoot) {
+        mountCaptureSection(captureRoot, next);
+      }
       return next;
     },
     isBound: binding?.status === 'confirmed',
@@ -1280,7 +1307,9 @@ export async function initSidePanel(): Promise<void> {
   // this open; the user will see the modal again next session. The CareerSystems
   // sync controls render inside that settings section (mountSettings).
   void maybeShowFirstRunModal(modalRoot, settings)
-    .then((finalSettings) => mountSettings(settingsRoot, finalSettings, binding, modalRoot))
+    .then((finalSettings) =>
+      mountSettings(settingsRoot, finalSettings, binding, modalRoot, captureRoot),
+    )
     .catch((err) => {
       console.warn('[Pipeline Tracker side panel] first-run flow failed:', err);
     });

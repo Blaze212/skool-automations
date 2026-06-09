@@ -268,7 +268,7 @@ describe('handleExternalMessage — sync-pull', () => {
       { type: 'sync-pull', bindingToken: 'test-token-abc' },
       validSender,
     );
-    expect(result).toEqual({ rows: [], syncedIds: [] });
+    expect(result).toEqual({ rows: [], syncedIds: [], product_mode: 'jobseeker' });
   });
 
   it('confirmed + correct token → rows and syncedIds match outbox entries', async () => {
