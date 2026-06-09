@@ -10,7 +10,18 @@
  * with background.ts / popup / other internal modules.
  */
 
-export type EventType = 'connection_request' | 'accepted_connection' | 'direct_message';
+export type EventType =
+  | 'connection_request'
+  | 'accepted_connection'
+  | 'direct_message'
+  // Manual-only later-pipeline stages (no auto-classification — a human picks
+  // these from the Stage dropdown). The server-side tracker-import stage-machine
+  // must map each to a sheet stage; see pipeline-tracker dropdown wiring.
+  | 'offered_value_add'
+  | 'sent_value_add'
+  | 'scheduled_call'
+  | 'follow_up'
+  | 'no_action';
 
 /**
  * Source of the extracted PipelineEvent fields. The selector chain produces

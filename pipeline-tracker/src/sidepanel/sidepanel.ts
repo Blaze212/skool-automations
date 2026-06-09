@@ -56,6 +56,16 @@ function prettyEventType(t: EventType): string {
       return 'accepted';
     case 'direct_message':
       return 'direct message';
+    case 'offered_value_add':
+      return 'offered value add';
+    case 'sent_value_add':
+      return 'sent value add';
+    case 'scheduled_call':
+      return 'scheduled call';
+    case 'follow_up':
+      return 'follow up';
+    case 'no_action':
+      return 'no action';
   }
 }
 
@@ -89,6 +99,16 @@ function eventTypeBadge(eventType: EventType): { label: string; className: strin
       return { label: 'Connect', className: 'badge badge-connect' };
     case 'accepted_connection':
       return { label: 'Accepted', className: 'badge badge-accepted' };
+    case 'offered_value_add':
+      return { label: 'Offered VA', className: 'badge badge-offered-va' };
+    case 'sent_value_add':
+      return { label: 'Sent VA', className: 'badge badge-sent-va' };
+    case 'scheduled_call':
+      return { label: 'Call', className: 'badge badge-call' };
+    case 'follow_up':
+      return { label: 'Follow Up', className: 'badge badge-follow-up' };
+    case 'no_action':
+      return { label: 'No Action', className: 'badge badge-no-action' };
   }
 }
 

@@ -124,11 +124,16 @@ export interface CaptureSectionHandle {
   getState: () => CaptureState;
 }
 
-/** Stage dropdown labels → wire event_type (D-016-3). Order = display order. */
+/** Stage dropdown labels → wire event_type (D-016-3). Order = pipeline order. */
 const STAGE_OPTIONS: ReadonlyArray<{ label: string; value: EventType }> = [
-  { label: 'Sent connection request', value: 'connection_request' },
-  { label: 'Connection accepted', value: 'accepted_connection' },
-  { label: 'Sent / received a message', value: 'direct_message' },
+  { label: 'Connect Sent', value: 'connection_request' },
+  { label: 'Connection Accepted', value: 'accepted_connection' },
+  { label: 'Sent DM', value: 'direct_message' },
+  { label: 'Offered Value Add', value: 'offered_value_add' },
+  { label: 'Sent Value Add', value: 'sent_value_add' },
+  { label: 'Scheduled Call', value: 'scheduled_call' },
+  { label: 'Follow Up', value: 'follow_up' },
+  { label: 'No Action', value: 'no_action' },
 ];
 
 const DEFAULT_EVENT_TYPE: EventType = 'connection_request';

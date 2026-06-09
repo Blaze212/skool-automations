@@ -117,14 +117,18 @@ function isBlank(s: string | null | undefined): boolean {
 }
 
 /**
- * Title is structurally optional for direct_message events: a chat
- * overlay frequently has no headline available (the profile card hasn't
- * loaded, or the recipient sits in a thread-only context). Flagging it as a
- * gap for DMs would generate constant warning noise; the cards still emit ''
- * and downstream consumers just render an empty title cell.
+ * Title is structurally optional for thread-only events: a chat overlay
+ * frequently has no headline available (the profile card hasn't loaded, or the
+ * recipient sits in a thread-only context). This covers `direct_message` and
+ * the manual later-pipeline stages (offered/sent value add, scheduled call,
+ * follow up, no action), which are typically picked from a conversation view
+ * with no profile headline in scope. Flagging title as a gap for these would
+ * generate constant warning noise; the cards still emit '' and downstream
+ * consumers just render an empty title cell. Title stays required only for the
+ * two profile-anchored early stages (connection_request, accepted_connection).
  */
 function isTitleRequired(eventType: PipelineEvent['event_type']): boolean {
-  return eventType !== 'direct_message';
+  return eventType === 'connection_request' || eventType === 'accepted_connection';
 }
 
 // =============================================================================

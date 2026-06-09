@@ -32,6 +32,14 @@ const EVENT_TYPES = new Set<EventType>([
   'connection_request',
   'accepted_connection',
   'direct_message',
+  // Manual-only later-pipeline stages — the model is never prompted to emit
+  // these (it can't infer them from a profile fragment), but they stay in the
+  // allowlist so a valid suggested_event_type is never spuriously rejected.
+  'offered_value_add',
+  'sent_value_add',
+  'scheduled_call',
+  'follow_up',
+  'no_action',
 ]);
 
 /** Responses constrained to this schema. null ≠ "" (reconciliation depends on it). */

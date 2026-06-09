@@ -162,7 +162,16 @@ function isNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
-const EVENT_TYPE_SET = new Set(['connection_request', 'accepted_connection', 'direct_message']);
+const EVENT_TYPE_SET = new Set([
+  'connection_request',
+  'accepted_connection',
+  'direct_message',
+  'offered_value_add',
+  'sent_value_add',
+  'scheduled_call',
+  'follow_up',
+  'no_action',
+]);
 
 function isSettings(v: unknown): v is Settings {
   if (!v || typeof v !== 'object') return false;
