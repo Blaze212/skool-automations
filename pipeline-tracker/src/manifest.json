@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Pipeline Tracker — drag to capture",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "update_url": "https://raw.githubusercontent.com/Blaze212/skool-automations/main/pipeline-tracker/updates.xml",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4Ij9ZhEYQC2xSWT+WdwfratN0B/C3Ti/+pWfJX/lcOHdt+3jt1cpjme4I/8sv24liaZoLfAUka/oBDkIHo+zV5TQQzEgymahXk9dTPKXNHwFtbT8ZK9vQX+2KWuJS+5f5vPBUOkOQ71QqB5dJcDnwHdEF1MMkGzqOAxcJ1BlUW51jzynODdD8XOLCxizh0hS7bQufTVsC0TjLx1CoY9F3JrCgrX3A3fGoB41hx15oV7vY36akNlu5qZ8IMbempOk5+8M0H0wzU0JvkS7pA01mjo9Fbwpcu+4c2OUIF2tGJdnR+QmzRmrmCHKQ2xYiOmROtKEjnUd5JDFVz/fIZjXSQIDAQAB",
   "permissions": ["storage", "downloads", "sidePanel", "activeTab"],

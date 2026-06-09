@@ -2,7 +2,7 @@
 <gupdate xmlns='http://www.google.com/update2/response' protocol='2.0'>
   <app appid='elfbnnfdfipalinmngcnejkfdehelnjh'>
     <updatecheck
-      codebase='https://github.com/Blaze212/skool-automations/releases/download/pt-v0.0.1/pipeline-tracker.crx'
-      version='0.0.1' />
+      codebase='https://github.com/Blaze212/skool-automations/releases/download/pt-v0.0.2/pipeline-tracker.crx'
+      version='0.0.2' />
   </app>
 </gupdate>
