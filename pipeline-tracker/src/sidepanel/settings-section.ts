@@ -264,17 +264,15 @@ export function renderSettingsSection(root: HTMLElement, opts: RenderSettingsSec
   modeError.setAttribute('role', 'alert');
   modeError.hidden = true;
 
-  const modeHint = document.createElement('div');
-  modeHint.className = 'settings-row-help';
-  modeHint.textContent = 'Disconnect to change.';
-  modeHint.hidden = true;
-
+  // The "Disconnect to change" hint only renders while bound (mode is frozen
+  // then); when unbound the select is editable and no hint is shown.
   if (opts.isBound) {
     modeSelect.disabled = true;
-    modeHint.hidden = false;
+    const modeHint = document.createElement('div');
+    modeHint.className = 'settings-row-help';
+    modeHint.textContent = 'Disconnect to change.';
+    modeRow.appendChild(modeHint);
   }
-
-  modeRow.appendChild(modeHint);
 
   let modeLastPersisted: ProductMode = opts.settings.product_mode ?? 'jobseeker';
   let modeInFlight = false;
