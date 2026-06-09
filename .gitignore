@@ -2,6 +2,8 @@ node_modules/
 dist/
 linkedin-tracker/dist/
 pipeline-tracker/dist.zip
+pipeline-tracker/pipeline-tracker.crx
+pipeline-tracker/pipeline-tracker-unpacked-v*.zip
 pipeline-tracker/dist/
 pipeline-tracker/dist-internal/
 pipeline-tracker/dist-publishable/
