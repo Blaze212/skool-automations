@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Pipeline Tracker — drag to capture",
+  "name": "CS CRM",
   "description": "Drag and drop to capture candidate information and save it to your CS Google Sheet.",
   "version": "0.0.5",
   "update_url": "https://raw.githubusercontent.com/Blaze212/skool-automations/main/pipeline-tracker/updates.xml",
@@ -17,7 +17,7 @@
     "default_path": "sidepanel/index.html"
   },
   "action": {
-    "default_title": "Pipeline Tracker — open side panel",
+    "default_title": "CS CRM",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
