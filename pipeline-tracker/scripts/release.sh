@@ -28,12 +28,17 @@ node -e "
 echo "==> Building"
 pnpm build:pipeline-tracker
 
-echo "==> Packing .crx"
+echo "==> Packing .crx (auto-update / webstore path)"
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
   --pack-extension=pipeline-tracker/dist \
   --pack-extension-key=pipeline-tracker/.keys/pipeline-tracker.pem \
   2>/dev/null
 mv pipeline-tracker/dist.crx pipeline-tracker/pipeline-tracker.crx
+
+echo "==> Zipping dist (unpacked install path)"
+UNPACKED_ZIP="pipeline-tracker/pipeline-tracker-unpacked-v${VERSION}.zip"
+rm -f "$UNPACKED_ZIP"
+(cd pipeline-tracker/dist && zip -qr "../pipeline-tracker-unpacked-v${VERSION}.zip" .)
 
 echo "==> Updating updates.xml"
 CRX_URL="https://github.com/Blaze212/skool-automations/releases/download/${TAG}/pipeline-tracker.crx"
@@ -55,12 +60,23 @@ git tag "$TAG"
 git push origin HEAD "$TAG"
 
 echo "==> Creating GitHub release"
-gh release create "$TAG" pipeline-tracker/pipeline-tracker.crx \
-  --title "Pipeline Tracker v${VERSION}" \
-  --notes ""
+RELEASE_NOTES=$(cat <<EOF
+## Install options
 
-rm pipeline-tracker/pipeline-tracker.crx
+**Unpacked install (available today)** — download \`pipeline-tracker-unpacked-v${VERSION}.zip\`, unzip it, then in Chrome go to \`chrome://extensions\`, enable **Developer mode**, click **Load unpacked**, and select the unzipped folder.
+
+**Auto-updating install (\`.crx\`)** — \`pipeline-tracker.crx\` is the signed package used by the Chrome auto-update channel. Out-of-store \`.crx\` installs are blocked by Chrome on most setups; prefer the unpacked install above until the Chrome Web Store listing is live.
+EOF
+)
+gh release create "$TAG" \
+  "pipeline-tracker/pipeline-tracker.crx" \
+  "$UNPACKED_ZIP" \
+  --title "Pipeline Tracker v${VERSION}" \
+  --notes "$RELEASE_NOTES"
+
+rm pipeline-tracker/pipeline-tracker.crx "$UNPACKED_ZIP"
 
 echo ""
-echo "Done. Chrome will auto-update clients within a few hours."
-echo "To force an immediate check: chrome://extensions → Update extensions now"
+echo "Done."
+echo "Unpacked install zip + .crx are attached to release $TAG."
+echo "Tell users to grab pipeline-tracker-unpacked-v${VERSION}.zip and Load unpacked."
