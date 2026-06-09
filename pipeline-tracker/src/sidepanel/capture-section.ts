@@ -114,6 +114,12 @@ export interface CaptureSectionOptions {
    * stripped content. No-op in production wiring if unset.
    */
   debugLogFragment?: (frag: { html?: string; text?: string }) => void;
+  /**
+   * Subset of stage values to show in the dropdown. Defaults to all 8 when
+   * absent. The labels and display order are always sourced from STAGE_OPTIONS;
+   * this list is a filter (preserve labels + styling while restricting the set).
+   */
+  stageOptions?: readonly EventType[];
 }
 
 export type CaptureState = 'empty' | 'extracting' | 'ready' | 'saving';
@@ -124,11 +130,16 @@ export interface CaptureSectionHandle {
   getState: () => CaptureState;
 }
 
-/** Stage dropdown labels → wire event_type (D-016-3). Order = display order. */
+/** Stage dropdown labels → wire event_type (D-016-3). Order = display order. Full 8-stage list; callers filter by stageOptions to restrict to a subset. */
 const STAGE_OPTIONS: ReadonlyArray<{ label: string; value: EventType }> = [
   { label: 'Sent connection request', value: 'connection_request' },
   { label: 'Connection accepted', value: 'accepted_connection' },
   { label: 'Sent / received a message', value: 'direct_message' },
+  { label: 'Offered value add', value: 'offered_value_add' },
+  { label: 'Sent value add', value: 'sent_value_add' },
+  { label: 'Scheduled call', value: 'scheduled_call' },
+  { label: 'Follow up', value: 'follow_up' },
+  { label: 'No action', value: 'no_action' },
 ];
 
 const DEFAULT_EVENT_TYPE: EventType = 'connection_request';
@@ -159,6 +170,9 @@ export function renderCaptureSection(
   // instead of clobbering the newer card. Supports the "new drop overwrites the
   // pending one" behavior below.
   let captureGeneration = 0;
+
+  const allowedStages: readonly EventType[] =
+    opts.stageOptions ?? STAGE_OPTIONS.map((o) => o.value);
 
   root.replaceChildren();
 
@@ -215,6 +229,7 @@ export function renderCaptureSection(
   const stageSelect = document.createElement('select');
   stageSelect.className = 'capture-stage-select';
   for (const opt of STAGE_OPTIONS) {
+    if (!allowedStages.includes(opt.value)) continue;
     const o = document.createElement('option');
     o.value = opt.value;
     o.textContent = opt.label;
@@ -299,7 +314,8 @@ export function renderCaptureSection(
     const built = buildEditableFields(fields);
     fieldsHost.replaceChildren(...built.rows);
     getEdits = built.getEdits;
-    stageSelect.value = suggested ?? DEFAULT_EVENT_TYPE;
+    stageSelect.value =
+      suggested && allowedStages.includes(suggested) ? suggested : DEFAULT_EVENT_TYPE;
     paintStage();
   }
 

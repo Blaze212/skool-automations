@@ -18,7 +18,7 @@
 // rejection rolls the toggle back via an inline error message + checkbox
 // revert.
 
-import type { Settings } from '../types.ts';
+import type { Settings, ProductMode } from '../types.ts';
 import { downloadModel, refreshAvailability, type AiAvailability } from '@cs/scraping-core';
 
 export interface RenderSettingsSectionOptions {
@@ -44,11 +44,20 @@ export interface RenderSettingsSectionOptions {
    * panel. Called once with the slot element after the body is built.
    */
   renderBindingInto?: (slot: HTMLElement) => void;
+  /**
+   * True when the extension is bound to a CareerSystems account. Disables the
+   * product_mode toggle (mode is frozen while bound; disconnect to change it).
+   */
+  isBound?: boolean;
 }
 
 const CAPTURE_BODIES_HELP =
   'Include the body of your captured messages in events. Off by default. ' +
   'Bodies stay on your device until you sync.';
+
+const PRODUCT_MODE_HELP =
+  'Job Seeker shows connection, accepted, and message stages. ' +
+  'Fractional shows all pipeline stages including value-add and follow-up.';
 
 const AI_FALLBACK_HELP =
   'When a dragged or pasted selection is messy and the basic parse misses a field, ' +
@@ -219,6 +228,78 @@ export function renderSettingsSection(root: HTMLElement, opts: RenderSettingsSec
   });
 
   body.append(captureRow, captureError);
+
+  // === product_mode ===
+  const modeRow = document.createElement('div');
+  modeRow.className = 'settings-row';
+
+  const modeText = document.createElement('div');
+  modeText.className = 'settings-row-text';
+
+  const modeLabel = document.createElement('div');
+  modeLabel.className = 'settings-row-label';
+  modeLabel.textContent = 'Product mode';
+
+  const modeHelp = document.createElement('div');
+  modeHelp.className = 'settings-row-help';
+  modeHelp.textContent = PRODUCT_MODE_HELP;
+
+  modeText.append(modeLabel, modeHelp);
+
+  const modeSelect = document.createElement('select');
+  modeSelect.id = 'settings-product-mode';
+  const modeOptJobseeker = document.createElement('option');
+  modeOptJobseeker.value = 'jobseeker';
+  modeOptJobseeker.textContent = 'Job Seeker';
+  const modeOptFractional = document.createElement('option');
+  modeOptFractional.value = 'fractional';
+  modeOptFractional.textContent = 'Fractional';
+  modeSelect.append(modeOptJobseeker, modeOptFractional);
+  modeSelect.value = opts.settings.product_mode ?? 'jobseeker';
+
+  modeRow.append(modeText, modeSelect);
+
+  const modeError = document.createElement('div');
+  modeError.className = 'settings-row-error';
+  modeError.setAttribute('role', 'alert');
+  modeError.hidden = true;
+
+  const modeHint = document.createElement('div');
+  modeHint.className = 'settings-row-help';
+  modeHint.textContent = 'Disconnect to change.';
+  modeHint.hidden = true;
+
+  if (opts.isBound) {
+    modeSelect.disabled = true;
+    modeHint.hidden = false;
+  }
+
+  modeRow.appendChild(modeHint);
+
+  let modeLastPersisted: ProductMode = opts.settings.product_mode ?? 'jobseeker';
+  let modeInFlight = false;
+  modeSelect.addEventListener('change', async () => {
+    if (modeInFlight) return;
+    const desired = modeSelect.value as ProductMode;
+    modeInFlight = true;
+    modeSelect.disabled = true;
+    modeError.hidden = true;
+    try {
+      const next = await opts.update({ product_mode: desired });
+      modeLastPersisted = next.product_mode ?? 'jobseeker';
+      modeSelect.value = modeLastPersisted;
+    } catch (err) {
+      modeSelect.value = modeLastPersisted;
+      modeError.hidden = false;
+      modeError.textContent =
+        'Could not save: ' + (err instanceof Error ? err.message : String(err));
+    } finally {
+      if (!opts.isBound) modeSelect.disabled = false;
+      modeInFlight = false;
+    }
+  });
+
+  body.append(modeRow, modeError);
 
   // === On-device AI recovery (spec 013) ===
   const checkAvailability = opts.checkAvailability ?? refreshAvailability;

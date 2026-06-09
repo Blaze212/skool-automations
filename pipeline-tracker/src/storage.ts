@@ -50,6 +50,7 @@ export const DEFAULT_SETTINGS: Settings = {
   owner_first_name: '',
   owner_last_name: '',
   debug_logging: false,
+  product_mode: 'jobseeker',
 };
 
 // === Errors ===
@@ -162,7 +163,16 @@ function isNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
-const EVENT_TYPE_SET = new Set(['connection_request', 'accepted_connection', 'direct_message']);
+const EVENT_TYPE_SET = new Set([
+  'connection_request',
+  'accepted_connection',
+  'direct_message',
+  'offered_value_add',
+  'sent_value_add',
+  'scheduled_call',
+  'follow_up',
+  'no_action',
+]);
 
 function isSettings(v: unknown): v is Settings {
   if (!v || typeof v !== 'object') return false;
@@ -175,7 +185,10 @@ function isSettings(v: unknown): v is Settings {
     // Optional (added later) — tolerate absent for back-compat, reject wrong type.
     (s.owner_first_name === undefined || typeof s.owner_first_name === 'string') &&
     (s.owner_last_name === undefined || typeof s.owner_last_name === 'string') &&
-    (s.debug_logging === undefined || typeof s.debug_logging === 'boolean')
+    (s.debug_logging === undefined || typeof s.debug_logging === 'boolean') &&
+    (s.product_mode === undefined ||
+      s.product_mode === 'jobseeker' ||
+      s.product_mode === 'fractional')
   );
 }
 

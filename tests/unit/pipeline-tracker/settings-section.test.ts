@@ -9,6 +9,8 @@
 //      settings, availability-driven UI state, persist on toggle, model
 //      download with progress.
 //   5. Re-rendering into the same root replaces the prior subtree (no leak).
+//   6. Product mode toggle: seeded from settings, persists on change, locked
+//      when isBound, unlocked when unbound.
 
 /**
  * @vitest-environment jsdom
@@ -347,5 +349,78 @@ describe('settings section — capture_message_bodies persist', () => {
     resolveUpdate!(defaults({ capture_message_bodies: true }));
     await Promise.resolve();
     await Promise.resolve();
+  });
+});
+
+describe('settings section — product mode toggle', () => {
+  it('seeds product_mode select from settings (defaults to jobseeker when absent)', () => {
+    renderSettingsSection(root, { settings: defaults(), update: vi.fn() });
+    const sel = root.querySelector('#settings-product-mode') as HTMLSelectElement;
+    expect(sel.value).toBe('jobseeker');
+  });
+
+  it('seeds product_mode select as fractional when settings say so', () => {
+    renderSettingsSection(root, {
+      settings: defaults({ product_mode: 'fractional' }),
+      update: vi.fn(),
+    });
+    const sel = root.querySelector('#settings-product-mode') as HTMLSelectElement;
+    expect(sel.value).toBe('fractional');
+  });
+
+  it('persists product_mode on change via update()', async () => {
+    const update = vi
+      .fn<(p: Partial<Settings>) => Promise<Settings>>()
+      .mockImplementation((patch) => Promise.resolve(defaults(patch)));
+    renderSettingsSection(root, { settings: defaults(), update });
+    const sel = root.querySelector('#settings-product-mode') as HTMLSelectElement;
+    sel.value = 'fractional';
+    sel.dispatchEvent(new Event('change'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(update).toHaveBeenCalledWith({ product_mode: 'fractional' });
+    expect(sel.value).toBe('fractional');
+  });
+
+  it('is enabled when isBound is false', () => {
+    renderSettingsSection(root, { settings: defaults(), update: vi.fn(), isBound: false });
+    const sel = root.querySelector('#settings-product-mode') as HTMLSelectElement;
+    expect(sel.disabled).toBe(false);
+  });
+
+  it('is disabled when isBound is true', () => {
+    renderSettingsSection(root, { settings: defaults(), update: vi.fn(), isBound: true });
+    const sel = root.querySelector('#settings-product-mode') as HTMLSelectElement;
+    expect(sel.disabled).toBe(true);
+  });
+
+  it('shows "Disconnect to change" hint when isBound is true', () => {
+    renderSettingsSection(root, { settings: defaults(), update: vi.fn(), isBound: true });
+    const hints = Array.from(root.querySelectorAll('.settings-row-help')).map(
+      (el) => el.textContent,
+    );
+    expect(hints.some((t) => /disconnect to change/i.test(t ?? ''))).toBe(true);
+  });
+
+  it('does not show "Disconnect to change" hint when isBound is false', () => {
+    renderSettingsSection(root, { settings: defaults(), update: vi.fn(), isBound: false });
+    const hints = Array.from(root.querySelectorAll('.settings-row-help')).map(
+      (el) => el.textContent,
+    );
+    expect(hints.some((t) => /disconnect to change/i.test(t ?? ''))).toBe(false);
+  });
+
+  it('rolls product_mode back on persist rejection', async () => {
+    const update = vi
+      .fn<(p: Partial<Settings>) => Promise<Settings>>()
+      .mockRejectedValue(new Error('quota'));
+    renderSettingsSection(root, { settings: defaults(), update });
+    const sel = root.querySelector('#settings-product-mode') as HTMLSelectElement;
+    sel.value = 'fractional';
+    sel.dispatchEvent(new Event('change'));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(sel.value).toBe('jobseeker');
   });
 });

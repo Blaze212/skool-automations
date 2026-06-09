@@ -21,8 +21,10 @@ import {
   outboxStore,
   recoveredHtmlStore,
   resolveOutboxBatch,
+  settingsStore,
 } from './storage.ts';
 import type { PipelineEvent } from './types.ts';
+import type { ProductMode } from './config.ts';
 import { ALLOWED_ORIGINS } from './binding.ts';
 import { ts } from './logger.ts';
 
@@ -70,6 +72,7 @@ export interface SyncPullNotBound {
 export interface SyncPullRows {
   rows: PipelineEvent[];
   syncedIds: string[];
+  product_mode: ProductMode;
 }
 export type SyncPullResponse = SyncPullNotBound | SyncPullRows;
 
@@ -133,7 +136,7 @@ async function handleSyncPull(msg: SyncPullExternalMessage): Promise<SyncPullRes
     return { error: 'NOT_BOUND' };
   }
 
-  const outbox = await outboxStore.get();
+  const [outbox, settings] = await Promise.all([outboxStore.get(), settingsStore.get()]);
   const syncedIds: string[] = [];
   const rows: PipelineEvent[] = [];
 
@@ -154,8 +157,9 @@ async function handleSyncPull(msg: SyncPullExternalMessage): Promise<SyncPullRes
     syncedIds.push(entry.history_id);
   }
 
-  console.log(tag(), `sync-pull: rows=${rows.length}`);
-  return { rows, syncedIds };
+  const product_mode = settings.product_mode ?? 'jobseeker';
+  console.log(tag(), `sync-pull: rows=${rows.length}, product_mode=${product_mode}`);
+  return { rows, syncedIds, product_mode };
 }
 
 async function handleSyncAck(

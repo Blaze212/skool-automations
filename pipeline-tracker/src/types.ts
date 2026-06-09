@@ -11,6 +11,8 @@ export type {
   ScrapeConfidence,
 } from '@cs/scraping-core';
 
+export type { ProductMode } from './config.ts';
+
 export const STORAGE_KEYS = {
   API_KEY: 'api_key',
   DEBUG_MODE: 'debug_mode',
@@ -58,6 +60,13 @@ export interface Settings {
    * absent ⇒ treated as false.
    */
   debug_logging?: boolean;
+  /**
+   * Product mode — drives the Stage dropdown in the capture card. Optional for
+   * back-compat; absent ⇒ treated as 'jobseeker'. Locked once the extension is
+   * bound to a CareerSystems account (mode is sent to the app at bind time and
+   * is frozen until the user disconnects).
+   */
+  product_mode?: ProductMode;
 }
 
 // Spec 012 D-rev-8 two-phase binding handshake.
