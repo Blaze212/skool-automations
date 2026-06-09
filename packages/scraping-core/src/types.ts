@@ -10,7 +10,15 @@
  * with background.ts / popup / other internal modules.
  */
 
-export type EventType = 'connection_request' | 'accepted_connection' | 'direct_message';
+export type EventType =
+  | 'connection_request'
+  | 'accepted_connection'
+  | 'direct_message'
+  | 'offered_value_add'
+  | 'sent_value_add'
+  | 'scheduled_call'
+  | 'follow_up'
+  | 'no_action';
 
 /**
  * Source of the extracted PipelineEvent fields. The selector chain produces

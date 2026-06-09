@@ -39,6 +39,7 @@ import {
   type ContactFields,
 } from '@cs/scraping-core';
 import { capFragment } from '../capture-heuristic.ts';
+import { STAGE_OPTIONS } from '../config.ts';
 import { renderFirstRunModal } from './first-run-modal.ts';
 import { renderSettingsSection } from './settings-section.ts';
 import { renderBindingSection } from './binding-section.ts';
@@ -524,6 +525,7 @@ function mountSettings(
       _debugLogging = next.debug_logging ?? false;
       return next;
     },
+    isBound: binding?.status === 'confirmed',
     // spec 016 UI — the full CareerSystems sync controls live inside the
     // Settings dropdown; only a compact "Connected as …" line stays on the
     // main panel (mountConnectedIndicator).
@@ -1149,18 +1151,21 @@ function debugLogCaptureFragment(frag: { html?: string; text?: string }): void {
 
 let _captureHandle: CaptureSectionHandle | null = null;
 
-function mountCaptureSection(root: HTMLElement): void {
+function mountCaptureSection(root: HTMLElement, settings: Settings): void {
   if (_captureHandle) {
     _captureHandle.destroy();
     _captureHandle = null;
   }
   try {
+    const mode = settings.product_mode ?? 'jobseeker';
+    const stageOptions = STAGE_OPTIONS[mode];
     _captureHandle = renderCaptureSection(root, {
       onSave: saveManualCapture,
       getPageUrl: getActivePageUrl,
       getOwnerName: getOwnerNameForCapture,
       aiExtract: aiExtractForCapture,
       debugLogFragment: debugLogCaptureFragment,
+      stageOptions,
     });
   } catch (err) {
     console.error('[Pipeline Tracker side panel] mountCaptureSection failed:', err);
@@ -1211,7 +1216,7 @@ export async function initSidePanel(): Promise<void> {
   if (reviewRoot) renderReview(reviewRoot, outbox);
   // Spec 016 — manual drag/paste capture card. Mounts independently of binding
   // and storage state; captures queue into the outbox even before binding.
-  if (captureRoot) mountCaptureSection(captureRoot);
+  if (captureRoot) mountCaptureSection(captureRoot, settings);
   await clearUnreadCounter();
 
   // Phase 11 — Export CSV button. Delegates to the SW (background handles

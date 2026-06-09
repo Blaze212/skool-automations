@@ -482,3 +482,68 @@ describe('capture card — paste boundary (E-2 negative)', () => {
     expect(aiExtract).not.toHaveBeenCalled();
   });
 });
+
+describe('capture card — stageOptions filter', () => {
+  it('shows only 3 options when stageOptions is the jobseeker set', async () => {
+    handle = renderCaptureSection(root, {
+      onSave: vi.fn(),
+      stageOptions: ['connection_request', 'accepted_connection', 'direct_message'],
+    });
+    fireDrop(dropZone(), { html: HTML_JANE });
+    await flush();
+    const opts = Array.from(stageSelect().options).map((o) => o.value);
+    expect(opts).toHaveLength(3);
+    expect(opts).toContain('connection_request');
+    expect(opts).toContain('accepted_connection');
+    expect(opts).toContain('direct_message');
+  });
+
+  it('shows all 8 options when stageOptions is the fractional set', async () => {
+    handle = renderCaptureSection(root, {
+      onSave: vi.fn(),
+      stageOptions: [
+        'connection_request',
+        'accepted_connection',
+        'direct_message',
+        'offered_value_add',
+        'sent_value_add',
+        'scheduled_call',
+        'follow_up',
+        'no_action',
+      ],
+    });
+    fireDrop(dropZone(), { html: HTML_JANE });
+    await flush();
+    expect(Array.from(stageSelect().options)).toHaveLength(8);
+  });
+
+  it('shows all 8 options when stageOptions is absent (default)', async () => {
+    handle = renderCaptureSection(root, { onSave: vi.fn() });
+    fireDrop(dropZone(), { html: HTML_JANE });
+    await flush();
+    expect(Array.from(stageSelect().options)).toHaveLength(8);
+  });
+
+  it('clamps the heuristic stage to DEFAULT_EVENT_TYPE when it is not in stageOptions', async () => {
+    // stageOptions excludes 'direct_message'. A thread drop sets the heuristic
+    // stage to 'direct_message'; the clamp must fall back to DEFAULT_EVENT_TYPE
+    // ('connection_request') which IS in the restricted set.
+    handle = renderCaptureSection(root, {
+      onSave: vi.fn(),
+      stageOptions: ['connection_request', 'accepted_connection'],
+      getOwnerName: () => 'Barton Holdridge',
+    });
+    const text = [
+      'Katie McIntyre   10:54 PM',
+      'Sure, sounds good!',
+      '',
+      'Barton Holdridge   6:15 PM',
+      'Hey Katie, worth a quick Zoom?',
+    ].join('\n');
+    fireDrop(dropZone(), { html: '<h2>Katie McIntyre</h2>', text });
+    await flush();
+    // Heuristic classifies stage as 'direct_message' (owner message found),
+    // but that stage is not in stageOptions; clamp gives DEFAULT_EVENT_TYPE.
+    expect(stageSelect().value).toBe('connection_request');
+  });
+});
