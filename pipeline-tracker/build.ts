@@ -3,12 +3,10 @@
 // Usage:
 //   tsx pipeline-tracker/build.ts   → dist/
 //
-// Capture is a manual drag/paste into the side panel, so there is no
-// `content.js` bundle and no `host_permissions` / `content_scripts` in the
-// manifest. The build is just
-// the background service worker + the side panel. Events sit in the outbox until
-// app.cmcareersystems.com pulls them over externally_connectable (binding
-// handshake + sync-pull/ack).
+// Capture is a manual drag/paste into the side panel. The content script
+// announces the extension ID to the page so the app can discover it dynamically.
+// Events sit in the outbox until app.cmcareersystems.com pulls them over
+// externally_connectable (binding handshake + sync-pull/ack).
 
 import * as esbuild from 'esbuild';
 import { copyFileSync, mkdirSync, readdirSync } from 'fs';
@@ -32,6 +30,13 @@ await esbuild.build({
   outfile: `${distDir}/sidepanel/sidepanel.js`,
 });
 copyFileSync('pipeline-tracker/src/sidepanel/index.html', `${distDir}/sidepanel/index.html`);
+
+await esbuild.build({
+  entryPoints: ['pipeline-tracker/src/content-script.ts'],
+  bundle: true,
+  format: 'iife',
+  outfile: `${distDir}/content-script.js`,
+});
 
 copyFileSync('pipeline-tracker/src/manifest.json', `${distDir}/manifest.json`);
 
