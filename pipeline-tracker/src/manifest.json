@@ -3,30 +3,10 @@
   "name": "CS CRM",
   "description": "Drag and drop to capture candidate information and save it to your CS Google Sheet.",
   "version": "0.0.9",
-  "permissions": [
-    "storage",
-    "downloads",
-    "sidePanel",
-    "activeTab"
-  ],
+  "permissions": ["storage", "downloads", "sidePanel", "activeTab"],
   "externally_connectable": {
-    "matches": [
-      "https://app.cmcareersystems.com/*",
-      "http://localhost:5173/*"
-    ]
+    "matches": ["https://app.cmcareersystems.com/*", "http://localhost:5173/*"]
   },
-  "content_scripts": [
-    {
-      "matches": [
-        "https://app.cmcareersystems.com/*",
-        "http://localhost:5173/*"
-      ],
-      "js": [
-        "content-script.js"
-      ],
-      "run_at": "document_start"
-    }
-  ],
   "background": {
     "service_worker": "background.js",
     "type": "module"

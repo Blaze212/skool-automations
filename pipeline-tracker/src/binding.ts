@@ -43,6 +43,34 @@ export const APP_ORIGIN = 'https://app.cmcareersystems.com';
 export const ALLOWED_ORIGINS = new Set([APP_ORIGIN, 'http://localhost:5173']);
 export const APP_PORT_NAME = 'pipeline-tracker-app';
 
+// The two PERMANENT published extension IDs. This extension ships through two
+// channels from one source tree, each keyed differently, so each install
+// reports a different runtime.id:
+//
+//   - WEBSTORE: assigned by Google when `key` was removed and the item was
+//     first uploaded (commit 2bb4282). Derived from Google's public key.
+//   - SELF_HOSTED: the CRX/unpacked channel signed with .keys/pipeline-tracker.pem
+//     (see scripts/release.sh + updates.xml). This is the legacy build current
+//     users are on.
+//
+// The extension itself NEVER validates these — it gates inbound messages on
+// sender.origin (ALLOWED_ORIGINS) alone, so it supports any number of installs.
+// These constants exist so app.cmcareersystems.com can hardcode BOTH ids and
+// reach either cohort over externally_connectable.
+//
+// The content script (which used to announce runtime.id via a `cs-crm-ext`
+// postMessage) was removed once the app hardcoded these ids — discovery is now
+// purely by id, with no host access. NOTE: installs predating that removal
+// still ship the old content script until they auto-update, so the app should
+// keep its `cs-crm-ext` listener as a harmless fallback until that cohort ages out.
+//
+// Do NOT add a `key` field to manifest.json — it would pin one id and break the
+// dual-channel split.
+export const PUBLISHED_EXTENSION_IDS = {
+  WEBSTORE: 'fiolmffheggpdocmmocjffnecfimbpcg',
+  SELF_HOSTED: 'elfbnnfdfipalinmngcnejkfdehelnjh',
+} as const;
+
 // --- Sender validation (defense in depth alongside externally_connectable) ---
 
 export function isValidAppSender(sender: chrome.runtime.MessageSender | undefined): boolean {
